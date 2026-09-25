@@ -497,6 +497,7 @@ async def process_item_async(
     product: ProductInput,
     session: AsyncSession,
     semaphore: asyncio.Semaphore,
+    render_lock: asyncio.Lock | None = None,
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
@@ -524,17 +525,31 @@ async def process_item_async(
     digi_res = evaluate_digi_pricing(floors, digi_offers)
 
     if verbose:
-        render_audit_card(
-            product=product,
-            shipping=shipping,
-            floors=floors,
-            baseline_calc=baseline_calc,
-            target_model=target_model,
-            alfa_offers=alfa_offers,
-            digi_offers=digi_offers,
-            alfa_res=alfa_res,
-            digi_res=digi_res,
-        )
+        if render_lock is not None:
+            async with render_lock:
+                render_audit_card(
+                    product=product,
+                    shipping=shipping,
+                    floors=floors,
+                    baseline_calc=baseline_calc,
+                    target_model=target_model,
+                    alfa_offers=alfa_offers,
+                    digi_offers=digi_offers,
+                    alfa_res=alfa_res,
+                    digi_res=digi_res,
+                )
+        else:
+            render_audit_card(
+                product=product,
+                shipping=shipping,
+                floors=floors,
+                baseline_calc=baseline_calc,
+                target_model=target_model,
+                alfa_offers=alfa_offers,
+                digi_offers=digi_offers,
+                alfa_res=alfa_res,
+                digi_res=digi_res,
+            )
 
     return build_output_record(
         product=product,
@@ -544,6 +559,26 @@ async def process_item_async(
         alfa_res=alfa_res,
         digi_res=digi_res,
     )
+
+
+async def _process_item_worker(
+    idx: int,
+    product: ProductInput,
+    session: AsyncSession,
+    semaphore: asyncio.Semaphore,
+    render_lock: asyncio.Lock,
+    verbose: bool = True,
+) -> dict[str, Any]:
+    """Helper worker to execute an item and attach its original row index for deterministic sorting."""
+    record = await process_item_async(
+        product=product,
+        session=session,
+        semaphore=semaphore,
+        render_lock=render_lock,
+        verbose=verbose,
+    )
+    record["_original_idx"] = idx
+    return record
 
 
 def render_summary_table(records: list[dict[str, Any]]) -> None:
@@ -623,10 +658,16 @@ async def run_pipeline(
 ) -> pd.DataFrame:
     """Run dynamic repricing pipeline on an input CSV and export results to output CSV.
 
+    Features:
+    - Micro-staggered launch (200ms) to prevent T=0 burst wave / WAF socket drops.
+    - True bounded concurrency via asyncio.Semaphore(concurrency).
+    - Atomic terminal audit rendering protected by asyncio.Lock.
+    - 100% deterministic output row sorting preserving original CSV row sequence.
+
     Args:
         input_path: Path to the source CSV file.
         output_path: Path where repriced CSV should be written.
-        concurrency: Max simultaneous product search requests.
+        concurrency: Max simultaneous product search requests (default: 3).
         verbose: Print visual terminal audit cards if True.
 
     Returns:
@@ -647,18 +688,35 @@ async def run_pipeline(
         )
 
     semaphore = asyncio.Semaphore(concurrency)
-    records: list[dict[str, Any]] = []
+    render_lock = asyncio.Lock()
+    tasks: list[asyncio.Task[dict[str, Any]]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
         for idx, row in df.iterrows():
             product = parse_product_input(idx, row)
-            rec = await process_item_async(
-                product=product,
-                session=session,
-                semaphore=semaphore,
-                verbose=verbose,
+            task = asyncio.create_task(
+                _process_item_worker(
+                    idx=int(idx),
+                    product=product,
+                    session=session,
+                    semaphore=semaphore,
+                    render_lock=render_lock,
+                    verbose=verbose,
+                )
             )
-            records.append(rec)
+            tasks.append(task)
+            if idx < len(df) - 1:
+                # Micro-stagger launch by 200ms to eliminate T=0 burst wave against WAF
+                await asyncio.sleep(0.2)
+
+        raw_records = await asyncio.gather(*tasks)
+
+    # Guarantee deterministic 1:1 original CSV row sorting
+    raw_records.sort(key=lambda r: int(r.get("_original_idx", 0)))
+    records: list[dict[str, Any]] = []
+    for r in raw_records:
+        r.pop("_original_idx", None)
+        records.append(r)
 
     out_df = pd.DataFrame(records)
     out_df.to_csv(output_path, index=False)
@@ -675,3 +733,4 @@ async def run_pipeline(
         )
 
     return out_df
+

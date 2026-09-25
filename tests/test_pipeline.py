@@ -1,4 +1,7 @@
+import asyncio
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -6,6 +9,7 @@ from pricing_engine.models import ScrapedOffer
 from pricing_engine.pipeline import (
     parse_product_input,
     process_product_with_offers,
+    run_pipeline,
 )
 
 
@@ -258,5 +262,50 @@ def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
         },
     ]
     render_summary_table(records)
+
+
+def test_pipeline_csv_index_preservation_when_completion_is_unordered(tmp_path: Path) -> None:
+    input_csv = tmp_path / "input.csv"
+    output_csv = tmp_path / "output.csv"
+
+    # Create dummy 3-item CSV
+    df = pd.DataFrame(
+        [
+            {"S.NO": 1, "Brand": "Gree", "Name ": "Product A", "Net Price": 50000},
+            {"S.NO": 2, "Brand": "Gree", "Name ": "Product B", "Net Price": 60000},
+            {"S.NO": 3, "Brand": "Gree", "Name ": "Product C", "Net Price": 70000},
+        ]
+    )
+    df.to_csv(input_csv, index=False)
+
+    # Mock process_item_async to simulate reverse or scrambled completion times
+    delays = {1: 0.2, 2: 0.05, 3: 0.1}
+
+    async def mock_process(
+        product: Any,
+        session: Any,
+        semaphore: Any,
+        render_lock: Any = None,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        await asyncio.sleep(delays.get(product.sno, 0.01))
+        return {
+            "S.NO": product.sno,
+            "Final Price Alfa": 55000,
+            "Final Price Digi": 55000,
+        }
+
+    with patch("pricing_engine.pipeline.process_item_async", side_effect=mock_process):
+        asyncio.run(
+            run_pipeline(input_path=input_csv, output_path=output_csv, concurrency=3, verbose=False)
+        )
+
+    out_df = pd.read_csv(output_csv)
+    # Original sequence S.NO: 1, 2, 3 must be strictly preserved!
+    assert list(out_df["S.NO"]) == [1, 2, 3]
+    # Temporary sorting key must be removed
+    assert "_original_idx" not in out_df.columns
+
+
 
 

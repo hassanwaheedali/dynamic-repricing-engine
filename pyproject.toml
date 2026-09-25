@@ -3,6 +3,9 @@ minversion = "8.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "asyncio: mark test as an asyncio coroutine",
+]
 
 [tool.mypy]
 python_version = "3.12"
