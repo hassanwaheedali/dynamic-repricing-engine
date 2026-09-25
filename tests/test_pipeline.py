@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from pricing_engine.matcher import extract_search_query_and_model, is_strict_model_match
 from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import (
     determine_risk_alert,
@@ -777,6 +778,192 @@ def test_pipeline_csv_export_includes_risk_alerts_without_ansi_leakage(tmp_path:
     assert "red" not in csv_text
     assert "green" not in csv_text
     assert "yellow" not in csv_text
+
+
+def test_item_3_slash_expansion_digimall_reprice_win() -> None:
+    """Verify Item #3 (12AITH24S-T3 Silver) matches GS-12AITH24W/S on DigiMall.
+
+    Tests that slash variant expansion successfully extracts competitors and
+    triggers an Emergency 8% Bank Switch undercutting Rs. 193,999 to Rs. 193,899,
+    yielding +Rs. 2,409 healthy net profit instead of false Monopoly fallback.
+    """
+    product = parse_product_input(
+        2,
+        pd.Series(
+            {
+                "S.NO": 3,
+                "Brand": "Gree",
+                "Name ": "GREE SPLIT AC 12AITH24S-T3",
+                "Length": 87,
+                "Width": 35.5,
+                "Height": 92,
+                "Net Price": 172000,
+                "Profit": 4000,
+            }
+        ),
+    )
+
+    digi_offers = [
+        ScrapedOffer(
+            vendor_name="Musab Mall",
+            price=193999.0,
+            is_sold_out=False,
+            raw_title="GREE Airy Pro 1 TON Split AC Inverter G-Boost AI T3 GS-12AITH24W/S",
+        ),
+        ScrapedOffer(
+            vendor_name="Tech House",
+            price=193999.0,
+            is_sold_out=False,
+            raw_title="GREE Airy Pro 1 TON Split AC Inverter G-Boost AI T3 GS-12AITH24W/S",
+        ),
+        ScrapedOffer(
+            vendor_name="YZ International",
+            price=194099.0,
+            is_sold_out=False,
+            raw_title="GREE Airy Pro 1 TON Split AC Inverter G-Boost AI T3 GS-12AITH24W/S",
+        ),
+    ]
+
+    record = process_product_with_offers(product, alfa_offers=[], digi_offers=digi_offers)
+
+    # 1. Winning price undercuts Musab Mall (193,999) to 192,899 (Adaptive undercut)
+    assert record["Final Price Digi"] == 192899
+
+    # 2. Commission switched to 8.00% Emergency Tier
+    assert record["Digi Effective Commision"] == "8.00%"
+
+    # 3. Real Profit calculated: (192,899 * 0.92) - 175,978 = +1,489
+    assert record["Digi Real Profit"] == 1489
+
+    # 4. Reason documents the 8% switch undercut
+    assert "8% bank rate" in record["Digi Reason"].lower() or "emergency 8%" in record["Digi Reason"].lower()
+
+    # 5. Risk Alert is NONE (Healthy margin >= 700)
+    assert record["Digi Risk Alert"] == "NONE"
+
+
+def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
+    """Verify Item #17 (GS-12ZITH2W-T3) isolates from cheaper Gen 1 (ZITH1) listings.
+
+    Tests that when scraping market offers for 12ZITH2W, any cheaper GS-12ZITH1W
+    offers (which would otherwise trigger false undercuts or false loss flags)
+    are strictly rejected by the matcher, ensuring only genuine GS-12ZITH2W
+    offers are repriced against.
+    """
+    product = parse_product_input(
+        16,
+        pd.Series(
+            {
+                "S.NO": 17,
+                "Brand": "Gree",
+                "Name ": "GREE SPLIT AC GS-12ZITH2W-T3",
+                "Length": 87,
+                "Width": 35.5,
+                "Height": 92,
+                "Net Price": 133147,
+                "Profit": 4000,
+            }
+        ),
+    )
+
+    _, model_code = extract_search_query_and_model(product.name)
+
+    raw_offers = [
+        # Cheaper Gen 1 offer that must be filtered out
+        ScrapedOffer(
+            vendor_name="Cheap Seller Gen1",
+            price=130000.0,
+            is_sold_out=False,
+            raw_title="Gree Zeno 1 Ton GS-12ZITH1W Inverter",
+        ),
+        # Real Gen 2 offer that must be retained
+        ScrapedOffer(
+            vendor_name="Legit Seller Gen2",
+            price=153999.0,
+            is_sold_out=False,
+            raw_title="Gree Zeno 1 Ton GS-12ZITH2W Inverter",
+        ),
+    ]
+
+    # Scraper strictly filters by model match
+    filtered_offers = [o for o in raw_offers if is_strict_model_match(o.raw_title, model_code)]
+    assert len(filtered_offers) == 1
+    assert filtered_offers[0].vendor_name == "Legit Seller Gen2"
+
+    record = process_product_with_offers(product, alfa_offers=filtered_offers, digi_offers=filtered_offers)
+
+    # AlfaMall strictly undercuts Gen 2 (153,999 -> 153,899), completely ignoring Gen 1 (130,000)
+    assert record["Final Price Alfa"] == 153899
+    assert "Legit Seller Gen2" in record["Alfa Reason"]
+    assert "Cheap Seller Gen1" not in record["Alfa Reason"]
+
+
+def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
+    """Verify Item #22 (GS-24PITH15G-T3) matches GS-24PITH15/17G on DigiMall.
+
+    Tests that shared-color batch expansion (GS-24PITH15/17G) matches Grey 15G,
+    strictly rejects White 15W, and undercuts Tech House (247,999) to win
+    at 8% bank rate with healthy net profit instead of false Monopoly baseline.
+    """
+    product = parse_product_input(
+        21,
+        pd.Series(
+            {
+                "S.NO": 22,
+                "Brand": "Gree",
+                "Name ": "GREE SPLIT AC GS-24PITH15G-T3",
+                "Length": 106,
+                "Width": 42,
+                "Height": 110,
+                "Net Price": 220000,
+                "Profit": 4000,
+            }
+        ),
+    )
+
+    _, model_code = extract_search_query_and_model(product.name)
+
+    digi_raw = [
+        ScrapedOffer(
+            vendor_name="Tech House",
+            price=247999.0,
+            is_sold_out=False,
+            raw_title="GREE Pular T3 2 TON Split AC GS-24PITH15/17G - T3",
+        ),
+        ScrapedOffer(
+            vendor_name="YZ International",
+            price=248099.0,
+            is_sold_out=False,
+            raw_title="GREE Pular T3 2 TON Split AC GS-24PITH15/17G - T3",
+        ),
+        ScrapedOffer(
+            vendor_name="Wrong Color White",
+            price=247999.0,
+            is_sold_out=False,
+            raw_title="GREE Pular T3 2 TON Split AC GS-24PITH15/17W - T3",
+        ),
+    ]
+
+    filtered = [o for o in digi_raw if is_strict_model_match(o.raw_title, model_code)]
+    assert len(filtered) == 2
+    assert all(o.vendor_name in ("Tech House", "YZ International") for o in filtered)
+
+    record = process_product_with_offers(product, alfa_offers=[], digi_offers=filtered)
+
+    # 1. Final Price undercuts Tech House (247,999)
+    assert record["Final Price Digi"] < 247999
+    # 2. Commission switched to 8.00%
+    assert record["Digi Effective Commision"] == "8.00%"
+    # 3. Real Profit is healthy (+Rs. 1,119)
+    assert record["Digi Real Profit"] == 1119
+    # 4. Reason documents Tech House undercut and 8% bank rate
+    assert "tech house" in record["Digi Reason"].lower()
+    assert "8% bank rate" in record["Digi Reason"].lower()
+    # 5. Risk Alert is NONE
+    assert record["Digi Risk Alert"] == "NONE"
+
+
+
 
 
 

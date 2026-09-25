@@ -193,21 +193,29 @@ async def scrape_alfamall(
                 break
         except Exception as exc:
             last_error = str(exc) or "Network Connection/Timeout Error"
-            backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
             err_str = str(exc).lower()
             is_socket_drop = any(
                 k in err_str for k in ("wsarecv", "connection was aborted", "reset", "closed")
             )
+            is_timeout = any(k in err_str for k in ("28", "timed out", "timeout"))
 
-            if is_socket_drop:
+            if is_timeout:
+                backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)
+                console.print(
+                    f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
+                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Backoff cool-down in {backoff:.1f}s..."
+                )
+            elif is_socket_drop:
+                backoff = (0.8 * (2**attempt)) + random.uniform(0.2, 0.5)
                 console.print(
                     f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
                     f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) — Auto-recovering in {backoff:.1f}s..."
                 )
             else:
+                backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
                 console.print(
                     f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
-                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
+                    f"Network error (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
                 )
 
             if attempt < max_retries - 1:
@@ -378,21 +386,29 @@ async def scrape_digimall(
                 break
         except Exception as exc:
             last_error = str(exc) or "Network Connection/Timeout Error"
-            backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
             err_str = str(exc).lower()
             is_socket_drop = any(
                 k in err_str for k in ("wsarecv", "connection was aborted", "reset", "closed")
             )
+            is_timeout = any(k in err_str for k in ("28", "timed out", "timeout"))
 
-            if is_socket_drop:
+            if is_timeout:
+                backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)
+                console.print(
+                    f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
+                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Backoff cool-down in {backoff:.1f}s..."
+                )
+            elif is_socket_drop:
+                backoff = (0.8 * (2**attempt)) + random.uniform(0.2, 0.5)
                 console.print(
                     f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
                     f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) — Auto-recovering in {backoff:.1f}s..."
                 )
             else:
+                backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
                 console.print(
                     f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
-                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
+                    f"Network error (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
                 )
 
             if attempt < max_retries - 1:

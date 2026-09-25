@@ -1,138 +1,100 @@
-# Technical Implementation Plan: Commercial Traffic-Light Risk Alerts & Telemetry
+# Implementation Plan: Dual-Variant Slash Matching & Scraper Pacing Guard
 
-## 1. Executive Summary & Retail Objectives
+## 1. Overview
+In Pakistani e-commerce platforms (AlfaMall and DigiMall), sellers frequently group color variants within a single title using slash expressions (e.g., `GS-12AITH24W/S` or `GS-12AITH24-W/S`). Currently, punctuation stripping collapses `12AITH24W/S` into `12AITH24WS`, which fails exact substring matching against target `12AITH24S`. Consequently, the engine erroneously declares "0 sellers found", falling back to Monopoly baseline pricing (`Rs. 199,999`) and losing the buy box to competitors selling at `Rs. 193,999`.
 
-In Pakistani e-commerce (AlfaMall and DigiMall / Faysal Bank), a dynamic repricing engine must not only compute mathematically optimal prices, but also visually alert management and warehouse operations to **two major commercial risks**:
-
-1. **🔴 Safe Fallback (Market Dumping / Zero Sales Velocity):**
-   - When competitors sell below our landed cost floor, the engine avoids a cash loss by listing at Safe Fallback (Floor + Rs. 1,000 margin).
-   - *Commercial Reality:* The profit (+Rs. 1,950) is safe, but our price is higher than competitors (e.g. Afzal Corp at Rs. 201,500 vs Us at Rs. 211,999). Sales velocity will be zero.
-   - *Visual Alert:* Price highlighted in **RED** (`211,999`) to alert the merchant to negotiate better purchase rates with suppliers.
-
-2. **🔴 Razor-Thin Courier Volumetric Buffer (Profit < Rs. 700):**
-   - When real net profit is near the hard floor (+Rs. 502 / +Rs. 512), courier volumetric re-weighing (Rs. 70/KG + packaging bubble wrap / carton bump of 2-3 KG = Rs. 250 - Rs. 350 extra cost) can wipe out the entire profit or turn the sale into a negative cash loss.
-   - *Operational Alert:* Profit highlighted in **RED** (`+502`) so warehouse dispatchers ensure precise packaging.
-
-3. **🟡 Emergency 8% Bank Switch (DigiMall):**
-   - When 10% standard tier is unviable, the engine switches to the 8% bank rate to win the deal, waiving the 2% bank spread profit.
-   - *Visual Alert:* Rate highlighted in **YELLOW** (`8.00%`).
-
-4. **🟢 Optimal Winning & Monopoly:**
-   - Normal winning deals with healthy margins ($\ge$ Rs. 700) and legitimate Monopoly wins (+Rs. 4,000) stay clean **GREEN**.
+This plan implements **Option 1: Virtual Token Slash Expansion** in `matcher.py` focused strictly on **Color Slashes** (`W/S`, `S/W`, `W/B`, `W/G`) and identical batch series (`14S / 11S`). It strictly **rejects** cross-generation mixing (e.g., `ZITH1` vs `ZITH2` remain 100% isolated), eliminates false matching on pipe sizes (`1/2"`), and incorporates gentle scraper pacing with randomized jitter cool-down backoff to eliminate AlfaMall WAF timeouts.
 
 ---
 
-## 2. Architecture & Design Principles
+## 2. Core Architecture Decisions
 
-### Principle 1: Zero-Width ANSI Formatting (No Table Broken Borders)
-- Rich ANSI color tags (`[bold red]...[/]`, `[bold green]...[/]`) have zero terminal display width.
-- In `render_summary_table`, cells only change **color**—never append long text tags like `(FALLBACK)` or `(THIN)` inside table cells.
-- Numbers remain formatted as fixed-width strings (`{price:10,.0f}`, `{profit:+8,.0f}`). Table borders stay 100% straight and aligned across all 80–120 column terminals.
-- A clean, 1-line **Legend** is rendered below the table.
+### Decision 1: Strict Color Slash Expansion (Exact Model, Different Paint)
+Before stripping punctuation in `is_strict_model_match`, the scraped title is passed through `expand_multivariant_titles(title: str) -> str`:
 
-### Principle 2: Complete Platform Asymmetric Decoupling
-- AlfaMall and DigiMall evaluate risks independently:
-  - **Item #5 Example:**
-    - AlfaMall: Price is **RED** (`211,999` - Safe Fallback), Profit is **GREEN** (`+1,950` - Safe).
-    - DigiMall: Price is **WHITE** (`205,899` - Winning), Profit is **RED** (`+578` - Thin Buffer).
+1. **Color Slash Expansion (with Hyphen, Space & Champagne `C` support):**
+   - Regex: `r'\b([0-9]{2}[A-Z0-9]+?)[-\s]*([WBSGC])\s*/\s*([WBSGC])((?:[-_\s]+[A-Z0-9]+)?)\b'`
+   - Target: The model specification is 100% identical (same capacity, same compressor, same series), only the color finish is slashed.
+   - Handles:
+     - Standard: `GS-12AITH24W/S` -> `GS-12AITH24W 12AITH24S`
+     - Hyphenated: `GS-12AITH24-W/S` -> `GS-12AITH24W 12AITH24S`
+     - Spaced: `GS-12AITH24 - W/S` -> `GS-12AITH24W 12AITH24S`
+     - Trailing T3: `GS-12AITH24W/S-T3` -> `GS-12AITH24W-T3 12AITH24S-T3`
+     - Trailing Space T3: `GS-12AITH24W/S T3` -> `GS-12AITH24W T3 12AITH24S T3`
+     - Extended Colors: `18AITH21W/B` (Black), `18PITH11W/G` (Grey), `12AITH24W/C` (Champagne).
 
-### Principle 3: Type Safety & Defensive Null Guards (No NoneType Crash)
-- If a portal is unreachable or server down, `real_profit` is `None` or `0`.
-- Python cannot compare `None < 700` (`TypeError`).
-- Explicit null-guard order:
-  ```python
-  if status == "Server Down / Unreachable" or real_profit is None:
-      return "[dim red]   DOWN [/]"
-  elif real_profit <= 0:
-      return f"[bold white on red]{real_profit:+8,.0f}[/]"
-  elif real_profit < 700:
-      return f"[bold red]{real_profit:+8,.0f}[/]"
-  else:
-      return f"[bold green]{real_profit:+8,.0f}[/]"
-  ```
+2. **Identical Batch Pular Series Slash Expansion:**
+   - Regex: `r'\b([0-9]{2}PITH)[-\s]*(14|11)[-\s]*([WBSGC])\s*/\s*(14|11)[-\s]*([WBSGC])\b'`
+   - Strictly limited to Pular series batches (`14S / 11S`) where net prices and specs are 100% identical.
+   - **STRICT PROHIBITION:** No single-digit `\d{1}` matching (avoids matching `1/2"` copper pipe, and strictly prevents mixing `ZITH1` with `ZITH2`).
 
-### Principle 4: CSV Schema Append & Excel Filter Support
-- Two new clean string columns are added at the **very end** of the CSV so existing column indices (0 to 22) are untouched:
-  - `Alfa Risk Alert`: `NONE` | `THIN_BUFFER` | `SAFE_FALLBACK` | `SERVER_DOWN`
-  - `Digi Risk Alert`: `NONE` | `THIN_BUFFER` | `SAFE_FALLBACK` | `SERVER_DOWN`
-- Pure text only in CSV (zero Rich ANSI codes).
-- Price columns continue exporting pure integer strings via `format_export_price` (zero `.0` float drift).
+### Decision 2: Model & Generation Isolation Invariants
+- **Generation Protection:** `GS-12ZITH1W` and `GS-12ZITH2W` are completely different generation models. They will **NEVER** be slashed, expanded, or cross-matched.
+- **Rule of Priority:** Positive exact token match (`if base_target in clean_title: return True`) ALWAYS dominates and executes before any negative word penalty.
+- **Silver Target (`12AITH24S`):** Matches `12AITH24W/S` because `12AITH24S` is explicitly generated.
+- **White Target (`12AITH24W`):** Matches `12AITH24W/S` because `12AITH24W` is explicitly generated.
+- **Black Target (`12AITH24B`):** Rejects `12AITH24W/S` because `12AITH24B` is absent.
+- **Single-Color Isolation:** Pure `GS-12AITH24W` (without slash) strictly rejects `12AITH24S`.
 
-### Principle 5: Alert Precedence Hierarchy
-If multiple conditions match, priority order is:
-1. `SERVER_DOWN` (Highest priority - connection failed)
-2. `SAFE_FALLBACK` (Price uncompetitive, sales velocity zero)
-3. `THIN_BUFFER` (Profit < Rs. 700, courier packaging risk)
-4. `NONE` (Optimal / normal healthy pricing)
+### Decision 3: Commercial & Profit Impact on Item #3 (`12AITH24S-T3`)
+- Real Landed Cost: `Rs. 175,978`
+- Digi 8% Floor (+500): `Rs. 191,824`
+- Competitors Scraped: Musab Mall (`Rs. 193,999`), Tech House (`Rs. 193,999`), YZ International (`Rs. 194,099`).
+- Engine Action: Triggers Emergency 8% Bank Switch. Undercuts `Rs. 193,999` to winning price **`Rs. 193,899`** (.899 ending).
+- Guaranteed Profit: `(193,899 * 0.92) - 175,978 = +Rs. 2,409` (far above +Rs. 500 hard floor).
 
----
-
-## 3. Data Contract & Helper Implementations
-
-### Helper: `determine_risk_alert`
-```python
-def determine_risk_alert(res: PlatformPricingResult) -> str:
-    """Determine standardized risk alert code following priority hierarchy."""
-    if res.status == "Server Down / Unreachable" or res.final_price is None:
-        return "SERVER_DOWN"
-    if res.status == "Safe Fallback":
-        return "SAFE_FALLBACK"
-    if res.real_profit < 700:
-        return "THIN_BUFFER"
-    return "NONE"
-```
-
-### Integrated Schema in `build_output_record`
-```python
-out_record["Alfa Risk Alert"] = determine_risk_alert(alfa_res)
-out_record["Digi Risk Alert"] = determine_risk_alert(digi_res)
-```
+### Decision 4: Scraper Resilience, Pacing & Randomized Jitter Backoff
+- In `pricing_engine/pipeline.py`, increase task dispatch micro-stagger from `0.2s` to `0.4s` to smooth burst traffic.
+- In `pricing_engine/scraper.py`, catch broad timeout errors (`curl: (28)`, `timed out`, `timeout`, `asyncio.TimeoutError`).
+- When a timeout occurs, apply a randomized jitter backoff:
+  `backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)`
+  This de-synchronizes parallel workers, preventing synchronized retry waves from re-triggering the WAF tarpit.
+- Preserve shared `AsyncSession` across pipeline tasks; rely on libcurl's automatic socket teardown for timed-out connections.
 
 ---
 
-## 4. Phase-wise Implementation Plan
+## 3. Ordered Task List
 
-### Phase 1: Risk Alerts Logic & Schema Extension
-- In `pricing_engine/pipeline.py`:
-  - Implement `determine_risk_alert(res: PlatformPricingResult) -> str`.
-  - Update `build_output_record` to include `"Alfa Risk Alert"` and `"Digi Risk Alert"` at the end of the schema.
-  - *Files touched:* `pricing_engine/pipeline.py`
+### Phase 1: Logic & Unit Tests in `matcher.py`
+- [ ] **Task 1: Implement `expand_multivariant_titles` in `pricing_engine/matcher.py`**
+  - Add color slash regex with hyphen, space, `[WBSGC]`, and trailing suffixes (`-T3`, ` T3`).
+  - Add identical batch Pular series regex (`14S / 11S`).
+  - Integrate into `is_strict_model_match` before clean title normalization.
+  - *Acceptance Criteria:* `GS-12AITH24-W/S`, `GS-12AITH24W/S-T3` expand properly; matches `12AITH24S` and `12AITH24W`; rejects `12AITH24B`; `ZITH1W` and `ZITH2W` remain strictly isolated.
+- [ ] **Task 2: Add Comprehensive Unit Tests in `tests/test_matcher.py`**
+  - Test dual color slash matching (`12AITH24W/S` with `S`, `W`, `B`).
+  - Test hyphenated syntax (`12AITH24-W/S` and `12AITH24 - W/S`).
+  - Test trailing suffixes (`-T3` and ` T3`).
+  - Test extended color `C`: `12AITH24W/C` matches `12AITH24W` and `12AITH24C`.
+  - Test generation isolation: `GS-12ZITH1W` does NOT match `GS-12ZITH2W`.
+  - Test color collision guard: `GS-12AITH24W/S` rejects `12AITH24B-T3`.
+  - Test single-color isolation: pure `GS-12AITH24W` rejects `12AITH24S-T3`.
+  - *Acceptance Criteria:* All matcher tests pass 100% green.
 
-### Phase 2: Terminal Audit Card Risk Badging
-- In `pricing_engine/pipeline.py`:
-  - In `render_audit_card`, display detailed informative badges:
-    - Safe Fallback: `[bold red]Rs. 211,999 (SAFE FALLBACK - UNCOMPETITIVE)[/]`
-    - Thin Profit: `[bold red]+Rs. 502 (THIN BUFFER - VOLUMETRIC RISK)[/]`
-    - Capped Price: `[bold yellow]Rs. 478,999 (CAPPED SWEET-SPOT)[/]`
-    - Server Down: `[bold red][SERVER DOWN - RETRY LATER][/]`
-  - *Files touched:* `pricing_engine/pipeline.py`
+### Phase 2: Scraper Pacing & WAF Tarpit Guard
+- [ ] **Task 3: Add Gentle Pacing & Smart Timeout Backoff in `pricing_engine/scraper.py` and `pipeline.py`**
+  - In `pipeline.py`, set micro-stagger sleep to `0.4s`.
+  - In `scraper.py`, detect `curl: (28)` / timeout exceptions and apply `random.uniform(3.5, 5.0) + (attempt * 1.5)` randomized jitter backoff.
+  - *Acceptance Criteria:* Rapid consecutive runs do not trigger AlfaMall WAF packet drops or synchronized burst waves.
 
-### Phase 3: Summary Table Traffic-Light Formatting & Legend
-- In `pricing_engine/pipeline.py`:
-  - Implement cell formatting helpers: `format_table_price`, `format_table_profit`, `format_table_rate`.
-  - Zero-width character styling preserves 100% straight borders.
-  - Print 1-line Rich Legend below summary table.
-  - *Files touched:* `pricing_engine/pipeline.py`
-
-### Phase 4: Comprehensive Unit Testing
-- In `tests/test_pipeline.py`:
-  - Add test for `determine_risk_alert` covering all priority states (`SERVER_DOWN`, `SAFE_FALLBACK`, `THIN_BUFFER`, `NONE`).
-  - Add test for `build_output_record` verifying new risk columns exist.
-  - Add test verifying CSV export contains clean strings (`THIN_BUFFER`, `NONE`) and zero ANSI codes.
-  - Add test verifying `render_summary_table` and `render_audit_card` execute cleanly with mixed risk items.
-  - *Files touched:* `tests/test_pipeline.py`
-
-### Phase 5: Live Production Benchmark
-- Run `pytest -v` (expect all 65+ unit tests passing).
-- Run `ruff check .` (expect 0 errors).
-- Execute `python index.py` on all 25 live products and inspect terminal aesthetics and CSV export.
+### Phase 3: Integration Tests & Production Verification
+- [ ] **Task 4: Add Integration Test for Item #3 DigiMall Repricing in `tests/test_pipeline.py`**
+  - Simulate DigiMall response containing `GS-12AITH24W/S` at `193,999`.
+  - Verify engine undercuts to `193,899` (.899 ending) with `8.00%` rate and `+2,409` profit.
+  - *Acceptance Criteria:* Test passes; verifies full end-to-end pricing flow.
+- [ ] **Task 5: Quality Gate Run & Live Production Benchmark**
+  - Run full test suite: `pytest -v` (expect ~70+ passed).
+  - Run linter: `ruff check .` (0 errors).
+  - Run live benchmark: `python index.py`.
+  - Review changes with user and ask for confirmation before committing to Git!
 
 ---
 
-## 5. Verification Checklist
-
-- [ ] All 63 existing tests remain 100% green.
-- [ ] No `TypeError` when `real_profit` is `None`.
-- [ ] Summary table borders remain perfectly aligned without wrapping.
-- [ ] CSV columns `Alfa Risk Alert` and `Digi Risk Alert` appear at the end with pure text strings.
-- [ ] Price columns contain pure integer strings with zero `.0` float drift.
+## 4. Risks and Mitigations
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Slash expansion matching unintended words | Medium | Strict regex anchors (`\b` word boundary, specific color letters `[WBSGC]`, 2-digit capacity prefix). |
+| Cross-generation model mixing | High | Prohibit single-digit `\d{1}` matching; keep `ZITH1` and `ZITH2` strictly isolated. |
+| Selling Silver at White price | Low | Cost Base & Hard Floor (+Rs. 500) always calculate from Silver's own Net Price (`172,000`), guaranteeing profit >= Rs. 500. |
+| Negative guard overriding positive match | High | Line 69 positive exact match `if base_target in clean_title: return True` always executes first. |
+| Synchronized worker retry burst | Medium | Randomized jitter backoff `random.uniform(3.5, 5.0) + (attempt * 1.5)` breaks worker synchronization. |

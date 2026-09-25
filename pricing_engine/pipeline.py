@@ -870,8 +870,8 @@ async def run_pipeline(
             )
             tasks.append(task)
             if idx < len(df) - 1:
-                # Micro-stagger launch by 200ms to eliminate T=0 burst wave against WAF
-                await asyncio.sleep(0.2)
+                # Micro-stagger launch by 400ms to eliminate burst wave against WAF
+                await asyncio.sleep(0.4)
 
         raw_records = await asyncio.gather(*tasks)
 

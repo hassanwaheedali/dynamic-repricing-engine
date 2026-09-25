@@ -98,3 +98,109 @@ def test_strict_model_match_silver_target_rejects_white() -> None:
     assert is_strict_model_match("Gree 2.0 Ton Pular 24PITH11S Silver", target_silver)
     assert not is_strict_model_match("Gree 2.0 Ton Pular 24PITH11W White", target_silver)
 
+
+def test_strict_model_match_color_slash_expansion() -> None:
+    silver_target = "12AITH24S-T3"
+    white_target = "12AITH24W-T3"
+    black_target = "12AITH24B-T3"
+
+    # 1. Standard slash: GS-12AITH24W/S matches both Silver and White
+    title_standard = "GREE Airy Pro 1 TON Split AC Inverter G-Boost AI T3 GS-12AITH24W/S"
+    assert is_strict_model_match(title_standard, silver_target)
+    assert is_strict_model_match(title_standard, white_target)
+    # But strictly rejects Black
+    assert not is_strict_model_match(title_standard, black_target)
+
+    # 2. Hyphenated slash: GS-12AITH24-W/S
+    title_hyphen = "Gree Airy Pro 1 Ton GS-12AITH24-W/S Heat & Cool"
+    assert is_strict_model_match(title_hyphen, silver_target)
+    assert is_strict_model_match(title_hyphen, white_target)
+
+    # 3. Spaced slash: GS-12AITH24 - W/S
+    title_spaced = "Gree Airy Pro 1 Ton GS-12AITH24 - W/S Heat & Cool"
+    assert is_strict_model_match(title_spaced, silver_target)
+
+    # 4. Trailing -T3 suffix: GS-12AITH24W/S-T3
+    title_suffix = "Gree Airy Pro 1 Ton GS-12AITH24W/S-T3 Heat & Cool"
+    assert is_strict_model_match(title_suffix, silver_target)
+    assert is_strict_model_match(title_suffix, white_target)
+
+    # 5. Trailing space T3 suffix: GS-12AITH24W/S T3
+    title_space_suffix = "Gree Airy Pro 1 Ton GS-12AITH24W/S T3 Inverter"
+    assert is_strict_model_match(title_space_suffix, silver_target)
+
+    # 5b. Trailing attached T3 (without dash or space): GS-12AITH24W/ST3
+    title_attached_suffix = "Gree Airy Pro 1 Ton GS-12AITH24W/ST3 Inverter"
+    assert is_strict_model_match(title_attached_suffix, silver_target)
+    assert is_strict_model_match(title_attached_suffix, white_target)
+
+    # 6. Single-color isolation: pure White without slash strictly rejects Silver
+    pure_white = "GREE Airy Pro 1 TON Split AC Inverter GS-12AITH24W"
+    assert not is_strict_model_match(pure_white, silver_target)
+
+    # 7. Extended colors: W/B (White / Black) and W/C (White / Champagne)
+    wb_title = "Gree 1.5 Ton Airy GS-18AITH21W/B-T3"
+    assert is_strict_model_match(wb_title, "18AITH21W-T3")
+    assert is_strict_model_match(wb_title, "18AITH21B-T3")
+    assert not is_strict_model_match(wb_title, "18AITH21S-T3")
+
+    wc_title = "Gree 1 Ton Airy GS-12AITH24W/C"
+    assert is_strict_model_match(wc_title, "12AITH24W")
+    assert is_strict_model_match(wc_title, "12AITH24C")
+
+
+def test_strict_model_match_series_slash_and_generation_isolation() -> None:
+    # 1. Pular batch slash: 14S / 11S
+    pular_14s = "12PITH14S"
+    pular_11s = "12PITH11S"
+    pular_title = "GREE Split AC 1 TON Pular Series Inverter GS-12PITH14S /11S"
+    assert is_strict_model_match(pular_title, pular_14s)
+    assert is_strict_model_match(pular_title, pular_11s)
+
+    # 2. Pular batch without space: 14S/11S
+    assert is_strict_model_match("Gree Pular 1 Ton GS-12PITH14S/11S", pular_14s)
+    assert is_strict_model_match("Gree Pular 1 Ton GS-12PITH14S/11S", pular_11s)
+
+    # 3. Generation isolation: ZITH1 and ZITH2 must NEVER match each other
+    zeno_1 = "12ZITH1W-T3"
+    zeno_2 = "12ZITH2W-T3"
+    assert is_strict_model_match("Gree Zeno 1 Ton GS-12ZITH1W Inverter", zeno_1)
+    assert not is_strict_model_match("Gree Zeno 1 Ton GS-12ZITH1W Inverter", zeno_2)
+    assert is_strict_model_match("Gree Zeno 1 Ton GS-12ZITH2W Inverter", zeno_2)
+    assert not is_strict_model_match("Gree Zeno 1 Ton GS-12ZITH2W Inverter", zeno_1)
+
+
+def test_strict_model_match_pular_shared_color_batch_slashes() -> None:
+    target_15g = "GS-24PITH15G-T3"
+    target_17g = "GS-24PITH17G-T3"
+    target_18g = "GS-24PITH18G-T3"
+    target_15w = "GS-24PITH15W-T3"
+
+    # 1. Two-batch with shared color: GS-24PITH15/17G - T3
+    title_2batch = "GREE Pular T3 2 TON Split AC GS-24PITH15/17G - T3"
+    assert is_strict_model_match(title_2batch, target_15g)
+    assert is_strict_model_match(title_2batch, target_17g)
+    # Must strictly reject White
+    assert not is_strict_model_match(title_2batch, target_15w)
+
+    # 2. Four-batch with shared color: GS-24PITH15/16/17/18G
+    title_4batch = "Gree Pular Series 2 Ton Split AC GS-24PITH15/16/17/18G"
+    assert is_strict_model_match(title_4batch, target_15g)
+    assert is_strict_model_match(title_4batch, target_18g)
+    assert not is_strict_model_match(title_4batch, target_15w)
+
+    # 3. Two-batch White with space: GS-24PITH15/ 17W - T3
+    title_white_batch = "GREE Pular T3 2 TON Split AC GS-24PITH15/ 17W - T3"
+    assert is_strict_model_match(title_white_batch, target_15w)
+    # Must strictly reject Grey
+    assert not is_strict_model_match(title_white_batch, target_15g)
+
+    # 4. Attached T3 (without dash or space): GS-24PITH15/17GT3
+    title_attached = "GREE Pular T3 2 TON Split AC GS-24PITH15/17GT3 Inverter"
+    assert is_strict_model_match(title_attached, target_15g)
+    assert is_strict_model_match(title_attached, target_17g)
+    assert not is_strict_model_match(title_attached, target_15w)
+
+
+
+
