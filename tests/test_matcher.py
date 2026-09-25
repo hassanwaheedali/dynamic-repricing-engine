@@ -202,5 +202,21 @@ def test_strict_model_match_pular_shared_color_batch_slashes() -> None:
     assert not is_strict_model_match(title_attached, target_15w)
 
 
+def test_strict_model_match_universal_multivariant_expansion() -> None:
+    # 1. Multi-generation slash with trailing tag: GS-18ZITH1W/2W/3W Ultra -T3
+    zeno_title = "Gree Split AC GS-18ZITH1W/2W/3W Ultra -T3"
+    assert is_strict_model_match(zeno_title, "GS-18ZITH1W-T3")
+    assert is_strict_model_match(zeno_title, "GS-18ZITH2W-T3")
+    assert is_strict_model_match(zeno_title, "GS-18ZITH3W-T3")
+    assert not is_strict_model_match(zeno_title, "GS-18ZITH4W-T3")
+    assert not is_strict_model_match(zeno_title, "GS-12ZITH2W-T3")
 
+    # 2. Pure standalone isolation: GS-18ZITH1W-T3 must NOT match target GS-18ZITH2W-T3
+    standalone_gen1 = "Gree Split AC GS-18ZITH1W-T3"
+    assert not is_strict_model_match(standalone_gen1, "GS-18ZITH2W-T3")
 
+    # 3. Floor standing multi-variant: GF-24FITH1/2
+    floor_title = "Gree Floor Standing Cabinet GF-24FITH1/2 Inverter"
+    assert is_strict_model_match(floor_title, "24FITH1")
+    assert is_strict_model_match(floor_title, "24FITH2")
+    assert not is_strict_model_match(floor_title, "24FITH3")

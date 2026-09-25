@@ -34,14 +34,24 @@ def extract_search_query_and_model(full_name: str) -> tuple[str, str]:
     return fallback, clean_name
 
 
-def expand_multivariant_titles(title: str) -> str:
-    """Expand slash-separated color variants and batch series into distinct virtual model tokens.
+TAG_PATTERN = re.compile(r"[-_\s]*(?:T3|AAA|AA|PRO|ULTRA)+$", re.IGNORECASE)
+VARIANT_CLUSTER_PATTERN = re.compile(
+    r"\b((?:[A-Za-z]{2}[-_])?[0-9]{2}[A-Za-z]+(?:[0-9]+[-\s_]+)?)\s*"
+    r"([A-Za-z0-9]+(?:\s*/\s*[A-Za-z0-9]+)+)\b",
+    re.IGNORECASE,
+)
 
-    Handles:
-    - Color slashes: GS-12AITH24W/S, GS-12AITH24-W/S, GS-12AITH24W/S-T3
-      -> GS-12AITH24W-T3 12AITH24S-T3
-    - Batch series slashes: GS-12PITH14S /11S or GS-12PITH14S/11S
-      -> GS-12PITH14S 12PITH11S
+
+def expand_multivariant_titles(title: str) -> str:
+    """Dynamically expand slash-separated variant tokens using distributive algebra.
+
+    A single, unified, DRY algorithm that handles any combination of:
+    - Colors: GS-12AITH24W/S -> GS-12AITH24W GS-12AITH24S
+    - Subseries / Generations: GS-18ZITH1W/2W/3W -> GS-18ZITH1W GS-18ZITH2W GS-18ZITH3W
+    - Batches with shared suffix: GS-24PITH15/17G -> GS-24PITH15G GS-24PITH17G
+    - Multi-variant batches: GS-24PITH15/16/17/18G -> GS-24PITH15G ... 18G
+    - Symmetrical tokens: GS-12PITH14S/11S -> GS-12PITH14S GS-12PITH11S
+    Non-model slashes (e.g. 1/2" pipe, 3/6 months, Heat/Cool) are completely untouched.
 
     Args:
         title: Raw product title string.
@@ -49,54 +59,44 @@ def expand_multivariant_titles(title: str) -> str:
     Returns:
         Expanded title string with distinct virtual model tokens.
     """
-    # 1. Color slash expansion (W/S, S/W, W/B, W/G, W/C with optional hyphen, space, and trailing suffix)
-    p_color = (
-        r"\b([0-9]{2}[A-Z0-9]+?)[-\s]*([WBSGC])\s*/\s*([WBSGC])"
-        r"((?:[-_\s]*T3|[-_\s]+[A-Z0-9]+)?)\b"
-    )
+    def repl(m: re.Match[str]) -> str:
+        stem = m.group(1).rstrip()
+        raw_variants = m.group(2)
 
-    def repl_color(m: re.Match[str]) -> str:
-        base = m.group(1)
-        c1 = m.group(2)
-        c2 = m.group(3)
-        suffix = m.group(4) or ""
-        return f"{base}{c1}{suffix} {base}{c2}{suffix}"
+        # Separate attached auxiliary tag if present (e.g., ST3 -> S + T3)
+        tag_match = TAG_PATTERN.search(raw_variants)
+        trailing_tag = ""
+        if tag_match:
+            trailing_tag = tag_match.group(0)
+            raw_variants = raw_variants[:tag_match.start()]
 
-    title = re.sub(p_color, repl_color, title, flags=re.IGNORECASE)
+        parts = [p.strip() for p in re.split(r"\s*/\s*", raw_variants) if p.strip()]
+        if len(parts) < 2:
+            return m.group(0)
 
-    # 2. Pular shared color batch slash (e.g. GS-24PITH15/17G - T3, GS-24PITH15/16/17/18G)
-    p_batch_shared = (
-        r"\b([0-9]{2}PITH)[-\s]*((?:\d{2}\s*/\s*)+\d{2})\s*([WBSGC])"
-        r"((?:[-_\s]*T3|[-_\s]+[A-Z0-9]+)?)\b"
-    )
+        # 1. Distributive Suffix (e.g., ['15', '17G'] -> distribute 'G' to '15' -> '15G')
+        last = parts[-1]
+        m_suf = re.search(r"([A-Za-z]+)$", last)
+        shared_suffix = m_suf.group(1) if m_suf else ""
 
-    def repl_batch_shared(m: re.Match[str]) -> str:
-        base = m.group(1)
-        raw_nums = m.group(2)
-        color = m.group(3)
-        suffix = m.group(4) or ""
-        nums = [n.strip() for n in re.split(r"\s*/\s*", raw_nums) if n.strip()]
-        return " ".join(f"{base}{n}{color}{suffix}" for n in nums)
+        # 2. Distributive Prefix (e.g., ['24W', 'S'] -> distribute '24' to 'S' -> '24S')
+        first = parts[0]
+        m_pre = re.match(r"^([0-9]+)", first)
+        shared_prefix = m_pre.group(1) if m_pre else ""
 
-    title = re.sub(p_batch_shared, repl_batch_shared, title, flags=re.IGNORECASE)
+        expanded: list[str] = []
+        for p in parts:
+            cur = p
+            if shared_suffix and not re.search(r"[A-Za-z]$", cur):
+                cur = cur + shared_suffix
+            elif shared_prefix and not re.match(r"^[0-9]", cur):
+                cur = shared_prefix + cur
+            expanded.append(cur)
 
-    # 3. Pular individual color batch slash (e.g. GS-12PITH14S / 11S)
-    p_series = (
-        r"\b([0-9]{2}PITH)[-\s]*(\d{2})[-\s]*([WBSGC])\s*/\s*(\d{2})[-\s]*([WBSGC])"
-        r"((?:[-_\s]*T3|[-_\s]+[A-Z0-9]+)?)\b"
-    )
+        tokens = [f"{stem}{x}{trailing_tag}" for x in expanded]
+        return " ".join(tokens)
 
-    def repl_series(m: re.Match[str]) -> str:
-        base = m.group(1)
-        b1 = m.group(2)
-        c1 = m.group(3)
-        b2 = m.group(4)
-        c2 = m.group(5)
-        suffix = m.group(6) or ""
-        return f"{base}{b1}{c1}{suffix} {base}{b2}{c2}{suffix}"
-
-    title = re.sub(p_series, repl_series, title, flags=re.IGNORECASE)
-    return title
+    return VARIANT_CLUSTER_PATTERN.sub(repl, title)
 
 
 def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
