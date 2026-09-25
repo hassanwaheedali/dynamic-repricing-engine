@@ -62,6 +62,33 @@ def format_export_price(val: Any) -> str:
         return ""
 
 
+def determine_risk_alert(res: PlatformPricingResult) -> str:
+    """Determine standardized commercial risk alert code following priority hierarchy.
+
+    Priority hierarchy:
+    1. SERVER_DOWN: Connection failed, portal down, or final price/profit missing.
+    2. NEGATIVE_MARGIN: Defensive check in case profit is zero or negative.
+    3. SAFE_FALLBACK: Competitors are dumping below floor, price is uncompetitive.
+    4. THIN_BUFFER: Profit is between Rs. 1 and Rs. 699 (courier re-weighing risk).
+    5. NONE: Healthy optimal margin (profit >= Rs. 700).
+
+    Args:
+        res: PlatformPricingResult from platform evaluation.
+
+    Returns:
+        One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE'.
+    """
+    if res.status == "Server Down / Unreachable" or res.final_price is None or res.real_profit is None:
+        return "SERVER_DOWN"
+    if res.real_profit <= 0:
+        return "NEGATIVE_MARGIN"
+    if res.status == "Safe Fallback":
+        return "SAFE_FALLBACK"
+    if res.real_profit < 700:
+        return "THIN_BUFFER"
+    return "NONE"
+
+
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Safely convert arbitrary values to float, handling strings with commas or NaNs."""
     if val is None or pd.isna(val):
@@ -156,6 +183,8 @@ def build_output_record(
     out_record["Digi Real Profit"] = digi_res.real_profit
     out_record["Alfa Reason"] = alfa_res.reason
     out_record["Digi Reason"] = digi_res.reason
+    out_record["Alfa Risk Alert"] = determine_risk_alert(alfa_res)
+    out_record["Digi Risk Alert"] = determine_risk_alert(digi_res)
 
     return out_record
 
@@ -511,14 +540,24 @@ def render_audit_card(
     if alfa_res.status == "Server Down / Unreachable":
         alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif alfa_res.final_price is not None:
-        alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
+        if alfa_res.status == "Safe Fallback":
+            alfa_p_str = f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+        elif "capped" in (alfa_res.reason or "").lower():
+            alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
+        else:
+            alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
     else:
         alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
     if digi_res.status == "Server Down / Unreachable":
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif digi_res.final_price is not None:
-        digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
+        if digi_res.status == "Safe Fallback":
+            digi_p_str = f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+        elif "capped" in (digi_res.reason or "").lower():
+            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
+        else:
+            digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
     else:
         digi_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
@@ -528,14 +567,24 @@ def render_audit_card(
     if alfa_res.status == "Server Down / Unreachable":
         alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif alfa_res.final_price is not None:
-        alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
+        if alfa_res.real_profit <= 0:
+            alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
+        elif alfa_res.real_profit < 700:
+            alfa_prof_str = f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+        else:
+            alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
     else:
         alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
     if digi_res.status == "Server Down / Unreachable":
         digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif digi_res.final_price is not None:
-        digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
+        if digi_res.real_profit <= 0:
+            digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
+        elif digi_res.real_profit < 700:
+            digi_prof_str = f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+        else:
+            digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
     else:
         digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
@@ -682,12 +731,27 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         alfa_p_val = rec.get("Final Price Alfa")
         alfa_reason = str(rec.get("Alfa Reason", ""))
         alfa_reason_lower = alfa_reason.lower()
-        if "server is down" in alfa_reason_lower or "unreachable" in alfa_reason_lower or "server down" in alfa_reason_lower:
+        alfa_alert = str(rec.get("Alfa Risk Alert", ""))
+
+        if "server is down" in alfa_reason_lower or "unreachable" in alfa_reason_lower or alfa_alert == "SERVER_DOWN":
             alfa_p = "[bold red]DOWN[/]"
             alfa_profit = "[dim red]0[/]"
         elif pd.notna(alfa_p_val) and alfa_p_val is not None and str(alfa_p_val).strip() != "":
-            alfa_p = f"{int(float(alfa_p_val)):,}"
-            alfa_profit = f"+{int(float(rec.get('Alfa Real Profit', 0))):,}"
+            raw_alfa_p = f"{int(float(alfa_p_val)):,}"
+            if alfa_alert == "SAFE_FALLBACK" or "safe fallback" in alfa_reason_lower:
+                alfa_p = f"[bold red]{raw_alfa_p}[/]"
+            elif "capped" in alfa_reason_lower:
+                alfa_p = f"[bold yellow]{raw_alfa_p}[/]"
+            else:
+                alfa_p = f"[bold #2c4699]{raw_alfa_p}[/]"
+
+            alfa_prof_val = float(rec.get("Alfa Real Profit", 0))
+            if alfa_prof_val <= 0:
+                alfa_profit = f"[bold white on red]{int(alfa_prof_val):,}[/]"
+            elif alfa_prof_val < 700:
+                alfa_profit = f"[bold red]+{int(alfa_prof_val):,}[/]"
+            else:
+                alfa_profit = f"[bold green]+{int(alfa_prof_val):,}[/]"
         else:
             alfa_p = "SKIP"
             alfa_profit = "0"
@@ -695,19 +759,38 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         digi_p_val = rec.get("Final Price Digi")
         digi_reason = str(rec.get("Digi Reason", ""))
         digi_reason_lower = digi_reason.lower()
-        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or "server down" in digi_reason_lower:
+        digi_alert = str(rec.get("Digi Risk Alert", ""))
+
+        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or digi_alert == "SERVER_DOWN":
             digi_p = "[bold red]DOWN[/]"
             digi_profit = "[dim red]0[/]"
+            digi_comm = "[dim red]N/A[/]"
         elif pd.notna(digi_p_val) and digi_p_val is not None and str(digi_p_val).strip() != "":
-            digi_p = f"{int(float(digi_p_val)):,}"
-            digi_profit = f"+{int(float(rec.get('Digi Real Profit', 0))):,}"
+            raw_digi_p = f"{int(float(digi_p_val)):,}"
+            if digi_alert == "SAFE_FALLBACK" or "safe fallback" in digi_reason_lower:
+                digi_p = f"[bold red]{raw_digi_p}[/]"
+            elif "capped" in digi_reason_lower:
+                digi_p = f"[bold yellow]{raw_digi_p}[/]"
+            else:
+                digi_p = f"[bold #229693]{raw_digi_p}[/]"
+
+            digi_prof_val = float(rec.get("Digi Real Profit", 0))
+            if digi_prof_val <= 0:
+                digi_profit = f"[bold white on red]{int(digi_prof_val):,}[/]"
+            elif digi_prof_val < 700:
+                digi_profit = f"[bold red]+{int(digi_prof_val):,}[/]"
+            else:
+                digi_profit = f"[bold green]+{int(digi_prof_val):,}[/]"
+
+            raw_digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
+            if "8" in raw_digi_comm:
+                digi_comm = f"[bold yellow]{raw_digi_comm}[/]"
+            else:
+                digi_comm = f"[blue]{raw_digi_comm}[/]"
         else:
             digi_p = "SKIP"
             digi_profit = "0"
-
-        digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
-        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or "server down" in digi_reason_lower:
-            digi_comm = "[dim red]N/A[/]"
+            digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
 
         table.add_row(
             sno,
@@ -722,6 +805,12 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
 
     console.print()
     console.print(table)
+    console.print(
+        "[dim]LEGEND:[/dim] "
+        "[bold red]RED[/]: Safe Fallback (Market Below Floor) / Thin Margin (< Rs. 700) | "
+        "[bold yellow]YELLOW[/]: Capped Sweet-Spot / 8% Bank Switch | "
+        "[bold green]GREEN[/]: Optimal Win"
+    )
     console.print()
 
 

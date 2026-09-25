@@ -7,6 +7,7 @@ import pandas as pd
 
 from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import (
+    determine_risk_alert,
     format_export_price,
     parse_product_input,
     process_product_with_offers,
@@ -520,6 +521,264 @@ def test_render_audit_card_and_summary_with_server_down() -> None:
         }
     ]
     render_summary_table(records)
+
+
+def test_determine_risk_alert_states() -> None:
+    from pricing_engine.models import PlatformPricingResult
+
+    # 1. SERVER_DOWN: status is Server Down or final_price is None or real_profit is None
+    down_res = PlatformPricingResult(
+        min_price=None,
+        max_price=None,
+        final_price=None,
+        real_profit=0,
+        status="Server Down / Unreachable",
+        reason="Error",
+    )
+    assert determine_risk_alert(down_res) == "SERVER_DOWN"
+
+    null_profit_res = PlatformPricingResult(
+        min_price=None,
+        max_price=None,
+        final_price=None,
+        real_profit=0,
+        status="Some Status",
+        reason="Error",
+    )
+    assert determine_risk_alert(null_profit_res) == "SERVER_DOWN"
+
+    # 2. NEGATIVE_MARGIN: profit <= 0 when final_price is present
+    loss_res = PlatformPricingResult(
+        min_price=100000,
+        max_price=120000,
+        final_price=105000,
+        real_profit=-500,
+        status="Manual Loss",
+        reason="Underpriced",
+    )
+    assert determine_risk_alert(loss_res) == "NEGATIVE_MARGIN"
+
+    zero_res = PlatformPricingResult(
+        min_price=100000,
+        max_price=120000,
+        final_price=105000,
+        real_profit=0,
+        status="Zero Margin",
+        reason="Breakeven",
+    )
+    assert determine_risk_alert(zero_res) == "NEGATIVE_MARGIN"
+
+    # 3. SAFE_FALLBACK: all competitors below floor
+    fallback_res = PlatformPricingResult(
+        min_price=100000,
+        max_price=120000,
+        final_price=110000,
+        real_profit=1950,
+        status="Safe Fallback",
+        reason="Fallback price",
+    )
+    assert determine_risk_alert(fallback_res) == "SAFE_FALLBACK"
+
+    # 4. THIN_BUFFER: 0 < profit < 700 (courier packaging re-weighing risk)
+    thin_res = PlatformPricingResult(
+        min_price=100000,
+        max_price=120000,
+        final_price=105000,
+        real_profit=502,
+        status="Competitive Win",
+        reason="Undercut",
+    )
+    assert determine_risk_alert(thin_res) == "THIN_BUFFER"
+
+    # 5. NONE: profit >= 700
+    healthy_res = PlatformPricingResult(
+        min_price=100000,
+        max_price=120000,
+        final_price=105000,
+        real_profit=1078,
+        status="Competitive Win",
+        reason="Undercut",
+    )
+    assert determine_risk_alert(healthy_res) == "NONE"
+
+
+def test_build_output_record_includes_risk_alerts() -> None:
+    product = parse_product_input(
+        0,
+        pd.Series({"S.NO": 1, "Brand": "Gree", "Name ": "AC", "Net Price": 50000}),
+    )
+    record = process_product_with_offers(product, [], [])
+    assert "Alfa Risk Alert" in record
+    assert "Digi Risk Alert" in record
+    valid_alerts = {"NONE", "THIN_BUFFER", "SAFE_FALLBACK", "SERVER_DOWN", "NEGATIVE_MARGIN"}
+    assert record["Alfa Risk Alert"] in valid_alerts
+    assert record["Digi Risk Alert"] in valid_alerts
+
+
+def test_render_summary_table_risk_visuals() -> None:
+    from pricing_engine.pipeline import render_summary_table
+
+    records = [
+        {
+            "S.NO": 1,
+            "Name ": "GREE SPLIT AC 12AITH21W-T3",
+            "Net Price": 120000,
+            "Shipping Estimate": 4000,
+            "Final Price Alfa": 145999,
+            "Alfa Real Profit": 1950,
+            "Alfa Reason": "Safe Fallback: all competitors below floor",
+            "Alfa Risk Alert": "SAFE_FALLBACK",
+            "Final Price Digi": 143899,
+            "Digi Real Profit": 578,
+            "Digi Reason": "Emergency 8% switch: undercut viable seller",
+            "Digi Effective Commision": "8.00%",
+            "Digi Risk Alert": "THIN_BUFFER",
+        },
+        {
+            "S.NO": 2,
+            "Name ": "GREE SPLIT AC 24AITH21W",
+            "Net Price": 200000,
+            "Shipping Estimate": 6000,
+            "Final Price Alfa": 235999,
+            "Alfa Real Profit": 6500,
+            "Alfa Reason": "Undercut competitor",
+            "Alfa Risk Alert": "NONE",
+            "Final Price Digi": 234999,
+            "Digi Real Profit": 10388,
+            "Digi Reason": "Capped at sweet-spot (~Rs. 10,000 profit)",
+            "Digi Effective Commision": "10.00%",
+            "Digi Risk Alert": "NONE",
+        },
+        {
+            "S.NO": 3,
+            "Name ": "GREE FLOOR STANDING 36TFIH",
+            "Net Price": 400000,
+            "Shipping Estimate": 15000,
+            "Final Price Alfa": None,
+            "Alfa Real Profit": 0,
+            "Alfa Reason": "Server Down / Unreachable (HTTP 500)",
+            "Alfa Risk Alert": "SERVER_DOWN",
+            "Final Price Digi": 450000,
+            "Digi Real Profit": -200,
+            "Digi Reason": "Corrupt cost base margin loss",
+            "Digi Effective Commision": "10.00%",
+            "Digi Risk Alert": "NEGATIVE_MARGIN",
+        },
+        {
+            "S.NO": 4,
+            "Name ": "GREE SPLIT AC 18AITH24",
+            "Net Price": 160000,
+            "Shipping Estimate": 5000,
+            "Final Price Alfa": None,
+            "Alfa Real Profit": 0,
+            "Alfa Reason": "Skip: all competitors unviable",
+            "Alfa Risk Alert": "SERVER_DOWN",
+            "Final Price Digi": None,
+            "Digi Real Profit": 0,
+            "Digi Reason": "Skip: all competitors unviable",
+            "Digi Effective Commision": "10.00%",
+            "Digi Risk Alert": "SERVER_DOWN",
+        },
+    ]
+
+    # Verify rendering completes cleanly without raising any exceptions
+    render_summary_table(records)
+
+
+def test_pipeline_csv_export_includes_risk_alerts_without_ansi_leakage(tmp_path: Path) -> None:
+    input_csv = tmp_path / "input.csv"
+    output_csv = tmp_path / "output.csv"
+
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name ": "Item 1",
+                "Length": 100,
+                "Width": 50,
+                "Height": 40,
+                "Net Price": 100000,
+                "Profit": 4000,
+            },
+            {
+                "S.NO": 2,
+                "Brand": "Gree",
+                "Name ": "Item 2",
+                "Length": 100,
+                "Width": 50,
+                "Height": 40,
+                "Net Price": 120000,
+                "Profit": 4000,
+            },
+        ]
+    )
+    df.to_csv(input_csv, index=False)
+
+    async def mock_process(
+        product: Any,
+        session: Any,
+        semaphore: Any,
+        render_lock: Any = None,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        if product.sno == 1:
+            return {
+                "S.NO": 1,
+                "Final Price Alfa": 115999,
+                "Final Price Digi": 114899,
+                "Alfa Real Profit": 520,
+                "Digi Real Profit": 1050,
+                "Alfa Reason": "Undercut seller",
+                "Digi Reason": "Undercut seller",
+                "Alfa Risk Alert": "THIN_BUFFER",
+                "Digi Risk Alert": "NONE",
+            }
+        return {
+            "S.NO": 2,
+            "Final Price Alfa": 140999,
+            "Final Price Digi": None,
+            "Alfa Real Profit": 1950,
+            "Digi Real Profit": 0,
+            "Alfa Reason": "Safe Fallback: all below floor",
+            "Digi Reason": "Server Down / Unreachable",
+            "Alfa Risk Alert": "SAFE_FALLBACK",
+            "Digi Risk Alert": "SERVER_DOWN",
+        }
+
+    with patch("pricing_engine.pipeline.process_item_async", side_effect=mock_process):
+        asyncio.run(
+            run_pipeline(input_path=input_csv, output_path=output_csv, concurrency=2, verbose=False)
+        )
+
+    csv_text = output_csv.read_text(encoding="utf-8")
+    lines = [line.strip() for line in csv_text.strip().splitlines()]
+    header = lines[0].split(",")
+
+    # Verify risk alert columns are at the end of the CSV header
+    assert "Alfa Risk Alert" in header
+    assert "Digi Risk Alert" in header
+    assert header[-2] == "Alfa Risk Alert"
+    assert header[-1] == "Digi Risk Alert"
+
+    # Verify rows contain exact clean string values
+    row1 = dict(zip(header, lines[1].split(","), strict=True))
+    row2 = dict(zip(header, lines[2].split(","), strict=True))
+
+    assert row1["Alfa Risk Alert"] == "THIN_BUFFER"
+    assert row1["Digi Risk Alert"] == "NONE"
+    assert row2["Alfa Risk Alert"] == "SAFE_FALLBACK"
+    assert row2["Digi Risk Alert"] == "SERVER_DOWN"
+
+    # Absolute verification: NO Rich/ANSI markup in entire CSV content
+    assert "[" not in csv_text
+    assert "]" not in csv_text
+    assert "bold" not in csv_text
+    assert "red" not in csv_text
+    assert "green" not in csv_text
+    assert "yellow" not in csv_text
+
+
 
 
 

@@ -1,50 +1,47 @@
-# Tasks: Server Down Detection Guard vs. Legitimate Monopoly
+# Tasks: Commercial Traffic-Light Risk Alerts & Telemetry
 
-- [x] **Task 1: Add `ScrapeResult` Data Contract in `pricing_engine/models.py`**
-  - Define `ScrapeResult` dataclass with `offers: list[ScrapedOffer]`, `is_success: bool`, `status_code: int | None`, and `error_detail: str | None`
-  - *Acceptance Criteria:* Model imported cleanly across scraper, evaluator, and pipeline; backward-compatible defaults.
-  - *Verification:* `pytest tests/test_models.py` or `ruff check .`
+- [x] **Task 1: Add `determine_risk_alert` & Extend Output Schema in `pricing_engine/pipeline.py`**
+  - Implement `determine_risk_alert(res: PlatformPricingResult) -> str` supporting priority order: `SERVER_DOWN` -> `SAFE_FALLBACK` -> `THIN_BUFFER` -> `NONE`
+  - Append `"Alfa Risk Alert"` and `"Digi Risk Alert"` to `build_output_record` at the end of the schema
+  - *Acceptance Criteria:* Risk alert strings cleanly populated without fragile string parsing; backward compatibility preserved
+  - *Verification:* `pytest tests/test_pipeline.py`
   - *Dependencies:* None
 
-- [x] **Task 2: Upgrade Scrapers with WAF HTML Guard & Cache Contract in `pricing_engine/scraper.py`**
-  - Return `ScrapeResult(offers=offers, is_success=True, status_code=200)` on valid HTTP 200 responses
-  - Catch **Soft 200 OK** (HTML WAF challenge / non-JSON responses) and mark `is_success=False` with error detail
-  - Return `ScrapeResult(offers=[], is_success=False, status_code=last_code, error_detail=last_err)` when retries are exhausted (500, 429, socket reset, timeout)
-  - Align `_query_cache` type to store `ScrapeResult`; NEVER cache when `is_success is False`
-  - *Acceptance Criteria:* Network aborts, 500s, and WAF HTML challenges return explicit `is_success=False` rather than an ambiguous empty list; zero cache type drift
-  - *Verification:* `pytest tests/test_scraper.py -v`
+- [x] **Task 2: Update Audit Card with Detailed Risk Badges in `pricing_engine/pipeline.py`**
+  - In `render_audit_card`, display detailed visual markers:
+    - Safe Fallback: `[bold red]Rs. 211,999 (SAFE FALLBACK - UNCOMPETITIVE)[/]`
+    - Thin Profit (< 700): `[bold red]+Rs. 502 (THIN BUFFER - VOLUMETRIC RISK)[/]`
+    - Capped Price: `[bold yellow]Rs. 478,999 (CAPPED SWEET-SPOT)[/]`
+    - Server Down: `[bold red][SERVER DOWN - RETRY LATER][/]`
+  - *Acceptance Criteria:* Full audit cards clearly inform merchants about courier weight and uncompetitive price risks
+  - *Verification:* `pytest tests/test_pipeline.py`
   - *Dependencies:* Task 1
 
-- [x] **Task 3: Implement Server Down Guard in `pricing_engine/evaluator.py`**
-  - Support `scrape_success: bool = True` and `error_detail: str | None = None` in `evaluate_alfa_pricing` and `evaluate_digi_pricing`
-  - When `scrape_success is False`: Return `PlatformPricingResult(final_price=None, real_profit=0, status="Server Down / Unreachable", reason=...)`
-  - When `scrape_success is True` and `len(offers) == 0`: Trigger legitimate `Monopoly Win` (+Rs. 4,000 margin)
-  - Ensure **Asymmetric Isolation**: AlfaMall and DigiMall evaluations remain 100% decoupled
-  - *Acceptance Criteria:* Server failures strictly set `final_price=None` (Skip) and never trigger false Monopoly pricing; failure on one portal never affects the other
-  - *Verification:* `pytest tests/test_evaluator.py -v`
+- [x] **Task 3: Implement Zero-Width Cell Styling & Legend in `render_summary_table`**
+  - In `pricing_engine/pipeline.py`, implement cell formatters:
+    - `format_table_price`: Red for Safe Fallback, White for normal win, dim red for DOWN
+    - `format_table_profit`: Null-safe! `None` -> `DOWN`, `<= 0` -> `[bold white on red]`, `< 700` -> `[bold red]`, `>= 700` -> `[bold green]`
+    - `format_table_rate`: Yellow for `8.00%` switch, dim white for `10.00%`
+  - Print 1-line Rich Legend below the table:
+    `🔴 RED: Safe Fallback (Market Dumping) / Thin Profit (< Rs. 700) | 🟡 YELLOW: 8% Bank Switch | 🟢 GREEN: Healthy Win (≥ Rs. 700)`
+  - *Acceptance Criteria:* Terminal table borders remain 100% straight and aligned without text wrapping
+  - *Verification:* `pytest tests/test_pipeline.py`
   - *Dependencies:* Task 1, Task 2
 
-- [x] **Task 4: Pipeline Integration, Rich Terminal Badges & Integer CSV Formatting in `pricing_engine/pipeline.py`**
-  - Unpack `ScrapeResult` in `process_product_with_offers` and pass success flags to evaluators
-  - Render distinct `[bold red][SERVER DOWN - RETRY LATER][/]` badge on terminal card when status is `Server Down / Unreachable`
-  - Implement `format_export_price` in CSV writer to guarantee pure integer string export (`165000` never `165000.0` or float drift when `None` exists)
-  - *Acceptance Criteria:* Output CSV and terminal card clearly inform the merchant that the portal was unreachable; pure integer CSV formatting preserved
-  - *Verification:* `pytest tests/test_pipeline.py -v`
-  - *Dependencies:* Task 2, Task 3
-
-- [x] **Task 5: Comprehensive Unit Test Suite**
-  - Write test for True Monopoly (200 OK + 0 results -> Monopoly Win)
-  - Write test for Server Down 500 (HTTP 500 -> Server Down / Unreachable)
-  - Write test for Soft 200 OK WAF HTML challenge (HTML body -> Server Down / Unreachable)
-  - Write test for Asymmetric Failure (Alfa OK, Digi 500 -> Independent outcomes)
-  - Write test for CSV integer formatting with `None` present (zero float drift)
+- [x] **Task 4: Add Unit Test Suite in `tests/test_pipeline.py`**
+  - Test `determine_risk_alert` with all 4 states (`SERVER_DOWN`, `SAFE_FALLBACK`, `THIN_BUFFER`, `NONE`)
+  - Test `build_output_record` verifies `Alfa Risk Alert` and `Digi Risk Alert` columns
+  - Test CSV export verifies pure integer prices (no `.0`), clean risk alert text, and zero Rich/ANSI tags in CSV file
+  - Test `render_summary_table` and `render_audit_card` execute cleanly with mixed risk inputs without raising `TypeError`
   - *Acceptance Criteria:* Full test suite passes 100% green (`pytest -v`), 0 linter errors (`ruff check .`)
   - *Verification:* `pytest -v && ruff check .`
-  - *Dependencies:* Task 1 to Task 4
+  - *Dependencies:* Task 1 to Task 3
 
-- [x] **Task 6: Live Production Benchmark Verification**
-  - Execute `python index.py` against live catalogs
-  - Verify that healthy live products remain completely unaffected (25/25 correctly repriced)
-  - *Acceptance Criteria:* Total execution finishes under 7 seconds with zero regressions
+- [x] **Task 5: Live Production Benchmark Verification**
+  - Execute `python index.py` on all 25 live Gree AC catalog items
+  - Visually inspect terminal cards and executive summary table for clean alignment and proper color assignment
+  - Inspect output CSV file to ensure clean risk alert columns and zero float drift
+  - *Acceptance Criteria:* Full execution completes under 7 seconds with zero regressions
   - *Verification:* `python index.py`
-  - *Dependencies:* Task 5
+  - *Dependencies:* Task 4
+
