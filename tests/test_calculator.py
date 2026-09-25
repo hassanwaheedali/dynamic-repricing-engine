@@ -192,3 +192,41 @@ def test_undercut_gap_150_selects_round_50_when_no_psychological_price() -> None
     assert profit == 543  # Extra margin protected via round 50 pricing
 
 
+def test_tight_gaps_roundoff_matrix() -> None:
+    # Floor is 173,003.26 -> floor_ceil is 173,004
+    floor_min = 173003.26
+
+    # Case 1: Gap = 20 PKR (Competitor = 173,023) -> selects round 10 (173,020)
+    p_20 = find_winning_psychological_price(floor_min=floor_min, competitor_price=173023.0)
+    assert p_20 == 173020
+    assert p_20 < 173023.0
+    assert p_20 >= floor_min
+    assert p_20 % 10 == 0
+
+    # Case 2: Gap = 15 PKR (Competitor = 173,019) -> selects round 10 (173,010)
+    p_15 = find_winning_psychological_price(floor_min=floor_min, competitor_price=173019.0)
+    assert p_15 == 173010
+    assert p_15 < 173019.0
+    assert p_15 >= floor_min
+    assert p_15 % 10 == 0
+
+    # Case 3: Gap = 60 PKR (Competitor = 173,064) -> selects round 50 (173,050)
+    p_60 = find_winning_psychological_price(floor_min=floor_min, competitor_price=173064.0)
+    assert p_60 == 173050
+    assert p_60 < 173064.0
+    assert p_60 >= floor_min
+    assert p_60 % 50 == 0
+
+    # Case 4: Gap = 5 PKR (Competitor = 173,009) -> selects round 5 (173,005)
+    p_5 = find_winning_psychological_price(floor_min=floor_min, competitor_price=173009.0)
+    assert p_5 == 173005
+    assert p_5 < 173009.0
+    assert p_5 >= floor_min
+    assert p_5 % 5 == 0
+
+    # Case 5: Gap = 0.50 PKR (Competitor = 173,003.70) -> strictly below floor_ceil (173,004) -> None
+    p_unviable = find_winning_psychological_price(floor_min=floor_min, competitor_price=173003.70)
+    assert p_unviable is None
+
+
+
