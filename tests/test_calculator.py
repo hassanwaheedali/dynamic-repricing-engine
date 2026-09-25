@@ -1,0 +1,149 @@
+import math
+
+from pricing_engine.calculator import (
+    calculate_adaptive_target_price,
+    calculate_baseline,
+    calculate_cost_base,
+    calculate_floors,
+    calculate_shipping_estimate,
+    calculate_volumetric_weight,
+    find_winning_psychological_price,
+    get_monopoly_psychological_price,
+)
+
+
+def test_volumetric_weight_calculation() -> None:
+    # 100cm x 50cm x 50cm = 250,000 / 5000 = 50.0 KG
+    weight = calculate_volumetric_weight(100.0, 50.0, 50.0)
+    assert weight == 50.0
+
+
+def test_shipping_estimate_calculation() -> None:
+    # 50.0 KG * 70 PKR/KG = 3500.0 PKR
+    shipping = calculate_shipping_estimate(50.0, rate_per_kg=70.0)
+    assert shipping == 3500.0
+
+
+def test_cost_base_calculation() -> None:
+    cost_base = calculate_cost_base(net_price=70000.0, shipping=3500.0)
+    assert cost_base == 73500.0
+
+
+def test_calculate_floors() -> None:
+    cost_base = 72000.0
+    floors = calculate_floors(cost_base=cost_base, min_profit=500.0)
+
+    # 72000 / 0.90 = 80000.0
+    assert math.isclose(floors.zero_margin_10, 80000.0, rel_tol=1e-5)
+    # 72000 / 0.92 = 78260.8695
+    assert math.isclose(floors.zero_margin_8, 78260.8695, rel_tol=1e-4)
+
+    # (72000 + 500) / 0.90 = 80555.55
+    assert math.isclose(floors.floor_alfa, 80555.5555, rel_tol=1e-4)
+    assert math.isclose(floors.floor_digi_10, 80555.5555, rel_tol=1e-4)
+    # (72000 + 500) / 0.92 = 78804.3478
+    assert math.isclose(floors.floor_digi_8, 78804.3478, rel_tol=1e-4)
+
+
+def test_calculate_baseline() -> None:
+    # (70000 + 5000) / 0.90 = 83333.33
+    baseline = calculate_baseline(cost_base=70000.0, target_profit=5000.0)
+    assert math.isclose(baseline, 83333.3333, rel_tol=1e-4)
+
+
+def test_winning_psychological_price_standard_case() -> None:
+    # Competitor is at 73,000, Floor is at 72,877
+    # 73000 - 100 = 72900
+    # Candidate endings: 72899 is <= 72900 and >= 72877
+    price = find_winning_psychological_price(floor_min=72877.0, competitor_price=73000.0)
+    assert price == 72899
+    assert price < 73000
+    assert price >= 72877
+
+
+def test_winning_psychological_price_tight_margin() -> None:
+    # Competitor at 73,000, Floor at 72,950
+    # Target ceiling 72,900 is below floor 72,950
+    # Fallback to competitor - 1 = 72999 (which is >= 72950)
+    price = find_winning_psychological_price(floor_min=72950.0, competitor_price=73000.0)
+    assert price == 72999
+    assert price < 73000
+    assert price >= 72950
+
+
+def test_winning_psychological_price_unviable() -> None:
+    # Competitor at 72,000, Floor at 72,500 -> impossible to win profitably
+    price = find_winning_psychological_price(floor_min=72500.0, competitor_price=72000.0)
+    assert price is None
+
+
+def test_monopoly_psychological_price() -> None:
+    # Remainder >= 500 -> base + 999
+    assert get_monopoly_psychological_price(74600.0) == 74999
+    # Remainder < 500 -> base + 499
+    assert get_monopoly_psychological_price(74200.0) == 74499
+
+
+def test_adaptive_target_tier5_under_800_tight_gap() -> None:
+    # Gap < 800 PKR (e.g. 600 or 700 PKR) -> Closest Rs. 100 undercut
+    floor = 70000.0
+    competitor_600 = 70600.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_600) == 70500.0
+
+    competitor_700 = 70700.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_700) == 70600.0
+
+
+def test_adaptive_target_tier4_800_to_1500_gap() -> None:
+    # 800 <= Gap < 1,500 PKR (e.g. 800, 900, 1000, 1200) -> Rs. 200 undercut
+    floor = 70000.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=70800.0) == 70600.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=70900.0) == 70700.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=71000.0) == 70800.0
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=71200.0) == 71000.0
+
+
+def test_adaptive_target_tier3_1500_to_2000_gap() -> None:
+    # 1,500 <= Gap < 2,000 PKR (e.g. 1500, 1800, 1900) -> Rs. 500 customer discount, min 1000 buffer
+    floor = 70000.0
+    # Gap = 1,500 -> 71,500 - 500 = 71,000 (Floor + 1,000)
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=71500.0) == 71000.0
+    # Gap = 1,800 -> 71,800 - 500 = 71,300 (Customer gets 500 discount, seller gets 1,300 buffer)
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=71800.0) == 71300.0
+    # Gap = 1,900 -> 71,900 - 500 = 71,400 (Customer gets 500 discount, seller gets 1,400 buffer)
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=71900.0) == 71400.0
+
+
+def test_adaptive_target_tier2_2000_to_10000_gap() -> None:
+    # 2,000 <= Gap < 10,000 PKR (3 Zeros) -> 50% split with min 1,000 buffer
+    floor = 70000.0
+    # Gap = 2,500 -> 50% is 1,250 -> 71,250
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=72500.0) == 71250.0
+    # Gap = 5,000 -> 50% is 2,500 -> 72,500
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=75000.0) == 72500.0
+    # Gap = 9,000 -> 50% is 4,500 -> 74,500
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=79000.0) == 74500.0
+
+
+
+
+def test_adaptive_target_4_zeros_large_gap_item1() -> None:
+    # Gap >= 10,000 PKR: Item #1 scenario
+    # Landed Cost = 430,291, Floor 10% = 478,656.67, Competitor = 489,999.0
+    floor = 478656.67
+    competitor = 489999.0
+    cost_base = 430291.0
+    target = calculate_adaptive_target_price(
+        floor_min=floor,
+        competitor_price=competitor,
+        cost_base=cost_base,
+        payout_rate=0.92,
+        large_gap_profit_target=10000.0,
+    )
+    # Target should be bounded around the 10k profit point
+    price = find_winning_psychological_price(floor_min=floor, competitor_price=competitor, max_ceiling=target)
+    assert price == 478899
+    # Profit at 478,899 on DigiMall: (478899 * 0.92) - 430291 = 10,296 (~10k sweet spot)
+    profit = round((price * 0.92) - cost_base)
+    assert profit == 10296
+
