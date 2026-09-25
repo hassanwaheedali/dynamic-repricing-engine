@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from pricing_engine.models import ScrapedOffer
+from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import (
+    format_export_price,
     parse_product_input,
     process_product_with_offers,
     run_pipeline,
@@ -180,9 +181,9 @@ def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
     assert record["Alfa Real Profit"] == 1078
 
     # Digi caps inflated Scroll (489,999) at Default 10% Tier sweet-spot (~Rs. 10,000 profit):
-    # Selling price 478,899 -> Profit = (478,899 * 0.92) - 430,291 = 10,296
-    assert record["Final Price Digi"] == 478899
-    assert record["Digi Real Profit"] == 10296
+    # Selling price 478,999 -> Profit = (478,999 * 0.92) - 430,291 = 10,388
+    assert record["Final Price Digi"] == 478999
+    assert record["Digi Real Profit"] == 10388
     assert record["Digi Effective Commision"] == "10.00%"
 
 
@@ -305,6 +306,221 @@ def test_pipeline_csv_index_preservation_when_completion_is_unordered(tmp_path: 
     assert list(out_df["S.NO"]) == [1, 2, 3]
     # Temporary sorting key must be removed
     assert "_original_idx" not in out_df.columns
+
+
+def test_process_product_with_offers_server_down_isolation() -> None:
+    product = parse_product_input(
+        0,
+        pd.Series(
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name ": "Gree Split AC 12AITH21W",
+                "Length": 90,
+                "Width": 30,
+                "Height": 30,
+                "Net Price": 80000,
+                "Profit": 3000,
+            }
+        ),
+    )
+    # Alfa is down (500), Digi is live with 0 offers (Monopoly)
+    alfa_down = ScrapeResult(offers=[], is_success=False, status_code=500, error_detail="HTTP 500: Server Error")
+    digi_ok = ScrapeResult(offers=[], is_success=True, status_code=200)
+
+    record = process_product_with_offers(product, alfa_down, digi_ok)
+
+    # AlfaMall must be Server Down (SKIP / NaN, real profit 0)
+    assert record["Final Price Alfa"] is None
+    assert record["Alfa Real Profit"] == 0
+    assert "unreachable" in record["Alfa Reason"].lower()
+    assert "server is down" in record["Alfa Reason"].lower()
+
+    # DigiMall must be unaffected and win legitimate Monopoly
+    assert record["Final Price Digi"] is not None
+    assert record["Digi Real Profit"] >= 4000
+    assert "Monopoly" in record["Digi Reason"]
+
+
+def test_process_product_with_offers_both_servers_down() -> None:
+    product = parse_product_input(
+        0,
+        pd.Series(
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name ": "Gree Split AC 12AITH21W",
+                "Length": 90,
+                "Width": 30,
+                "Height": 30,
+                "Net Price": 80000,
+                "Profit": 3000,
+            }
+        ),
+    )
+    alfa_down = ScrapeResult(offers=[], is_success=False, status_code=502, error_detail="Bad Gateway")
+    digi_down = ScrapeResult(offers=[], is_success=False, status_code=504, error_detail="Gateway Timeout")
+
+    record = process_product_with_offers(product, alfa_down, digi_down)
+
+    assert record["Final Price Alfa"] is None
+    assert record["Final Price Digi"] is None
+    assert record["Alfa Real Profit"] == 0
+    assert record["Digi Real Profit"] == 0
+    assert "unreachable" in record["Alfa Reason"].lower()
+    assert "server is down" in record["Alfa Reason"].lower()
+    assert "unreachable" in record["Digi Reason"].lower()
+    assert "server is down" in record["Digi Reason"].lower()
+
+
+def test_format_export_price_integers_and_nulls() -> None:
+    assert format_export_price(None) == ""
+    assert format_export_price(float("nan")) == ""
+    assert format_export_price("nan") == ""
+    assert format_export_price("NaN") == ""
+    assert format_export_price("") == ""
+    assert format_export_price(165000) == "165000"
+    assert format_export_price(165000.0) == "165000"
+    assert format_export_price("165,000") == "165000"
+    assert format_export_price("165000.0") == "165000"
+    assert format_export_price("invalid") == ""
+
+
+def test_pipeline_csv_export_pure_integers_without_float_drift(tmp_path: Path) -> None:
+    input_csv = tmp_path / "input.csv"
+    output_csv = tmp_path / "output.csv"
+
+    # Row 1 will have price, Row 2 will have None (Server Down simulation)
+    df = pd.DataFrame(
+        [
+            {"S.NO": 1, "Brand": "Gree", "Name ": "Product A", "Net Price": 50000},
+            {"S.NO": 2, "Brand": "Gree", "Name ": "Product B", "Net Price": 60000},
+        ]
+    )
+    df.to_csv(input_csv, index=False)
+
+    async def mock_process(
+        product: Any,
+        session: Any,
+        semaphore: Any,
+        render_lock: Any = None,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        if product.sno == 1:
+            return {
+                "S.NO": product.sno,
+                "Final Price Alfa": 55000,
+                "Final Price Digi": 56000,
+                "Total Without Profit": 52000,
+                "Calculation": 55000,
+                "Minimum Price Alfa": 53000,
+                "Maximum Price Alfa": 58000,
+                "Minimum Price Digi": 54000,
+                "Maximum Price Digi": 59000,
+                "Alfa Real Profit": 2000,
+                "Digi Real Profit": 3000,
+                "Alfa Reason": "Undercut",
+                "Digi Reason": "Undercut",
+            }
+        else:
+            return {
+                "S.NO": product.sno,
+                "Final Price Alfa": None,
+                "Final Price Digi": None,
+                "Total Without Profit": 63000,
+                "Calculation": 66000,
+                "Minimum Price Alfa": None,
+                "Maximum Price Alfa": None,
+                "Minimum Price Digi": None,
+                "Maximum Price Digi": None,
+                "Alfa Real Profit": 0,
+                "Digi Real Profit": 0,
+                "Alfa Reason": "Server Down / Unreachable (HTTP 500)",
+                "Digi Reason": "Server Down / Unreachable (HTTP 500)",
+            }
+
+    with patch("pricing_engine.pipeline.process_item_async", side_effect=mock_process):
+        asyncio.run(
+            run_pipeline(input_path=input_csv, output_path=output_csv, concurrency=2, verbose=False)
+        )
+
+    # Read raw text lines of output CSV to inspect exact string formatting
+    csv_text = output_csv.read_text(encoding="utf-8")
+    lines = [line.strip() for line in csv_text.strip().splitlines()]
+    header = lines[0].split(",")
+    row1 = lines[1].split(",")
+    row2 = lines[2].split(",")
+
+    row1_dict = dict(zip(header, row1, strict=True))
+    row2_dict = dict(zip(header, row2, strict=True))
+
+    # Row 1 should have pure integer strings (no .0 float drift)
+    assert row1_dict["Final Price Alfa"] == "55000"
+    assert row1_dict["Final Price Digi"] == "56000"
+    assert row1_dict["Minimum Price Alfa"] == "53000"
+    assert row1_dict["Alfa Real Profit"] == "2000"
+
+    # Row 2 should have empty string "" for None prices (not NaN or null)
+    assert row2_dict["Final Price Alfa"] == ""
+    assert row2_dict["Final Price Digi"] == ""
+    assert row2_dict["Minimum Price Alfa"] == ""
+    assert row2_dict["Alfa Real Profit"] == "0"
+
+
+def test_render_audit_card_and_summary_with_server_down() -> None:
+    from pricing_engine.calculator import calculate_cost_base, calculate_floors
+    from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
+    from pricing_engine.pipeline import render_audit_card, render_summary_table
+
+    product = parse_product_input(
+        0,
+        pd.Series(
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name ": "Gree Split AC 12AITH21W",
+                "Shipping Estimate": 4000,
+                "Net Price": 150000,
+            }
+        ),
+    )
+    floors = calculate_floors(calculate_cost_base(product.net_price, 4000))
+    down_alfa = ScrapeResult(offers=[], is_success=False, status_code=500, error_detail="HTTP 500")
+    down_digi = ScrapeResult(offers=[], is_success=False, status_code=502, error_detail="HTTP 502")
+
+    alfa_res = evaluate_alfa_pricing(floors, down_alfa)
+    digi_res = evaluate_digi_pricing(floors, down_digi)
+
+    # Must execute and render without any exception
+    render_audit_card(
+        product=product,
+        shipping=4000.0,
+        floors=floors,
+        baseline_calc=171111.0,
+        target_model="12AITH21W",
+        alfa_offers=down_alfa,
+        digi_offers=down_digi,
+        alfa_res=alfa_res,
+        digi_res=digi_res,
+    )
+
+    records = [
+        {
+            "S.NO": 1,
+            "Name ": "Gree Split AC 12AITH21W",
+            "Net Price": 150000,
+            "Shipping Estimate": 4000,
+            "Final Price Alfa": None,
+            "Alfa Real Profit": 0,
+            "Alfa Reason": "Server Down / Unreachable (HTTP 500)",
+            "Final Price Digi": None,
+            "Digi Real Profit": 0,
+            "Digi Reason": "Server Down / Unreachable (HTTP 502)",
+            "Digi Effective Commision": "10.00%",
+        }
+    ]
+    render_summary_table(records)
+
 
 
 

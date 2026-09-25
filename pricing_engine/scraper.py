@@ -6,7 +6,7 @@ from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
 from pricing_engine.matcher import is_strict_model_match
-from pricing_engine.models import ScrapedOffer
+from pricing_engine.models import ScrapedOffer, ScrapeResult
 
 logger = logging.getLogger(__name__)
 console = Console(legacy_windows=False)
@@ -28,8 +28,8 @@ COMMON_HEADERS: dict[str, str] = {
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
-# Run-scoped on-demand cache: (platform, query) -> list[ScrapedOffer]
-_query_cache: dict[tuple[str, str], list[ScrapedOffer]] = {}
+# Run-scoped on-demand cache: (platform, query) -> ScrapeResult
+_query_cache: dict[tuple[str, str], ScrapeResult] = {}
 
 
 def clear_scraper_cache() -> None:
@@ -37,7 +37,7 @@ def clear_scraper_cache() -> None:
     _query_cache.clear()
 
 
-def get_scraper_cache() -> dict[tuple[str, str], list[ScrapedOffer]]:
+def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
     """Return a read-only copy of current query cache."""
     return dict(_query_cache)
 
@@ -48,12 +48,13 @@ async def scrape_alfamall(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
-) -> list[ScrapedOffer]:
+) -> ScrapeResult:
     """Query AlfaMall storefront search API and extract verified product offers with retries.
 
     Features:
     - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
     - Modern Chrome 120 headers.
+    - Soft 200 OK WAF challenge detection & schema validation for both 'results' and 'data' keys.
     - Fast 10.0s timeout with jittered exponential backoff.
     - Live terminal telemetry badges on retries/stalls.
 
@@ -65,20 +66,25 @@ async def scrape_alfamall(
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
 
     Returns:
-        List of ScrapedOffer instances matching target variant.
+        ScrapeResult containing verified offers and explicit success/failure flags.
     """
     cache_key = ("alfamall", query.strip().upper())
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
-        return [
-            ScrapedOffer(
-                vendor_name=o.vendor_name,
-                price=o.price,
-                is_sold_out=o.is_sold_out,
-                raw_title=o.raw_title,
-            )
-            for o in cached
-        ]
+        return ScrapeResult(
+            offers=[
+                ScrapedOffer(
+                    vendor_name=o.vendor_name,
+                    price=o.price,
+                    is_sold_out=o.is_sold_out,
+                    raw_title=o.raw_title,
+                )
+                for o in cached.offers
+            ],
+            is_success=cached.is_success,
+            status_code=cached.status_code,
+            error_detail=cached.error_detail,
+        )
 
     params = {
         "page": "1",
@@ -94,14 +100,38 @@ async def scrape_alfamall(
     }
 
     offers: list[ScrapedOffer] = []
+    last_status: int | None = None
+    last_error: str | None = None
+
     for attempt in range(max_retries):
         try:
             resp = await session.get(
                 ALFA_SEARCH_URL, params=params, headers=headers, timeout=timeout
             )
+            last_status = resp.status_code
+
             if resp.status_code == 200:
-                data = resp.json()
-                for item in data.get("results", []):
+                try:
+                    data = resp.json()
+                except Exception as exc:
+                    last_error = f"Invalid JSON / WAF challenge: {exc}"
+                    logger.warning("AlfaMall returned non-JSON body on 200 OK for query '%s'", query)
+                    continue
+
+                if not isinstance(data, dict):
+                    last_error = "Invalid response schema (expected JSON object)"
+                    continue
+
+                # Support both 'results' and 'data' keys
+                raw_items = data.get("results")
+                if raw_items is None:
+                    raw_items = data.get("data")
+
+                if not isinstance(raw_items, list):
+                    last_error = "Missing results/data array in payload"
+                    continue
+
+                for item in raw_items:
                     title = str(item.get("title", ""))
                     if not is_strict_model_match(title, target_model):
                         continue
@@ -130,12 +160,19 @@ async def scrape_alfamall(
                         )
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
+                result = ScrapeResult(
+                    offers=offers,
+                    is_success=True,
+                    status_code=200,
+                    error_detail=None,
+                )
                 if offers:
-                    _query_cache[cache_key] = list(offers)
+                    _query_cache[cache_key] = result
 
-                return offers
+                return result
 
             elif resp.status_code in (429, 500, 502, 503, 504):
+                last_error = f"HTTP {resp.status_code} Server/Gateway Error"
                 backoff = (0.6 * (2**attempt)) + random.uniform(0.1, 0.3)
                 if resp.status_code == 429:
                     console.print(
@@ -149,11 +186,13 @@ async def scrape_alfamall(
                     )
                 await asyncio.sleep(backoff)
             else:
+                last_error = f"HTTP {resp.status_code} Unexpected Status"
                 logger.warning(
                     "AlfaMall search API returned status %s for query %s", resp.status_code, query
                 )
                 break
         except Exception as exc:
+            last_error = str(exc) or "Network Connection/Timeout Error"
             backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
             err_str = str(exc).lower()
             is_socket_drop = any(
@@ -181,7 +220,12 @@ async def scrape_alfamall(
                     exc,
                 )
 
-    return offers
+    return ScrapeResult(
+        offers=[],
+        is_success=False,
+        status_code=last_status,
+        error_detail=last_error or "Exhausted all retries without successful response",
+    )
 
 
 async def scrape_digimall(
@@ -190,12 +234,13 @@ async def scrape_digimall(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
-) -> list[ScrapedOffer]:
+) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
     Features:
     - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
     - Modern Chrome 120 headers.
+    - Soft 200 OK WAF challenge detection & schema validation for both 'results' and 'data' keys.
     - Fast 10.0s timeout with jittered exponential backoff.
     - Live terminal telemetry badges on retries/stalls.
 
@@ -207,20 +252,25 @@ async def scrape_digimall(
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
 
     Returns:
-        List of ScrapedOffer instances matching target variant.
+        ScrapeResult containing verified offers and explicit success/failure flags.
     """
     cache_key = ("digimall", query.strip().upper())
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
-        return [
-            ScrapedOffer(
-                vendor_name=o.vendor_name,
-                price=o.price,
-                is_sold_out=o.is_sold_out,
-                raw_title=o.raw_title,
-            )
-            for o in cached
-        ]
+        return ScrapeResult(
+            offers=[
+                ScrapedOffer(
+                    vendor_name=o.vendor_name,
+                    price=o.price,
+                    is_sold_out=o.is_sold_out,
+                    raw_title=o.raw_title,
+                )
+                for o in cached.offers
+            ],
+            is_success=cached.is_success,
+            status_code=cached.status_code,
+            error_detail=cached.error_detail,
+        )
 
     params = {
         "storefront": "23",
@@ -235,14 +285,38 @@ async def scrape_digimall(
     }
 
     offers: list[ScrapedOffer] = []
+    last_status: int | None = None
+    last_error: str | None = None
+
     for attempt in range(max_retries):
         try:
             resp = await session.get(
                 DIGI_SEARCH_URL, params=params, headers=headers, timeout=timeout
             )
+            last_status = resp.status_code
+
             if resp.status_code == 200:
-                data = resp.json()
-                for item in data.get("results", []):
+                try:
+                    data = resp.json()
+                except Exception as exc:
+                    last_error = f"Invalid JSON / WAF challenge: {exc}"
+                    logger.warning("DigiMall returned non-JSON body on 200 OK for query '%s'", query)
+                    continue
+
+                if not isinstance(data, dict):
+                    last_error = "Invalid response schema (expected JSON object)"
+                    continue
+
+                # Support both 'results' and 'data' keys
+                raw_items = data.get("results")
+                if raw_items is None:
+                    raw_items = data.get("data")
+
+                if not isinstance(raw_items, list):
+                    last_error = "Missing results/data array in payload"
+                    continue
+
+                for item in raw_items:
                     title = str(item.get("title", ""))
                     if not is_strict_model_match(title, target_model):
                         continue
@@ -271,12 +345,19 @@ async def scrape_digimall(
                         )
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
+                result = ScrapeResult(
+                    offers=offers,
+                    is_success=True,
+                    status_code=200,
+                    error_detail=None,
+                )
                 if offers:
-                    _query_cache[cache_key] = list(offers)
+                    _query_cache[cache_key] = result
 
-                return offers
+                return result
 
             elif resp.status_code in (429, 500, 502, 503, 504):
+                last_error = f"HTTP {resp.status_code} Server/Gateway Error"
                 backoff = (0.6 * (2**attempt)) + random.uniform(0.1, 0.3)
                 if resp.status_code == 429:
                     console.print(
@@ -290,11 +371,13 @@ async def scrape_digimall(
                     )
                 await asyncio.sleep(backoff)
             else:
+                last_error = f"HTTP {resp.status_code} Unexpected Status"
                 logger.warning(
                     "DigiMall search API returned status %s for query %s", resp.status_code, query
                 )
                 break
         except Exception as exc:
+            last_error = str(exc) or "Network Connection/Timeout Error"
             backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
             err_str = str(exc).lower()
             is_socket_drop = any(
@@ -322,4 +405,10 @@ async def scrape_digimall(
                     exc,
                 )
 
-    return offers
+    return ScrapeResult(
+        offers=[],
+        is_success=False,
+        status_code=last_status,
+        error_detail=last_error or "Exhausted all retries without successful response",
+    )
+

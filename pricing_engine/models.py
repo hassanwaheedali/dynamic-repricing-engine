@@ -25,6 +25,25 @@ class ScrapedOffer:
 
 
 @dataclass(frozen=True, slots=True)
+class ScrapeResult:
+    """Rich scrape result contract explicitly distinguishing healthy scrape from server errors."""
+
+    offers: list[ScrapedOffer] = field(default_factory=list)
+    is_success: bool = True
+    status_code: int | None = 200
+    error_detail: str | None = None
+
+    def __iter__(self):
+        return iter(self.offers)
+
+    def __len__(self) -> int:
+        return len(self.offers)
+
+    def __getitem__(self, index: int) -> ScrapedOffer:
+        return self.offers[index]
+
+
+@dataclass(frozen=True, slots=True)
 class PlatformPricingResult:
     """Evaluation result and pricing decision for a single platform."""
 

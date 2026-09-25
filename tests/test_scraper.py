@@ -96,8 +96,70 @@ def test_digimall_cache_guard_prevents_false_monopoly() -> None:
 
         offers = await scrape_digimall(mock_session, "12AITH21W", "12AITH21W", max_retries=1)
         assert len(offers) == 0
+        assert offers.is_success is False
 
         cache = get_scraper_cache()
         assert ("digimall", "12AITH21W") not in cache
+
+    asyncio.run(_test())
+
+
+def test_scraper_soft_200_html_challenge_returns_failure() -> None:
+    async def _test() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        # Simulate HTML WAF challenge where resp.json() raises JSONDecodeError
+        mock_resp.json.side_effect = ValueError("Invalid JSON / HTML challenge")
+
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        result = await scrape_alfamall(mock_session, "36TFIH", "36TFIH", max_retries=1)
+        assert result.is_success is False
+        assert len(result.offers) == 0
+        assert "Invalid JSON" in (result.error_detail or "")
+
+    asyncio.run(_test())
+
+
+def test_scraper_supports_data_key_schema() -> None:
+    async def _test() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        # Storefront returns 'data' key instead of 'results'
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "title": "GREE SPLIT AC 12AITH21W-T3",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "165,999"},
+                    "vendor": {"name": "DataKey Vendor"},
+                }
+            ]
+        }
+
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        result = await scrape_digimall(mock_session, "12AITH21W", "12AITH21W")
+        assert result.is_success is True
+        assert len(result.offers) == 1
+        assert result.offers[0].vendor_name == "DataKey Vendor"
+
+    asyncio.run(_test())
+
+
+def test_scraper_http_500_returns_failure_result() -> None:
+    async def _test() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        result = await scrape_alfamall(mock_session, "36TFIH", "36TFIH", max_retries=1)
+        assert result.is_success is False
+        assert result.status_code == 500
+        assert len(result.offers) == 0
 
     asyncio.run(_test())

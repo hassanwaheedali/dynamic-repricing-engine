@@ -190,6 +190,35 @@ def get_monopoly_psychological_price(raw_target: float) -> int:
     return base + 499
 
 
+def get_fallback_psychological_price(
+    cost_base: float,
+    floor_min: float,
+    payout_rate: float,
+    profit_target: float = 1500.0,
+) -> int:
+    """Calculate attractive psychological price when all market competitors are selling at a loss.
+
+    Ensures the price is strictly above the minimum floor, delivers at least profit_target,
+    and always terminates in standard retail .999 promo ending.
+
+    Args:
+        cost_base: Landed cost base.
+        floor_min: Absolute minimum floor.
+        payout_rate: Bank payout rate (e.g. 0.92 for Digi, 0.90 for Alfa).
+        profit_target: Minimum target profit (default 1500.0 PKR).
+
+    Returns:
+        Attractive integer psychological price ending strictly in 999.
+    """
+    raw_target = (cost_base + profit_target) / payout_rate
+    effective_min = max(raw_target, floor_min)
+    base = (int(effective_min) // 1000) * 1000
+    candidate = base + 999
+    if candidate < effective_min:
+        candidate = (base + 1000) + 999
+    return candidate
+
+
 def calculate_adaptive_target_price(
     floor_min: float,
     competitor_price: float,
@@ -249,8 +278,9 @@ def calculate_adaptive_target_price(
     competitor_ceiling = competitor_price - undercut_buffer
     if cost_base is not None and payout_rate > 0:
         target_profit_price = (cost_base + large_gap_profit_target) / payout_rate
-        # Ensure it stays at least floor_min + 250 (so it never drops below floor)
-        bounded_target = max(target_profit_price, floor_min + 250.0)
+        floor_k = (int(floor_min) // 1000) * 1000
+        next_999 = (floor_k + 999) if (floor_k + 999) >= floor_min else (floor_k + 1999)
+        bounded_target = max(target_profit_price, float(next_999))
         return min(competitor_ceiling, bounded_target)
 
     # Fallback to 50% midpoint if cost_base is not provided

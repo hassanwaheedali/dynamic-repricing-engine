@@ -8,6 +8,7 @@ from pricing_engine.calculator import (
     calculate_shipping_estimate,
     calculate_volumetric_weight,
     find_winning_psychological_price,
+    get_fallback_psychological_price,
     get_monopoly_psychological_price,
 )
 
@@ -142,10 +143,10 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     )
     # Target should be bounded around the 10k profit point
     price = find_winning_psychological_price(floor_min=floor, competitor_price=competitor, max_ceiling=target)
-    assert price == 478899
-    # Profit at 478,899 on DigiMall: (478899 * 0.92) - 430291 = 10,296 (~10k sweet spot)
+    assert price == 478999
+    # Profit at 478,999 on DigiMall: (478999 * 0.92) - 430291 = 10,388 (~10k sweet spot with clean .999 ending)
     profit = round((price * 0.92) - cost_base)
-    assert profit == 10296
+    assert profit == 10388
 
 
 def test_tight_margin_under_100_selects_round_50_item18() -> None:
@@ -227,6 +228,22 @@ def test_tight_gaps_roundoff_matrix() -> None:
     # Case 5: Gap = 0.50 PKR (Competitor = 173,003.70) -> strictly below floor_ceil (173,004) -> None
     p_unviable = find_winning_psychological_price(floor_min=floor_min, competitor_price=173003.70)
     assert p_unviable is None
+
+
+def test_fallback_psychological_price_always_ends_in_999() -> None:
+    # Item #17 numbers: Cost base 137,125, Floor 149,592.39, Payout rate 0.92, Profit target 1,500
+    # Must produce standard psychological ending 150,999 (not 150,899)
+    price = get_fallback_psychological_price(
+        cost_base=137125.0,
+        floor_min=149592.39,
+        payout_rate=0.92,
+        profit_target=1500.0,
+    )
+    assert price == 150999
+    assert price % 1000 == 999
+    assert price >= 149592.39
+    profit = round((price * 0.92) - 137125.0)
+    assert profit == 1794
 
 
 

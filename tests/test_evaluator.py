@@ -1,7 +1,7 @@
 import pytest
 
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
-from pricing_engine.models import CostFloors, ScrapedOffer
+from pricing_engine.models import CostFloors, ScrapedOffer, ScrapeResult
 
 
 @pytest.fixture
@@ -34,17 +34,19 @@ def test_alfa_monopoly_when_zero_offers(sample_floors: CostFloors) -> None:
     assert result.real_profit >= 4000
 
 
-def test_alfa_skip_when_all_sellers_below_floor(sample_floors: CostFloors) -> None:
-    # Floor is 80,555. Both sellers are below floor.
+def test_alfa_safe_fallback_when_all_sellers_below_floor(sample_floors: CostFloors) -> None:
+    # Floor is 80,555. Both sellers are below floor. Must produce Safe Fallback price, NOT None.
     offers = [
         ScrapedOffer(vendor_name="V1", price=79000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="V2", price=80000.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_alfa_pricing(cost_floors=sample_floors, offers=offers)
-    assert result.status == "Skip / Unviable"
-    assert result.final_price is None
-    assert result.real_profit == 0
+    assert result.status == "Safe Fallback"
+    assert result.final_price is not None
+    assert result.final_price >= sample_floors.floor_alfa
+    assert result.real_profit >= 1500
     assert len(result.dropped) == 2
+    assert "Safe Fallback Price" in result.reason
 
 
 def test_alfa_competitive_win_undercut(sample_floors: CostFloors) -> None:
@@ -142,17 +144,19 @@ def test_digi_upper_band_win_when_lowest_below_8_percent(sample_floors: CostFloo
     assert len(result_10.dropped) == 1
 
 
-def test_digi_skip_when_all_below_8_percent(sample_floors: CostFloors) -> None:
-    # 8% floor is 78,804.35. All sellers below 78,000.
+def test_digi_safe_fallback_when_all_below_8_percent(sample_floors: CostFloors) -> None:
+    # 8% floor is 78,804.35. All sellers below 78,000. Must produce Safe Fallback price, NOT None.
     offers = [
         ScrapedOffer(vendor_name="SellerA", price=77000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="SellerB", price=76500.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
-    assert result.status == "Skip / Unviable"
-    assert result.final_price is None
-    assert result.real_profit == 0
+    assert result.status == "Safe Fallback"
+    assert result.final_price is not None
+    assert result.final_price >= sample_floors.floor_digi_8
+    assert result.real_profit >= 1500
     assert result.effective_comm == "8.00%"
+    assert "Safe Fallback Price" in result.reason
 
 
 def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
@@ -180,10 +184,10 @@ def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
     # Must win at Default 10% Tier, NOT 8% Emergency Switch!
     assert result.status == "Safe Win (10% Tier)"
     assert result.effective_comm == "10.00%"
-    assert result.final_price == 478899
-    assert result.real_profit == 10296  # +Rs. 10,296 (~10k sweet spot)
+    assert result.final_price == 478999
+    assert result.real_profit == 10388  # +Rs. 10,388 (~10k sweet spot with clean .999)
     assert len(result.dropped) == 4
-    assert "sweet-spot price Rs. 478,899" in result.reason
+    assert "sweet-spot price Rs. 478,999" in result.reason
 
 
 
@@ -249,5 +253,92 @@ def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> N
     assert result.real_profit == 543
     assert len(result.dropped) == 5
     assert "gap is tight. Undercut to winning rounded price Rs. 173,050 with guaranteed +Rs. 543 profit." in result.reason
+
+
+def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
+    # Item #17: Cost Base 137,125. 8% Floor (+500) = 149,592.
+    # Competitor iShopping Team at 146,849 is selling at a loss.
+    cost_base = 137125.0
+    floors = CostFloors(
+        cost_base=cost_base,
+        zero_margin_10=cost_base / 0.90,
+        zero_margin_8=cost_base / 0.92,
+        floor_alfa=(cost_base + 500.0) / 0.90,
+        floor_digi_10=(cost_base + 500.0) / 0.90,
+        floor_digi_8=(cost_base + 500.0) / 0.92,
+    )
+    offers = [
+        ScrapedOffer(vendor_name="iShopping Team", price=146849.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
+
+    # Must produce Safe Fallback price: 150,999 with profit +1,794
+    assert result.status == "Safe Fallback"
+    assert result.effective_comm == "8.00%"
+    assert result.final_price == 150999
+    assert result.real_profit == 1794
+    assert len(result.dropped) == 1
+    assert "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit)" in result.reason
+
+
+def test_alfa_server_down_does_not_trigger_false_monopoly(sample_floors: CostFloors) -> None:
+    # When remote server crashes with 500, MUST set Server Down / Unreachable, NOT Monopoly!
+    scrape_fail = ScrapeResult(
+        offers=[],
+        is_success=False,
+        status_code=500,
+        error_detail="HTTP 500 Internal Server Error",
+    )
+    result = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_fail)
+
+    assert result.status == "Server Down / Unreachable"
+    assert result.final_price is None
+    assert result.real_profit == 0
+    assert "500" in result.reason
+    assert "Skipped to prevent blind mispricing" in result.reason
+
+
+def test_digi_server_down_does_not_trigger_false_monopoly(sample_floors: CostFloors) -> None:
+    # When remote server times out, MUST set Server Down / Unreachable, NOT Monopoly!
+    scrape_fail = ScrapeResult(
+        offers=[],
+        is_success=False,
+        status_code=504,
+        error_detail="Gateway Timeout after 3 retries",
+    )
+    result = evaluate_digi_pricing(cost_floors=sample_floors, offers=scrape_fail)
+
+    assert result.status == "Server Down / Unreachable"
+    assert result.final_price is None
+    assert result.real_profit == 0
+    assert "Gateway Timeout" in result.reason
+    assert "Skipped to prevent blind mispricing" in result.reason
+
+
+def test_asymmetric_portal_failure_isolated(sample_floors: CostFloors) -> None:
+    # AlfaMall succeeds with viable seller, DigiMall fails with 500.
+    # Neither should corrupt or block the other!
+    alfa_success = ScrapeResult(
+        offers=[ScrapedOffer(vendor_name="LiveSeller", price=82000.0, is_sold_out=False, raw_title="AC")],
+        is_success=True,
+    )
+    digi_fail = ScrapeResult(
+        offers=[],
+        is_success=False,
+        status_code=500,
+        error_detail="WAF 500 Server Error",
+    )
+
+    alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=alfa_success)
+    digi_res = evaluate_digi_pricing(cost_floors=sample_floors, offers=digi_fail)
+
+    # Alfa successfully undercuts
+    assert alfa_res.final_price is not None
+    assert alfa_res.final_price < 82000.0
+    assert alfa_res.status == "Competitive Win"
+
+    # Digi cleanly reports Server Down
+    assert digi_res.final_price is None
+    assert digi_res.status == "Server Down / Unreachable"
 
 

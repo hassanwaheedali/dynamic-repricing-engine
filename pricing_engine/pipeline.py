@@ -26,6 +26,7 @@ from pricing_engine.models import (
     PlatformPricingResult,
     ProductInput,
     ScrapedOffer,
+    ScrapeResult,
 )
 from pricing_engine.scraper import scrape_alfamall, scrape_digimall
 
@@ -39,6 +40,26 @@ logger = logging.getLogger(__name__)
 
 ZONE_PRICE: float = 70.0
 DIVISOR: float = 5000.0
+
+
+def format_export_price(val: Any) -> str:
+    """Format integer price values for CSV export without float drift (.0) or empty on None/NaN.
+
+    Args:
+        val: Numeric, None, or NaN price value.
+
+    Returns:
+        Pure integer string (e.g. '165000') or empty string '' if None/NaN.
+    """
+    if val is None or pd.isna(val):
+        return ""
+    try:
+        clean = str(val).replace(",", "").strip()
+        if not clean or clean.lower() == "nan" or clean.lower() == "none":
+            return ""
+        return str(int(round(float(clean))))
+    except (ValueError, TypeError):
+        return ""
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -141,15 +162,15 @@ def build_output_record(
 
 def process_product_with_offers(
     product: ProductInput,
-    alfa_offers: list[ScrapedOffer],
-    digi_offers: list[ScrapedOffer],
+    alfa_offers: list[ScrapedOffer] | ScrapeResult,
+    digi_offers: list[ScrapedOffer] | ScrapeResult,
 ) -> dict[str, Any]:
     """Execute complete cost math and pricing decisions given fetched competitor offers.
 
     Args:
         product: ProductInput instance.
-        alfa_offers: Offers scraped from AlfaMall.
-        digi_offers: Offers scraped from DigiMall.
+        alfa_offers: Offers scraped from AlfaMall (or ScrapeResult).
+        digi_offers: Offers scraped from DigiMall (or ScrapeResult).
 
     Returns:
         Repriced output dictionary.
@@ -239,8 +260,8 @@ def render_finish_banner(
 
 def build_scraped_sellers_table(
     floors: CostFloors,
-    alfa_offers: list[ScrapedOffer],
-    digi_offers: list[ScrapedOffer],
+    alfa_offers: list[ScrapedOffer] | ScrapeResult,
+    digi_offers: list[ScrapedOffer] | ScrapeResult,
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
 ) -> Table:
@@ -258,11 +279,19 @@ def build_scraped_sellers_table(
     tbl.add_column("Engine Evaluation / Status", ratio=1)
 
     # 1. AlfaMall Scraped Competitors
-    active_alfa = [o for o in alfa_offers if not o.is_sold_out]
-    sorted_alfa = sorted(active_alfa, key=lambda x: x.price)
-    sold_out_alfa = [o for o in alfa_offers if o.is_sold_out]
+    is_alfa_down = (
+        alfa_res.status == "Server Down / Unreachable"
+        or (isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success)
+    )
 
-    if not alfa_offers:
+    if is_alfa_down:
+        tbl.add_row(
+            "[bold #2c4699]AlfaMall[/]",
+            "[bold red]Connection Failed[/]",
+            "[dim]N/A[/]",
+            "[bold red]Remote Portal Down / Unreachable (Skipped)[/]",
+        )
+    elif not alfa_offers:
         tbl.add_row(
             "[bold #2c4699]AlfaMall[/]",
             "[dim]No sellers found[/]",
@@ -270,6 +299,10 @@ def build_scraped_sellers_table(
             "[bold cyan]Monopoly Pricing (+Rs. 4,000 margin)[/]",
         )
     else:
+        active_alfa = [o for o in alfa_offers if not o.is_sold_out]
+        sorted_alfa = sorted(active_alfa, key=lambda x: x.price)
+        sold_out_alfa = [o for o in alfa_offers if o.is_sold_out]
+
         lowest_viable_alfa = min(
             (o for o in sorted_alfa if o.price > floors.floor_alfa),
             key=lambda x: x.price,
@@ -304,13 +337,21 @@ def build_scraped_sellers_table(
             )
 
     # 2. DigiMall Scraped Competitors
-    active_digi = [o for o in digi_offers if not o.is_sold_out]
-    sorted_digi = sorted(active_digi, key=lambda x: x.price)
-    sold_out_digi = [o for o in digi_offers if o.is_sold_out]
+    is_digi_down = (
+        digi_res.status == "Server Down / Unreachable"
+        or (isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success)
+    )
 
     hard_digi_floor = floors.floor_digi_8
 
-    if not digi_offers:
+    if is_digi_down:
+        tbl.add_row(
+            "[bold #229693]DigiMall[/]",
+            "[bold red]Connection Failed[/]",
+            "[dim]N/A[/]",
+            "[bold red]Remote Portal Down / Unreachable (Skipped)[/]",
+        )
+    elif not digi_offers:
         tbl.add_row(
             "[bold #229693]DigiMall[/]",
             "[dim]No sellers found[/]",
@@ -318,6 +359,10 @@ def build_scraped_sellers_table(
             "[bold cyan]Baseline Undercut (+2% margin)[/]",
         )
     else:
+        active_digi = [o for o in digi_offers if not o.is_sold_out]
+        sorted_digi = sorted(active_digi, key=lambda x: x.price)
+        sold_out_digi = [o for o in digi_offers if o.is_sold_out]
+
         lowest_viable_digi = min(
             (o for o in sorted_digi if o.price > hard_digi_floor),
             key=lambda x: x.price,
@@ -361,8 +406,8 @@ def render_audit_card(
     floors: CostFloors,
     baseline_calc: float,
     target_model: str,
-    alfa_offers: list[ScrapedOffer],
-    digi_offers: list[ScrapedOffer],
+    alfa_offers: list[ScrapedOffer] | ScrapeResult,
+    digi_offers: list[ScrapedOffer] | ScrapeResult,
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
 ) -> None:
@@ -425,17 +470,32 @@ def render_audit_card(
     plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
 
     # Active offers summary
-    alfa_active_count = len([o for o in alfa_offers if not o.is_sold_out])
-    alfa_drop_count = len(alfa_res.dropped)
-    alfa_offers_str = f"{alfa_active_count} verified offers"
-    if alfa_drop_count > 0:
-        alfa_offers_str += f" ({alfa_drop_count} dropped)"
+    is_alfa_down = (
+        alfa_res.status == "Server Down / Unreachable"
+        or (isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success)
+    )
+    is_digi_down = (
+        digi_res.status == "Server Down / Unreachable"
+        or (isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success)
+    )
 
-    digi_active_count = len([o for o in digi_offers if not o.is_sold_out])
-    digi_drop_count = len(digi_res.dropped)
-    digi_offers_str = f"{digi_active_count} verified offers"
-    if digi_drop_count > 0:
-        digi_offers_str += f" ({digi_drop_count} dropped)"
+    if is_alfa_down:
+        alfa_offers_str = "[bold red]Connection Failed (Down)[/]"
+    else:
+        alfa_active_count = len([o for o in alfa_offers if not o.is_sold_out])
+        alfa_drop_count = len(alfa_res.dropped)
+        alfa_offers_str = f"{alfa_active_count} verified offers"
+        if alfa_drop_count > 0:
+            alfa_offers_str += f" ({alfa_drop_count} dropped)"
+
+    if is_digi_down:
+        digi_offers_str = "[bold red]Connection Failed (Down)[/]"
+    else:
+        digi_active_count = len([o for o in digi_offers if not o.is_sold_out])
+        digi_drop_count = len(digi_res.dropped)
+        digi_offers_str = f"{digi_active_count} verified offers"
+        if digi_drop_count > 0:
+            digi_offers_str += f" ({digi_drop_count} dropped)"
 
     plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
 
@@ -448,29 +508,37 @@ def render_audit_card(
     plat_tbl.add_row("Bank Commission", "10.00% Standard", digi_comm_badge)
 
     # Final Price
-    alfa_p_str = (
-        f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
-        if alfa_res.final_price is not None
-        else "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
-    )
-    digi_p_str = (
-        f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
-        if digi_res.final_price is not None
-        else "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
-    )
+    if alfa_res.status == "Server Down / Unreachable":
+        alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
+    elif alfa_res.final_price is not None:
+        alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
+    else:
+        alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
+
+    if digi_res.status == "Server Down / Unreachable":
+        digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
+    elif digi_res.final_price is not None:
+        digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
+    else:
+        digi_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
+
     plat_tbl.add_row("Final Price", alfa_p_str, digi_p_str)
 
     # Real Profit
-    alfa_prof_str = (
-        f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
-        if alfa_res.final_price is not None
-        else "[dim]Rs. 0 (Loss Prevented)[/]"
-    )
-    digi_prof_str = (
-        f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
-        if digi_res.final_price is not None
-        else "[dim]Rs. 0 (Loss Prevented)[/]"
-    )
+    if alfa_res.status == "Server Down / Unreachable":
+        alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
+    elif alfa_res.final_price is not None:
+        alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
+    else:
+        alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
+
+    if digi_res.status == "Server Down / Unreachable":
+        digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
+    elif digi_res.final_price is not None:
+        digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
+    else:
+        digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
+
     plat_tbl.add_row("Real Net Profit", alfa_prof_str, digi_prof_str)
     plat_tbl.add_row("Strategy Reason", alfa_res.reason, digi_res.reason)
 
@@ -611,28 +679,35 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         ship_val = _safe_float(rec.get("Shipping Estimate", 0))
         real_cost_str = f"{(net_val + ship_val):,.0f}"
 
-        alfa_p = (
-            f"{int(rec['Final Price Alfa']):,}"
-            if pd.notna(rec.get("Final Price Alfa")) and rec.get("Final Price Alfa") is not None
-            else "SKIP"
-        )
-        alfa_profit = (
-            f"+{int(rec.get('Alfa Real Profit', 0)):,}"
-            if alfa_p != "SKIP"
-            else "0"
-        )
+        alfa_p_val = rec.get("Final Price Alfa")
+        alfa_reason = str(rec.get("Alfa Reason", ""))
+        alfa_reason_lower = alfa_reason.lower()
+        if "server is down" in alfa_reason_lower or "unreachable" in alfa_reason_lower or "server down" in alfa_reason_lower:
+            alfa_p = "[bold red]DOWN[/]"
+            alfa_profit = "[dim red]0[/]"
+        elif pd.notna(alfa_p_val) and alfa_p_val is not None and str(alfa_p_val).strip() != "":
+            alfa_p = f"{int(float(alfa_p_val)):,}"
+            alfa_profit = f"+{int(float(rec.get('Alfa Real Profit', 0))):,}"
+        else:
+            alfa_p = "SKIP"
+            alfa_profit = "0"
 
-        digi_p = (
-            f"{int(rec['Final Price Digi']):,}"
-            if pd.notna(rec.get("Final Price Digi")) and rec.get("Final Price Digi") is not None
-            else "SKIP"
-        )
+        digi_p_val = rec.get("Final Price Digi")
+        digi_reason = str(rec.get("Digi Reason", ""))
+        digi_reason_lower = digi_reason.lower()
+        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or "server down" in digi_reason_lower:
+            digi_p = "[bold red]DOWN[/]"
+            digi_profit = "[dim red]0[/]"
+        elif pd.notna(digi_p_val) and digi_p_val is not None and str(digi_p_val).strip() != "":
+            digi_p = f"{int(float(digi_p_val)):,}"
+            digi_profit = f"+{int(float(rec.get('Digi Real Profit', 0))):,}"
+        else:
+            digi_p = "SKIP"
+            digi_profit = "0"
+
         digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
-        digi_profit = (
-            f"+{int(rec.get('Digi Real Profit', 0)):,}"
-            if digi_p != "SKIP"
-            else "0"
-        )
+        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or "server down" in digi_reason_lower:
+            digi_comm = "[dim red]N/A[/]"
 
         table.add_row(
             sno,
@@ -719,6 +794,23 @@ async def run_pipeline(
         records.append(r)
 
     out_df = pd.DataFrame(records)
+
+    price_int_cols = [
+        "Total Without Profit",
+        "Calculation",
+        "Minimum Price Alfa",
+        "Maximum Price Alfa",
+        "Minimum Price Digi",
+        "Maximum Price Digi",
+        "Final Price Alfa",
+        "Final Price Digi",
+        "Alfa Real Profit",
+        "Digi Real Profit",
+    ]
+    for col in price_int_cols:
+        if col in out_df.columns:
+            out_df[col] = out_df[col].apply(format_export_price)
+
     out_df.to_csv(output_path, index=False)
 
     if verbose and records:
