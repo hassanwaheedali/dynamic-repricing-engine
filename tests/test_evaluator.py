@@ -219,7 +219,7 @@ def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
     assert result.final_price == 165799
     assert result.real_profit == round((165799 * 0.92) - 150978)  # +Rs. 1,557 profit
     assert len(result.dropped) == 1
-    assert "emergency 8% bank rate" in result.reason
+    assert "emergency 8% Faysal Bank rate" in result.reason
 
 
 def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> None:
@@ -278,7 +278,7 @@ def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
     assert result.final_price == 150999
     assert result.real_profit == 1794
     assert len(result.dropped) == 1
-    assert "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit)" in result.reason
+    assert "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit on 8% Faysal Bank rate)" in result.reason
 
 
 def test_alfa_server_down_does_not_trigger_false_monopoly(sample_floors: CostFloors) -> None:

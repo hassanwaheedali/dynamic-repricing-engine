@@ -866,7 +866,7 @@ def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
         ),
     )
 
-    _, model_code = extract_search_query_and_model(product.name)
+    _, model_code = extract_search_query_and_model(product.name, brand=product.brand)
 
     raw_offers = [
         # Cheaper Gen 1 offer that must be filtered out
@@ -921,7 +921,7 @@ def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
         ),
     )
 
-    _, model_code = extract_search_query_and_model(product.name)
+    _, model_code = extract_search_query_and_model(product.name, brand=product.brand)
 
     digi_raw = [
         ScrapedOffer(
@@ -958,7 +958,7 @@ def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
     assert record["Digi Real Profit"] == 1119
     # 4. Reason documents Tech House undercut and 8% bank rate
     assert "tech house" in record["Digi Reason"].lower()
-    assert "8% bank rate" in record["Digi Reason"].lower()
+    assert "8% faysal bank rate" in record["Digi Reason"].lower()
     # 5. Risk Alert is NONE
     assert record["Digi Risk Alert"] == "NONE"
 

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,7 +34,7 @@ class ScrapeResult:
     status_code: int | None = 200
     error_detail: str | None = None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)
 
     def __len__(self) -> int:

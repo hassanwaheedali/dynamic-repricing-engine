@@ -220,3 +220,83 @@ def test_strict_model_match_universal_multivariant_expansion() -> None:
     assert is_strict_model_match(floor_title, "24FITH1")
     assert is_strict_model_match(floor_title, "24FITH2")
     assert not is_strict_model_match(floor_title, "24FITH3")
+
+    # 4. Hyphenated and parenthesized variants
+    assert is_strict_model_match("Gree Zeno Inverter GS-18ZITH-1W/2W/3W", "GS-18ZITH2W-T3")
+    assert is_strict_model_match("Gree Zeno Inverter GS-18ZITH (1W/2W/3W)", "GS-18ZITH2W-T3")
+    assert is_strict_model_match("Gree Zeno Inverter GS-18ZITH [1W/2W/3W]", "GS-18ZITH2W-T3")
+    assert is_strict_model_match("Gree 2.0 Ton Pular GS-24PITH (15/17G)", "GS-24PITH17G-T3")
+    assert is_strict_model_match("Gree 1.0 Ton Airy GS-12AITH24 (W/S)", "GS-12AITH24W-T3")
+
+    # 5. Commercial Floor Standing capacity isolation (24 vs 36 Ton)
+    assert not is_strict_model_match("Gree Floor Standing GF-24TFIH 2 Ton", "36TFIH")
+    assert not is_strict_model_match("Gree Floor Standing GF-36TFIH 3 Ton", "24TFIH")
+
+
+def test_electronics_world_headline_case() -> None:
+    """Verify headline case: Electronics World listing with hyphenated tag on both sides."""
+    title_ew = "Gree GS-24AITH21W-T3/21B-T3 2.0 Ton Inverter Split AC"
+    assert is_strict_model_match(title_ew, "24AITH21B-T3")
+    assert is_strict_model_match(title_ew, "24AITH21W-T3")
+    assert is_strict_model_match(title_ew, "24AITH21B")
+    assert is_strict_model_match(title_ew, "24AITH21W")
+    assert not is_strict_model_match(title_ew, "24AITH21S-T3")
+
+    # Cross-color isolation: pure black vs pure white must NEVER match
+    black_only = "Gree GS-24AITH21B-T3 2.0 Ton Inverter Split AC"
+    assert is_strict_model_match(black_only, "24AITH21B")
+    assert not is_strict_model_match(black_only, "24AITH21W")
+    white_only = "Gree GS-24AITH21W-T3 2.0 Ton Inverter Split AC"
+    assert is_strict_model_match(white_only, "24AITH21W")
+    assert not is_strict_model_match(white_only, "24AITH21B")
+
+
+def test_multibrand_extractor_and_compound_colors() -> None:
+    """Verify brand-agnostic extraction across 768 products, stripping compound colors without hardcoded lists."""
+    test_cases = [
+        ("DAW AUTO W/M DWT-1165 PL", "Dawlance", "DWT-1165", "DWT-1165 PL"),
+        ("DAW AUTO W/M DWT-11671 FLT", "Dawlance", "DWT-11671", "DWT-11671 FLT"),
+        ("DAW AUTO W/M DWT-1006 MYSTIC GREY", "Dawlance", "DWT-1006", "DWT-1006"),
+        ("DAW AUTO W/M DWT-14470 ES", "Dawlance", "DWT-14470", "DWT-14470 ES"),
+        ("HAIER AUTO W/M 100-1269 S6", "Haier", "100-1269", "100-1269 S6"),
+        ("HAIER AUTO W/M 100-316S6 GC", "Haier", "100-316S6", "100-316S6 GC"),
+        ("HAIER AUTO W/M 110-688S8 BLACK -", "Haier", "110-688S8", "110-688S8"),
+        ("HOMAGE M/O HDG-201S", "Homage", "HDG-201S", "HDG-201S"),
+        ("HOMAGE M/OVEN HDG-2312B", "Homage", "HDG-2312B", "HDG-2312B"),
+        ("KENWOOD CASSETTE 1.5TON NORMAL KCT-1801H", "Kenwood", "KCT-1801H", "KCT-1801H"),
+        ("MIDEA CASSETTE 2TON INVERTER MCD1-24HRDN1", "Midea", "MCD1-24HRDN1", "MCD1-24HRDN1"),
+        ("UCOOL AIR CURTAIN 3FEET UCA-315Y", "UCOOL", "UCA-315Y", "UCA-315Y"),
+        ("MOULINEX BLENDER 3IN1 LM242025", "Moulinex", "LM242025", "LM242025"),
+        ("ECOSTAR SPLIT AC 1 ΤΟN 12NV01WT3", "EcoStar", "12NV01WT3", "12NV01WT3"),
+        ("MIDEA DISHWAHSER WQP12-5201F INVERTER BLACK 13SETS", "Midea", "WQP12", "WQP12-5201F"),
+        ("HOMAGE SDA SANDWICH MAKER 3IN1 HSM-70300-", "Homage", "HSM-70300", "HSM-70300"),
+    ]
+    for full_name, brand, exp_query, exp_model in test_cases:
+        q, m = extract_search_query_and_model(full_name, brand)
+        assert q == exp_query, f"Failed query for {full_name}: got {q}, expected {exp_query}"
+        assert m == exp_model, f"Failed model for {full_name}: got {m}, expected {exp_model}"
+
+
+def test_multibrand_slash_multivariant_expansion() -> None:
+    """Verify that multi-brand slash models (Dawlance, Homage) expand correctly."""
+    # Dawlance washing machines
+    daw_title = "Dawlance Auto W/M DWT-1165/1167 PL Glass Door"
+    assert is_strict_model_match(daw_title, "DWT-1165 PL")
+    assert is_strict_model_match(daw_title, "DWT-1167 PL")
+    assert not is_strict_model_match(daw_title, "DWT-1168 PL")
+
+    # Homage microwave ovens
+    homage_title = "Homage Microwave Oven HDG-2312/2313B Digital"
+    assert is_strict_model_match(homage_title, "HDG-2312B")
+    assert is_strict_model_match(homage_title, "HDG-2313B")
+    assert not is_strict_model_match(homage_title, "HDG-2314B")
+
+
+def test_non_model_safeguards_unmodified() -> None:
+    """Verify category acronyms and fractions are 100% untouched."""
+    from pricing_engine.matcher import expand_multivariant_titles
+
+    assert expand_multivariant_titles("DAW AUTO W/M DWT-1165 PL") == "DAW AUTO W/M DWT-1165 PL"
+    assert expand_multivariant_titles("DAW D/F 9199 H&C Inverter") == "DAW D/F 9199 H&C Inverter"
+    assert expand_multivariant_titles("Gree Inverter Heat / Cool Split AC") == "Gree Inverter Heat / Cool Split AC"
+    assert expand_multivariant_titles("Midea Front Load 12W/8D KG") == "Midea Front Load 12W/8D KG"

@@ -529,11 +529,10 @@ def render_audit_card(
     plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
 
     # Commission tier applied
-    digi_comm_badge = (
-        f"[bold blue]{digi_res.effective_comm} Emergency Switch[/]"
-        if digi_res.effective_comm == "8.00%"
-        else "10.00% Default Tier"
-    )
+    if digi_res.effective_comm == "8.00%":
+        digi_comm_badge = "[bold blue]8.00% Emergency Switch[/]"
+    else:
+        digi_comm_badge = "[#229693]8% + 2% Spread[/]"
     plat_tbl.add_row("Bank Commission", "10.00% Standard", digi_comm_badge)
 
     # Final Price
@@ -618,7 +617,7 @@ async def process_item_async(
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
-    search_q, target_model = extract_search_query_and_model(product.name)
+    search_q, target_model = extract_search_query_and_model(product.name, brand=product.brand)
 
     async with semaphore:
         alfa_task = scrape_alfamall(session, search_q, target_model)
