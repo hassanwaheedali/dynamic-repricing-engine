@@ -147,3 +147,48 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     profit = round((price * 0.92) - cost_base)
     assert profit == 10296
 
+
+def test_tight_margin_under_100_selects_round_50_item18() -> None:
+    # Item #18 scenario: Competitor at 173,099, 8% Floor at 173,003.26 (Gap = 95.74 PKR)
+    # System selects clean rounded price 173,050 (multiple of 50) below competitor
+    floor_min = 173003.26
+    competitor = 173099.0
+    cost_base = 158663.0
+
+    target = calculate_adaptive_target_price(
+        floor_min=floor_min,
+        competitor_price=competitor,
+        cost_base=cost_base,
+        payout_rate=0.92,
+    )
+    price = find_winning_psychological_price(floor_min=floor_min, competitor_price=competitor, max_ceiling=target)
+
+    assert price == 173050
+    assert price < competitor
+    assert price >= floor_min
+    profit = round((price * 0.92) - cost_base)
+    assert profit == 543  # Clean +543 PKR profit protected (above 500 guarantee)
+
+
+def test_undercut_gap_150_selects_round_50_when_no_psychological_price() -> None:
+    # Gap = 150 PKR: Competitor at 173,153, Floor at 173,003.26
+    # Target ceiling is 173,053. Highest clean multiple of 50 is 173,050
+    floor_min = 173003.26
+    competitor = 173153.0
+    cost_base = 158663.0
+
+    target = calculate_adaptive_target_price(
+        floor_min=floor_min,
+        competitor_price=competitor,
+        cost_base=cost_base,
+        payout_rate=0.92,
+    )
+    price = find_winning_psychological_price(floor_min=floor_min, competitor_price=competitor, max_ceiling=target)
+
+    assert price == 173050
+    assert price < competitor
+    assert price >= floor_min
+    profit = round((price * 0.92) - cost_base)
+    assert profit == 543  # Extra margin protected via round 50 pricing
+
+

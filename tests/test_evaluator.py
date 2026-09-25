@@ -217,3 +217,37 @@ def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
     assert len(result.dropped) == 1
     assert "emergency 8% bank rate" in result.reason
 
+
+def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> None:
+    # Item #18: Split AC GS-18PITC12W-T3 (Cost Base 158,663)
+    # 8% Floor (+500) = (158,663 + 500) / 0.92 = 173,003.26
+    # Lowest viable is YZ international at 173,099.0 (Gap = 95.74 PKR)
+    cost_base = 158663.0
+    floors = CostFloors(
+        cost_base=cost_base,
+        zero_margin_10=cost_base / 0.90,
+        zero_margin_8=cost_base / 0.92,
+        floor_alfa=(cost_base + 500.0) / 0.90,
+        floor_digi_10=(cost_base + 500.0) / 0.90,
+        floor_digi_8=(cost_base + 500.0) / 0.92,
+    )
+    offers = [
+        ScrapedOffer(vendor_name="iShopping Team", price=168749.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="Electronics World", price=171304.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="Musab Mall", price=171999.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="YZ international", price=172099.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="YZ international", price=172999.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="YZ international", price=173099.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="EZZI TRADERS", price=180549.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
+
+    # Must NOT skip! Must win at 8% rounded price 173,050 with guaranteed +543 profit
+    assert result.status == "Win via 8% Switch"
+    assert result.effective_comm == "8.00%"
+    assert result.final_price == 173050
+    assert result.real_profit == 543
+    assert len(result.dropped) == 5
+    assert "gap is tight. Undercut to winning rounded price Rs. 173,050 with guaranteed +Rs. 543 profit." in result.reason
+
+

@@ -116,33 +116,58 @@ def find_winning_psychological_price(
     if competitor_price <= floor_min:
         return None
 
+    floor_ceil = math.ceil(floor_min)
+    if floor_ceil >= competitor_price:
+        return None
+
+    # Calculate effective maximum ceiling that strictly beats competitor
     target_ceiling = competitor_price - undercut_buffer
     if max_ceiling is not None:
         target_ceiling = min(target_ceiling, max_ceiling)
 
-    # If the standard buffer drops us below floor, undercut by 1 rupee if floor allows
-    if target_ceiling < floor_min:
-        candidate_tight = int(competitor_price - 1.0)
+    if target_ceiling < floor_ceil:
+        effective_max = int(competitor_price - 1.0)
         if max_ceiling is not None:
-            candidate_tight = min(candidate_tight, int(max_ceiling))
-        if candidate_tight >= floor_min:
-            return candidate_tight
-        return None
+            effective_max = min(effective_max, int(max_ceiling))
+    else:
+        effective_max = int(target_ceiling)
 
-    base_k = int(target_ceiling // 1000) * 1000
+    if effective_max < floor_ceil:
+        effective_max = floor_ceil
+
+    # 1. Search for standard psychological endings in allowed range [floor_ceil, effective_max]
+    base_k = int(effective_max // 1000) * 1000
     candidates: list[int] = []
 
     for b in (base_k, base_k - 1000, base_k - 2000):
         for e in PSYCHOLOGICAL_ENDINGS:
             p = b + e
-            if floor_min <= p <= target_ceiling and p < competitor_price:
+            if floor_ceil <= p <= effective_max and p < competitor_price:
                 candidates.append(p)
 
     if candidates:
         return max(candidates)
 
-    floor_ceil = math.ceil(floor_min)
-    if floor_ceil < competitor_price and (max_ceiling is None or floor_ceil <= max_ceiling):
+    # 2. Clean 50-step round numbers (e.g. 173,050, 176,850)
+    candidate_50 = (effective_max // 50) * 50
+    if floor_ceil <= candidate_50 < competitor_price:
+        return candidate_50
+
+    # 3. Clean 10-step round numbers (e.g. 173,040, 173,060)
+    candidate_10 = (effective_max // 10) * 10
+    if floor_ceil <= candidate_10 < competitor_price:
+        return candidate_10
+
+    # 4. Clean 5-step round numbers (e.g. 173,045)
+    candidate_5 = (effective_max // 5) * 5
+    if floor_ceil <= candidate_5 < competitor_price:
+        return candidate_5
+
+    # 5. Fallback: match to effective_max or floor_ceil
+    if floor_ceil <= effective_max < competitor_price:
+        return effective_max
+
+    if floor_ceil < competitor_price:
         return floor_ceil
 
     return None
@@ -177,7 +202,7 @@ def calculate_adaptive_target_price(
     """Calculate an adaptive target price based on the gap between floor and competitor.
 
     Tiers:
-    - Tier 5 (Gap < 800 PKR, e.g. <= 799): Closest Rs. 100 undercut.
+    - Tier 5 (Gap < 800 PKR, e.g. <= 799): Closest Rs. 100 undercut (or competitor - 1 if tight).
     - Tier 4 (800 <= Gap < 1,500 PKR, e.g. 800, 900, 1000, 1200): Rs. 200 undercut.
     - Tier 3 (1,500 <= Gap < 2,000 PKR, e.g. 1500, 1800, 1900): Rs. 500 customer discount (competitor - 500), min 1,000 buffer.
     - Tier 2 (2,000 <= Gap < 10,000 PKR, 3 Zeros): Proportional 50% split with min 1,000 PKR buffer.
@@ -200,9 +225,11 @@ def calculate_adaptive_target_price(
     if gap <= 0:
         return competitor_price - undercut_buffer
 
-    # Tier 5: Gap < 800 PKR (e.g. <= 799) -> Closest Rs. 100 undercut
+    # Tier 5: Gap < 800 PKR (e.g. <= 799) -> Closest Rs. 100 undercut (or competitor - 1 if tight)
     if gap < 800.0:
-        return max(floor_min, competitor_price - 100.0)
+        if gap < 100.0:
+            return competitor_price - 1.0
+        return competitor_price - 100.0
 
     # Tier 4: Gap 800 to 1,499 PKR (e.g. 800, 900, 1000, 1200) -> Rs. 200 undercut
     if gap < 1500.0:

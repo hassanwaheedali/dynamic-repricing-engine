@@ -260,17 +260,25 @@ def evaluate_digi_pricing(
         )
         if final_p_8 is not None:
             profit = round((final_p_8 * 0.92) - cost_floors.cost_base)
-            uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_offer.price)
-            if uncapped_p is not None and final_p_8 < uncapped_p:
-                reason = (
-                    f"Triggered emergency 8% bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
-                    f"price is inflated. Capped price at sweet-spot Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit) for sales conversion."
-                )
-            else:
+            gap_8 = lowest_offer.price - cost_floors.floor_digi_8
+            if gap_8 < 100.0:
                 reason = (
                     f"Unviable at 10% floor (Rs. {round(cost_floors.floor_digi_10):,}). "
-                    f"Triggered emergency 8% bank rate to undercut {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f})."
+                    f"Triggered emergency 8% bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
+                    f"gap is tight. Undercut to winning rounded price Rs. {final_p_8:,.0f} with guaranteed +Rs. {profit:,} profit."
                 )
+            else:
+                uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_offer.price)
+                if uncapped_p is not None and final_p_8 < uncapped_p:
+                    reason = (
+                        f"Triggered emergency 8% bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
+                        f"price is inflated. Capped price at sweet-spot Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit) for sales conversion."
+                    )
+                else:
+                    reason = (
+                        f"Unviable at 10% floor (Rs. {round(cost_floors.floor_digi_10):,}). "
+                        f"Triggered emergency 8% bank rate to undercut {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f})."
+                    )
             return PlatformPricingResult(
                 min_price=min_p,
                 max_price=max_p,
@@ -288,79 +296,86 @@ def evaluate_digi_pricing(
     viable_8 = [o for o in active_offers if o.price > cost_floors.floor_digi_8]
 
     if viable_8:
-        lowest_upper = min(viable_8, key=lambda x: x.price)
+        for lowest_upper in sorted(viable_8, key=lambda x: x.price):
+            # Check if lowest upper seller can be won at default 10% tier first
+            if lowest_upper.price > cost_floors.floor_digi_10:
+                target_adaptive_10 = calculate_adaptive_target_price(
+                    floor_min=cost_floors.floor_digi_10,
+                    competitor_price=lowest_upper.price,
+                    cost_base=cost_floors.cost_base,
+                    payout_rate=0.92,
+                    large_gap_profit_target=large_cap,
+                )
+                final_p_10 = find_winning_psychological_price(
+                    cost_floors.floor_digi_10, lowest_upper.price, max_ceiling=target_adaptive_10
+                )
+                if final_p_10 is not None:
+                    profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
+                    uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_10, lowest_upper.price)
+                    if uncapped_p is not None and final_p_10 < uncapped_p:
+                        reason = (
+                            f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
+                            f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit) for sales conversion."
+                        )
+                    else:
+                        reason = (
+                            f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
+                            f"(Rs. {lowest_upper.price:,.0f}) to winning price Rs. {final_p_10:,.0f}."
+                        )
+                    return PlatformPricingResult(
+                        min_price=min_p,
+                        max_price=max_p,
+                        final_price=final_p_10,
+                        real_profit=profit,
+                        status="Safe Win (10% Tier)",
+                        reason=reason,
+                        dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+                        active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
+                        effective_comm="10.00%",
+                    )
 
-        # Check if lowest upper seller can be won at default 10% tier first
-        if lowest_upper.price > cost_floors.floor_digi_10:
-            target_adaptive_10 = calculate_adaptive_target_price(
-                floor_min=cost_floors.floor_digi_10,
+            target_adaptive_8 = calculate_adaptive_target_price(
+                floor_min=cost_floors.floor_digi_8,
                 competitor_price=lowest_upper.price,
                 cost_base=cost_floors.cost_base,
                 payout_rate=0.92,
                 large_gap_profit_target=large_cap,
             )
-            final_p_10 = find_winning_psychological_price(
-                cost_floors.floor_digi_10, lowest_upper.price, max_ceiling=target_adaptive_10
+            final_p_upper = find_winning_psychological_price(
+                cost_floors.floor_digi_8, lowest_upper.price, max_ceiling=target_adaptive_8
             )
-            if final_p_10 is not None:
-                profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
-                uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_10, lowest_upper.price)
-                if uncapped_p is not None and final_p_10 < uncapped_p:
+            if final_p_upper is not None:
+                profit = round((final_p_upper * 0.92) - cost_floors.cost_base)
+                gap_upper = lowest_upper.price - cost_floors.floor_digi_8
+                if gap_upper < 100.0:
                     reason = (
-                        f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                        f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit) for sales conversion."
+                        f"Filtered sub-floor offers. Triggered emergency 8% bank rate. Competitor {lowest_upper.vendor_name} "
+                        f"(Rs. {lowest_upper.price:,.0f}) gap is tight. Undercut to winning rounded price Rs. {final_p_upper:,.0f} "
+                        f"with guaranteed +Rs. {profit:,} profit."
                     )
                 else:
-                    reason = (
-                        f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
-                        f"(Rs. {lowest_upper.price:,.0f}) to winning price Rs. {final_p_10:,.0f}."
-                    )
+                    uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_upper.price)
+                    if uncapped_p is not None and final_p_upper < uncapped_p:
+                        reason = (
+                            f"Filtered sub-floor offers. Triggered emergency 8% bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
+                            f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit) for sales conversion."
+                        )
+                    else:
+                        reason = (
+                            f"Filtered sub-floor offers. Triggered emergency 8% bank rate to undercut "
+                            f"upper competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f})."
+                        )
                 return PlatformPricingResult(
                     min_price=min_p,
                     max_price=max_p,
-                    final_price=final_p_10,
+                    final_price=final_p_upper,
                     real_profit=profit,
-                    status="Safe Win (10% Tier)",
+                    status="Win via 8% Switch",
                     reason=reason,
                     dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
                     active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
-                    effective_comm="10.00%",
+                    effective_comm="8.00%",
                 )
-
-        target_adaptive_8 = calculate_adaptive_target_price(
-            floor_min=cost_floors.floor_digi_8,
-            competitor_price=lowest_upper.price,
-            cost_base=cost_floors.cost_base,
-            payout_rate=0.92,
-            large_gap_profit_target=large_cap,
-        )
-        final_p_upper = find_winning_psychological_price(
-            cost_floors.floor_digi_8, lowest_upper.price, max_ceiling=target_adaptive_8
-        )
-        if final_p_upper is not None:
-            profit = round((final_p_upper * 0.92) - cost_floors.cost_base)
-            uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_upper.price)
-            if uncapped_p is not None and final_p_upper < uncapped_p:
-                reason = (
-                    f"Filtered sub-floor offers. Triggered emergency 8% bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                    f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit) for sales conversion."
-                )
-            else:
-                reason = (
-                    f"Filtered sub-floor offers. Triggered emergency 8% bank rate to undercut "
-                    f"upper competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f})."
-                )
-            return PlatformPricingResult(
-                min_price=min_p,
-                max_price=max_p,
-                final_price=final_p_upper,
-                real_profit=profit,
-                status="Win via 8% Switch",
-                reason=reason,
-                dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-                active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
-                effective_comm="8.00%",
-            )
 
     # Step D: All sellers below 8% floor -> Skip / Unviable
     return PlatformPricingResult(
