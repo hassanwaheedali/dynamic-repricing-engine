@@ -1,12 +1,18 @@
 import asyncio
 import logging
 import random
+import sys
 
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
 from pricing_engine.matcher import is_strict_model_match
 from pricing_engine.models import ScrapedOffer, ScrapeResult
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 logger = logging.getLogger(__name__)
 console = Console(legacy_windows=False)
@@ -42,7 +48,7 @@ def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
     return dict(_query_cache)
 
 
-async def scrape_alfamall(
+async def scrape_alfamall_single(
     session: AsyncSession,
     query: str,
     target_model: str,
@@ -236,7 +242,51 @@ async def scrape_alfamall(
     )
 
 
-async def scrape_digimall(
+async def scrape_alfamall(
+    session: AsyncSession,
+    query: str | list[str],
+    target_model: str,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+) -> ScrapeResult:
+    """Query AlfaMall storefront with single or multi-pattern queries and merge verified offers."""
+    if isinstance(query, list):
+        unique_queries: list[str] = []
+        for q in query:
+            q_clean = q.strip()
+            if q_clean and q_clean not in unique_queries:
+                unique_queries.append(q_clean)
+        if not unique_queries:
+            return ScrapeResult()
+
+        tasks = [
+            scrape_alfamall_single(session, q, target_model, timeout=timeout, max_retries=max_retries)
+            for q in unique_queries
+        ]
+        results = await asyncio.gather(*tasks)
+
+        merged_offers: list[ScrapedOffer] = []
+        seen: set[tuple[str, float, str]] = set()
+        is_success = any(r.is_success for r in results)
+
+        for r in results:
+            for o in r.offers:
+                key = (o.vendor_name.lower().strip(), o.price, o.raw_title.lower().strip())
+                if key not in seen:
+                    seen.add(key)
+                    merged_offers.append(o)
+
+        return ScrapeResult(
+            offers=merged_offers,
+            is_success=is_success,
+            status_code=200 if is_success else (results[0].status_code if results else 200),
+            error_detail=None if is_success else (results[0].error_detail if results else None),
+        )
+
+    return await scrape_alfamall_single(session, query, target_model, timeout=timeout, max_retries=max_retries)
+
+
+async def scrape_digimall_single(
     session: AsyncSession,
     query: str,
     target_model: str,
@@ -427,4 +477,48 @@ async def scrape_digimall(
         status_code=last_status,
         error_detail=last_error or "Exhausted all retries without successful response",
     )
+
+
+async def scrape_digimall(
+    session: AsyncSession,
+    query: str | list[str],
+    target_model: str,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+) -> ScrapeResult:
+    """Query DigiMall (Faysal Bank) storefront with single or multi-pattern queries and merge verified offers."""
+    if isinstance(query, list):
+        unique_queries: list[str] = []
+        for q in query:
+            q_clean = q.strip()
+            if q_clean and q_clean not in unique_queries:
+                unique_queries.append(q_clean)
+        if not unique_queries:
+            return ScrapeResult()
+
+        tasks = [
+            scrape_digimall_single(session, q, target_model, timeout=timeout, max_retries=max_retries)
+            for q in unique_queries
+        ]
+        results = await asyncio.gather(*tasks)
+
+        merged_offers: list[ScrapedOffer] = []
+        seen: set[tuple[str, float, str]] = set()
+        is_success = any(r.is_success for r in results)
+
+        for r in results:
+            for o in r.offers:
+                key = (o.vendor_name.lower().strip(), o.price, o.raw_title.lower().strip())
+                if key not in seen:
+                    seen.add(key)
+                    merged_offers.append(o)
+
+        return ScrapeResult(
+            offers=merged_offers,
+            is_success=is_success,
+            status_code=200 if is_success else (results[0].status_code if results else 200),
+            error_detail=None if is_success else (results[0].error_detail if results else None),
+        )
+
+    return await scrape_digimall_single(session, query, target_model, timeout=timeout, max_retries=max_retries)
 

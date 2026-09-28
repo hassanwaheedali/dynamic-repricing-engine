@@ -23,7 +23,7 @@ CATEGORY_PATTERNS = re.compile(
 # Common non-SKU unit stop-tokens
 NON_SKU_TOKENS = {
     "TON", "ΤΟN", "KG", "GM", "LTR", "SET", "SETS", "FEET", "FT", "MM", "CM", "INCH",
-    "AC", "AND", "WITH", "THE", "FOR", "TOP", "LID", "DOOR", "AIR", "CURTAIN",
+    "AC", "DC", "SDA", "MDA", "AND", "WITH", "THE", "FOR", "TOP", "LID", "DOOR", "AIR", "CURTAIN",
     "BLENDER", "CHOPPER", "OVEN", "HEATER", "WASHER", "PURIFIER", "KETTLE", "SMART",
 }
 
@@ -90,6 +90,21 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     # 2. Strip standard category and capacity phrases
     clean = CATEGORY_PATTERNS.sub(" ", clean).strip()
 
+    # 3. Structurally unify spaced SKU model prefixes: e.g. "HWM 130", "DWT 1165", "WF 5254", "PWM 80"
+    def _normalize_prefix(m: re.Match) -> str:
+        word = m.group(1).upper()
+        target = m.group(2)
+        if (
+            word in NON_SKU_TOKENS
+            or word in {"MODEL", "SERIES", "CAPACITY", "SIZE", "TYPE"}
+            or (detected_brand and word == detected_brand.upper())
+            or is_dimension_or_spec_token(target)
+        ):
+            return m.group(0)
+        return f"{m.group(1)}-{target}"
+
+    clean = re.sub(r"\b([A-Z]{2,4})\s+(\d+[A-Za-z0-9\-]*)", _normalize_prefix, clean)
+
     # 3. Find model code:
     # Primary model token contains digits: e.g. DWT-1165, 100-316S6, HDG-201S, 12AITH21W-T3
     # Subsequent tokens are SKU variant tags (<= 3 chars or containing digits, e.g. PL, FLT, ES, GC)
@@ -101,7 +116,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         if not t_clean or t_clean.upper() in NON_SKU_TOKENS:
             continue
         if not model_tokens:
-            if re.search(r"\d", t_clean) and not is_dimension_or_spec_token(t_clean) and re.match(r"^[A-Za-z0-9\-_]+$", t_clean):
+            if re.search(r"\d", t_clean) and not is_dimension_or_spec_token(t_clean) and re.match(r"^[A-Za-z0-9\-_\/]+$", t_clean):
                 model_tokens.append(t_clean)
         else:
             if is_sku_variant_tag(t_clean):
@@ -116,9 +131,10 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         # Never strip genuine prefixes like WF-5254 (Westpoint) or GN-5024 (Gaba National) where no series letters follow the digits!
         clean_first = first_token
         if detected_brand and re.search(r"\d+[A-Za-z]", first_token):
-            clean_first = re.sub(rf"^{re.escape(detected_brand[0])}[A-Za-z][-_]?(?=\d)", "", first_token, flags=re.IGNORECASE)
-        parts = clean_first.split("-")
-        search_token = parts[0] if parts and len(parts[0]) >= 5 else clean_first
+            clean_first = re.sub(rf"^{re.escape(detected_brand[0])}[A-Za-z][-_]+(?=\d)", "", first_token, flags=re.IGNORECASE)
+        clean_base = clean_first.split("/")[0]
+        parts = clean_base.split("-")
+        search_token = parts[0] if parts and len(parts[0]) >= 5 else clean_base
         return search_token, raw_model
 
     parts = clean.split()
@@ -219,6 +235,14 @@ def expand_slash_word(word: str) -> list[str]:
 
     p0 = parsed[0]["core"]
     p1 = parsed[1]["core"]
+
+    # Special check: If p1 has no digits, a single letter (color code), and p0 ends with multiple letters (e.g. HSU-13HFAB/W-T3 or HSU-13HFS/W-T3)
+    # This is an appended variant code (HSU-13HFAB-W-T3), not an alternative SKU replacing p0 letters
+    if not parsed[1]["digits"] and parsed[1]["letters"] and len(parsed[1]["letters"]) == 1:
+        m0_let = re.search(r"([A-Za-z]+)$", p0)
+        if m0_let and len(m0_let.group(1)) >= 2:
+            tag = parsed[1]["tag"] or parsed[0]["tag"]
+            return [f"{p0}-{parsed[1]['letters']}{tag}"]
 
     lead_runs = split_runs(p0)
     sub_runs = split_runs(p1)
@@ -389,8 +413,8 @@ def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
     norm_target = re.sub(r"[^A-Z0-9]", "", clean_target.upper())
     norm_title = re.sub(r"[^A-Z0-9]", "", expanded_title.upper())
 
-    # Auxiliary tag stripping (T3, AAA, AA, PRO, ULTRA) for core base comparison
-    tag_pattern = re.compile(r"(?:T3|AAA|AA\+|AA|PRO|ULTRA)+$", re.IGNORECASE)
+    # Auxiliary tag stripping (T3, AAA, AA, PRO, ULTRA, PLUS, GC, GT, JT) for core base comparison
+    tag_pattern = re.compile(r"(?:T3|AAA|AA\+|AA|PRO|ULTRA|PLUS|GC|GT|JT)+$", re.IGNORECASE)
     base_target = tag_pattern.sub("", norm_target)
 
     # 1. Structural numeric prefix collision check (e.g. 18 vs 24 vs 12, or 100 vs 120):
@@ -406,19 +430,26 @@ def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
                     return False
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
-    target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
+    # Feature tokens like GC (Glass Color), GT (Glass Top), JT are optional
+    target_tokens = [
+        re.sub(r"[^A-Z0-9]", "", t.upper())
+        for t in clean_target.split()
+        if t.strip() and t.upper() not in {"GC", "GT", "JT"}
+    ]
     if len(target_tokens) > 1 and all(t in norm_title for t in target_tokens):
         return True
 
+    norm_raw_title = re.sub(r"[^A-Z0-9]", "", scraped_title.upper())
+
     # 3. Exact base target containment
-    if base_target in norm_title:
+    if base_target in norm_title or base_target in norm_raw_title:
         return True
 
     # 4. White / Default Color Fallback:
     # If target is White (ends with 'W'), allow generic base without 'W' ONLY IF no conflicting color code is present
     if base_target.endswith("W"):
         base_no_w = base_target[:-1]
-        if base_no_w in norm_title:
+        if base_no_w in norm_title or base_no_w in norm_raw_title:
             conflict = False
             for w in expanded_title.split():
                 norm_w = re.sub(r"[^A-Z0-9]", "", w.upper())
@@ -429,7 +460,100 @@ def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
                     if rem and rem != "W":
                         conflict = True
                         break
+            if not conflict and re.search(r"\b(?:GREY|GRAY|BLACK|SILVER|GOLD|RED)\b", expanded_title, re.IGNORECASE):
+                conflict = True
             if not conflict:
                 return True
 
+    # 5. Grey Color Fallback:
+    # If target is Grey (ends with 'G'), allow base without 'G' if title explicitly mentions Grey/Gray
+    if base_target.endswith("G"):
+        base_no_g = base_target[:-1]
+        if (base_no_g in norm_title or base_no_g in norm_raw_title) and re.search(
+            r"\b(?:GREY|GRAY)\b", expanded_title, re.IGNORECASE
+        ):
+            return True
+
     return False
+
+
+def generate_search_queries(search_token: str, raw_model: str = "") -> list[str]:
+    """Generate multi-pattern search variations to overcome platform search tokenization mismatches.
+
+    Handles:
+    - Glued vs spaced vs hyphenated prefixes: 'HWM-80-1217WB' <-> 'HWM80-1217WB' <-> 'HWM 80 1217WB'
+    - Glued vs spaced suffixes: '80-1217WB' <-> '80-1217 WB'
+    - Bare model without prefix: '80-1217WB' <-> '80 1217 WB'
+    - Strictly preserves variant suffixes (e.g. 'WB', 'S6', 'S8', 'GC') so base models without suffix are never queried.
+
+    Args:
+        search_token: The primary search token from extract_search_query_and_model.
+        raw_model: The raw model string.
+
+    Returns:
+        Ordered list of unique search query strings.
+    """
+    candidates: list[str] = []
+
+    def _add(q: str) -> None:
+        clean = re.sub(r"\s+", " ", q).strip("-_ /")
+        if clean and clean not in candidates and len(clean) >= 3:
+            candidates.append(clean)
+
+    # Initial seeds
+    seeds = [search_token]
+    if raw_model and raw_model != search_token:
+        seeds.append(raw_model)
+
+    feat_tag_pat = re.compile(r"\b(?:GC|GT|JT|BT)\b", re.IGNORECASE)
+    for s in list(seeds):
+        stripped_s = feat_tag_pat.sub("", s).strip("-_ /")
+        if stripped_s and stripped_s not in seeds:
+            seeds.append(stripped_s)
+
+    # Extract base variations (with prefix, without prefix, glued prefix, spaced prefix)
+    expanded_stems: list[str] = []
+    for s in seeds:
+        expanded_stems.append(s)
+
+        # Prefix with hyphen/dash: e.g. HWM-80-1217WB -> 'HWM 80-1217WB', 'HWM80-1217WB', '80-1217WB'
+        m_pref = re.match(r"^([A-Za-z]{2,4})[-_]+(.*)$", s)
+        if m_pref:
+            pfx, rest = m_pref.group(1), m_pref.group(2)
+            expanded_stems.append(f"{pfx} {rest}")
+            expanded_stems.append(f"{pfx}{rest}")
+            expanded_stems.append(rest)
+
+        # Glued prefix: e.g. HWM80-1217WB or HWM85-1269S6 -> 'HWM-80-1217WB', 'HWM 80 1217WB', '80-1217WB'
+        m_glued = re.match(r"^([A-Za-z]{2,4})(\d+.*)$", s)
+        if m_glued:
+            pfx, rest = m_glued.group(1), m_glued.group(2)
+            expanded_stems.append(f"{pfx}-{rest}")
+            expanded_stems.append(f"{pfx} {rest}")
+            expanded_stems.append(rest)
+
+        # Spaced prefix: e.g. 'HWM 80-1217WB' -> 'HWM-80-1217WB', 'HWM80-1217WB', '80-1217WB'
+        m_space = re.match(r"^([A-Za-z]{2,4})\s+(.*)$", s)
+        if m_space:
+            pfx, rest = m_space.group(1), m_space.group(2)
+            expanded_stems.append(f"{pfx}-{rest}")
+            expanded_stems.append(f"{pfx}{rest}")
+            expanded_stems.append(rest)
+
+    # For each stem, produce:
+    # 1. Exact stem
+    # 2. Hyphens replaced with spaces ('HWM 80 1217WB')
+    # 3. Glued alphanumeric suffix spaced ('1217WB' -> '1217 WB', '1269S6' -> '1269 S6')
+    # 4. Both hyphens to spaces and suffix spaced ('HWM 80 1217 WB')
+    for stem in expanded_stems:
+        _add(stem)
+        if "-" in stem:
+            _add(stem.replace("-", " "))
+        spaced_suf = re.sub(r"(\d+)([A-Za-z]+)", r"\1 \2", stem)
+        if spaced_suf != stem:
+            _add(spaced_suf)
+            if "-" in spaced_suf:
+                _add(spaced_suf.replace("-", " "))
+
+    return candidates
+

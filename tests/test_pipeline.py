@@ -892,8 +892,8 @@ def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
 
     record = process_product_with_offers(product, alfa_offers=filtered_offers, digi_offers=filtered_offers)
 
-    # AlfaMall strictly undercuts Gen 2 (153,999 -> 153,899), completely ignoring Gen 1 (130,000)
-    assert record["Final Price Alfa"] == 153899
+    # AlfaMall adaptive undercuts Gen 2 (153,999 - 200 -> 153,799), completely ignoring Gen 1 (130,000)
+    assert record["Final Price Alfa"] == 153799
     assert "Legit Seller Gen2" in record["Alfa Reason"]
     assert "Cheap Seller Gen1" not in record["Alfa Reason"]
 

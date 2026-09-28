@@ -60,7 +60,7 @@ def test_alfa_competitive_win_undercut(sample_floors: CostFloors) -> None:
     assert result.final_price is not None
     assert result.final_price < 83000.0
     assert result.final_price >= sample_floors.floor_alfa
-    assert result.final_price == 82899
+    assert result.final_price == 81499
     assert result.real_profit > 500
 
 

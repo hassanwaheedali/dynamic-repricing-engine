@@ -300,3 +300,82 @@ def test_non_model_safeguards_unmodified() -> None:
     assert expand_multivariant_titles("DAW D/F 9199 H&C Inverter") == "DAW D/F 9199 H&C Inverter"
     assert expand_multivariant_titles("Gree Inverter Heat / Cool Split AC") == "Gree Inverter Heat / Cool Split AC"
     assert expand_multivariant_titles("Midea Front Load 12W/8D KG") == "Midea Front Load 12W/8D KG"
+
+
+def test_haier_slash_model_extraction_and_matching() -> None:
+    """Verify that Haier slash-separated color models extract and match variants with high precision."""
+    items = [
+        ("Haier 1 Ton HSU-12CF Non-Inverter Cool Only Split Air Conditioner", "HSU-12CF", "HSU-12CF"),
+        ("Haier 1.5 ton HSU-18-CFT Non-Inverter Cool Only Split Air Conditioner", "HSU-18-CFT", "HSU-18-CFT"),
+        ("Haier 1 Ton HSU-13HFAB/W-T3 PRO DC Inverter Heat & Cool Air Conditioner", "HSU-13HFAB", "HSU-13HFAB/W-T3 PRO"),
+        ("Haier 1 Ton HSU-13HFAB/G-T3 PRO DC Inverter Heat & Cool Air Conditioner", "HSU-13HFAB", "HSU-13HFAB/G-T3 PRO"),
+        ("Haier 1 Ton HSU-13HFS/W-T3 Pro Inverter Heat & Cool Split Air Conditioner", "HSU-13HFS", "HSU-13HFS/W-T3"),
+    ]
+    for name, exp_q, exp_m in items:
+        q, m = extract_search_query_and_model(name, "Haier")
+        assert q == exp_q, f"Failed query for {name}: got {q}, expected {exp_q}"
+        assert m == exp_m, f"Failed model for {name}: got {m}, expected {exp_m}"
+
+    # White vs Grey variant isolation
+    white_target = "HSU-13HFAB/W-T3 PRO"
+    grey_target = "HSU-13HFAB/G-T3 PRO"
+
+    assert is_strict_model_match("Haier (T3 Series) 1 Ton DC Inverter - HSU-13HFAB(W) - T3 Compressor", white_target)
+    assert not is_strict_model_match("Haier (T3 Series) 1 Ton DC Inverter - HSU-13HFAB(G) - T3 Compressor", white_target)
+    assert not is_strict_model_match("Haier 1 Ton HSU-13HFAB/G-T3 PRO DC Inverter Heat & Cool Air Conditioner", white_target)
+    assert is_strict_model_match("Haier 1 Ton HSU-13HFAB/W-T3 PRO DC Inverter Heat & Cool Air Conditioner", white_target)
+
+    assert not is_strict_model_match("Haier (T3 Series) 1 Ton DC Inverter - HSU-13HFAB(W) - T3 Compressor", grey_target)
+    assert is_strict_model_match("Haier (T3 Series) 1 Ton DC Inverter - HSU-13HFAB(G) - T3 Compressor", grey_target)
+    assert is_strict_model_match("Haier 1 Ton HSU-13HFAB/G-T3 PRO DC Inverter Heat & Cool Air Conditioner", grey_target)
+    assert not is_strict_model_match("Haier 1 Ton HSU-13HFAB/W-T3 PRO DC Inverter Heat & Cool Air Conditioner", grey_target)
+
+
+def test_generate_search_queries_multi_pattern() -> None:
+    """Verify that multi-pattern query expansion generates glued, spaced, and stem queries."""
+    from pricing_engine.matcher import generate_search_queries
+
+    qs = generate_search_queries("HWM-80-1217WB", "HWM 80-1217WB")
+    # All variant patterns must be present
+    assert "HWM-80-1217WB" in qs
+    assert "HWM 80-1217WB" in qs
+    assert "HWM80-1217WB" in qs
+    assert "HWM 80 1217WB" in qs
+    assert "HWM 80-1217 WB" in qs
+    assert "80-1217WB" in qs
+    assert "80 1217WB" in qs
+    assert "80-1217 WB" in qs
+    assert "80 1217 WB" in qs
+
+    # Base model without variant WB must NEVER be queried (prevents mixing up 80-1217 and 80-1217WB)
+    assert "80-1217" not in qs
+    assert "80 1217" not in qs
+    assert "HWM-80-1217" not in qs
+    assert "HWM 80-1217" not in qs
+
+    qs_pular = generate_search_queries("12AITH21W", "12AITH21W-T3")
+    assert "12AITH21W" in qs_pular
+    assert "12AITH21W-T3" in qs_pular
+
+
+def test_optional_feature_tags_gc_gt() -> None:
+    """Verify that feature descriptors like GC (Glass Color/Cover) and GT (Glass Top) are optional."""
+    target_gc = "120-826S6 GC"
+
+    # Must match marketplace titles whether merchant included GC or omitted it
+    assert is_strict_model_match("Haier Fully Automatic Top Load Washing Machine Model HWM 120-826S6 12KG", target_gc)
+    assert is_strict_model_match("Haier Automatic Washing machine Top Load 12KG 120-826S6, Pillow Drum", target_gc)
+    assert is_strict_model_match("Haier 120-826S6 GC Glass Door Top Load", target_gc)
+
+    # Must strictly reject conflicting capacities and series
+    assert not is_strict_model_match("Haier 100-826S6 10KG Top Load", target_gc)
+    assert not is_strict_model_match("Haier 120-316S6 12KG Top Load", target_gc)
+
+    # Query generation should produce queries with and without GC
+    from pricing_engine.matcher import generate_search_queries
+
+    qs = generate_search_queries("120-826S6", "120-826S6 GC")
+    assert "120-826S6" in qs
+    assert "120-826S6 GC" in qs
+
+
