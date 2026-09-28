@@ -1,10 +1,28 @@
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from curl_cffi.requests import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+def _load_env_file() -> None:
+    """Zero-dependency loader for .env file in workspace root."""
+    env_file = Path(".env")
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    k = key.strip()
+                    v = val.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+        except Exception:
+            pass
 
 
 class SupabaseClient:
@@ -22,6 +40,7 @@ class SupabaseClient:
         key: str | None = None,
         timeout: float = 10.0,
     ) -> None:
+        _load_env_file()
         self.url = (url or os.getenv("SUPABASE_URL") or "").rstrip("/")
         self.key = key or os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
         self.timeout = timeout
