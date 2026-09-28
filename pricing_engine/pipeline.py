@@ -19,8 +19,15 @@ from pricing_engine.calculator import (
     calculate_shipping_estimate,
     calculate_volumetric_weight,
 )
+from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
-from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
+from pricing_engine.learner import AutonomousLearner
+from pricing_engine.matcher import (
+    extract_product_slots,
+    extract_search_query_and_model,
+    generate_search_patterns,
+    referee_match,
+)
 from pricing_engine.models import (
     CostFloors,
     PlatformPricingResult,
@@ -28,7 +35,10 @@ from pricing_engine.models import (
     ScrapedOffer,
     ScrapeResult,
 )
+from pricing_engine.registry import InMemoryRegistry
 from pricing_engine.scraper import scrape_alfamall, scrape_digimall
+
+default_learner = AutonomousLearner()
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -641,6 +651,42 @@ async def process_item_async(
     alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
     digi_res = evaluate_digi_pricing(floors, digi_offers)
 
+    # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
+    target_slots = extract_product_slots(product.name, brand=product.brand)
+    all_raw_offers: list[ScrapedOffer] = []
+    if isinstance(alfa_offers, ScrapeResult):
+        all_raw_offers.extend(alfa_offers.offers)
+    elif isinstance(alfa_offers, list):
+        all_raw_offers.extend(alfa_offers)
+
+    if isinstance(digi_offers, ScrapeResult):
+        all_raw_offers.extend(digi_offers.offers)
+    elif isinstance(digi_offers, list):
+        all_raw_offers.extend(digi_offers)
+
+    category = str(product.raw_row.get("Category", "")).strip() or "APPLIANCE"
+    for offer in all_raw_offers:
+        if offer.is_sold_out:
+            continue
+        match_dec = referee_match(target_slots, offer.raw_title, brand=product.brand)
+        if (
+            match_dec.is_match
+            and target_slots.residuals
+            and match_dec.candidate_slots
+            and match_dec.candidate_slots.residuals
+        ):
+            for t_res in target_slots.residuals:
+                for c_res in match_dec.candidate_slots.residuals:
+                    default_learner.buffer_observation(
+                        brand=product.brand,
+                        category=category,
+                        anchor_model=target_slots.anchor,
+                        target_residual=t_res,
+                        candidate_residual=c_res,
+                        vendor_name=offer.vendor_name,
+                        raw_title=offer.raw_title,
+                    )
+
     if verbose:
         if render_lock is not None:
             async with render_lock:
@@ -843,6 +889,10 @@ async def run_pipeline(
     df = pd.read_csv(input_path)
     start_time = time.perf_counter()
 
+    supabase_client = SupabaseClient()
+    if supabase_client.is_configured:
+        await InMemoryRegistry.load_from_db(supabase_client)
+
     if verbose:
         render_start_banner(
             input_path=input_path,
@@ -901,6 +951,13 @@ async def run_pipeline(
             out_df[col] = out_df[col].apply(format_export_price)
 
     out_df.to_csv(output_path, index=False)
+
+    if supabase_client.is_configured and default_learner.buffer_size > 0:
+        flushed_count = await default_learner.flush_observations(supabase_client)
+        if verbose and flushed_count > 0:
+            console.print(
+                f"  [bold cyan]☁️  [Supabase Memory][/] Synchronized {flushed_count} new market observations to cloud registry."
+            )
 
     if verbose and records:
         render_summary_table(records)

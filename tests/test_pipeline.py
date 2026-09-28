@@ -963,6 +963,58 @@ def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
     assert record["Digi Risk Alert"] == "NONE"
 
 
+def test_pipeline_autonomous_learner_buffering() -> None:
+    """Validate that accepted candidate offers with residual cosmetic differences buffer observations."""
+    from pricing_engine.pipeline import default_learner, process_item_async
+
+    default_learner.clear_buffer()
+
+    product = parse_product_input(
+        0,
+        pd.Series(
+            {
+                "S.NO": 1,
+                "Brand": "Haier",
+                "Category": "WASHING_MACHINE",
+                "Name ": "Haier HWM 120-826S6 GC Automatic Washing Machine",
+                "Length": 60,
+                "Width": 60,
+                "Height": 90,
+                "Net Price": 80000,
+                "Profit": 4000,
+            }
+        ),
+    )
+
+    candidate_offers = [
+        ScrapedOffer(
+            vendor_name="Mega Store Lahore",
+            price=85000.0,
+            is_sold_out=False,
+            raw_title="Haier 120-826S6 Glass Door Automatic Washing Machine",
+        )
+    ]
+
+    async def _run() -> None:
+        from unittest.mock import AsyncMock
+        mock_session = AsyncMock()
+        sem = asyncio.Semaphore(1)
+        with patch("pricing_engine.pipeline.scrape_alfamall", return_value=candidate_offers), \
+             patch("pricing_engine.pipeline.scrape_digimall", return_value=[]):
+            _ = await process_item_async(product, mock_session, sem, verbose=False)
+
+        assert default_learner.buffer_size >= 1
+        obs = default_learner._buffer[-1]
+        assert obs["brand"] == "HAIER"
+        assert obs["category"] == "WASHING_MACHINE"
+        assert obs["anchor_model"] == "120-826S6"
+        assert obs["target_residual"] == "GC"
+        assert obs["candidate_residual"] == "GLASS DOOR"
+        assert obs["normalized_merchant"] == "megastorelahore"
+
+    asyncio.run(_run())
+
+
 
 
 
