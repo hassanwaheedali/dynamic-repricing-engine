@@ -41,8 +41,27 @@ class SupabaseClient:
         timeout: float = 10.0,
     ) -> None:
         _load_env_file()
-        self.url = (url or os.getenv("SUPABASE_URL") or "").rstrip("/")
-        self.key = key or os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
+        if url is None:
+            self.url = (
+                os.getenv("SUPABASE_URL")
+                or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+                or ""
+            ).rstrip("/")
+        else:
+            self.url = url.rstrip("/")
+
+        if key is None:
+            self.key = (
+                os.getenv("SUPABASE_KEY")
+                or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+                or os.getenv("SUPABASE_ANON_KEY")
+                or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+                or os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+                or ""
+            )
+        else:
+            self.key = key
+
         self.timeout = timeout
         self._session: AsyncSession | None = None
 

@@ -35,7 +35,38 @@ async def check_connection() -> None:
         )
         return
 
-    console.print(f"Connecting to: [bold cyan]{client.url}[/]...")
+    session = client._ensure_session()
+    try:
+        resp = await session.get(
+            f"{client.url}/rest/v1/capacity_registry?select=*&status=eq.APPROVED",
+            headers=client._headers(),
+            timeout=client.timeout,
+        )
+    except Exception as exc:
+        console.print(f"\n[bold red]❌ Network Connection Failed:[/] {exc}")
+        return
+
+    if resp.status_code == 401:
+        console.print(
+            "\n[bold red]❌ Authentication Failed (HTTP 401 - Invalid API key)![/]\n"
+            "[yellow]Supabase REST API ne is key ko reject kar diya hai.[/]\n\n"
+            "[bold white]Asal API Key Kahan se Milegi:[/]\n"
+            "1. Supabase Dashboard mein [cyan]Project Settings (⚙️) -> API[/] par jayein.\n"
+            "2. [bold]Project API keys[/] section mein jayein.\n"
+            "3. [bold green]anon (public)[/] ya [bold yellow]service_role[/] key copy karein (jo [bold]eyJhbGci...[/] se shuru hoti hai).\n"
+            "4. Apni [cyan].env[/] file mein [bold]SUPABASE_KEY=eyJ...[/] paste karein.\n"
+        )
+        return
+
+    if resp.status_code == 404:
+        console.print(
+            "\n[bold yellow]⚠️  API Key Valid hai, lekin Tables nahi mile (HTTP 404)![/]\n"
+            "[dim]Aap ne abhi tak SQL schema run nahi kiya.[/]\n\n"
+            "[bold white]Fix:[/]\n"
+            "1. Supabase Dashboard mein [cyan]SQL Editor[/] kholen.\n"
+            "2. [cyan]scripts/setup_supabase.sql[/] ka code paste kar ke [bold]RUN[/] dabayein.\n"
+        )
+        return
 
     capacities = await client.fetch_approved_capacities()
     synonyms = await client.fetch_approved_synonyms()

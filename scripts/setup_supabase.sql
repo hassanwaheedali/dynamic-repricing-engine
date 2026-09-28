@@ -96,6 +96,7 @@ BEGIN
     DROP POLICY IF EXISTS "Allow service_role all on capacity" ON capacity_registry;
     DROP POLICY IF EXISTS "Allow service_role all on synonyms" ON synonym_registry;
     DROP POLICY IF EXISTS "Allow service_role all on observations" ON learning_observations;
+    DROP POLICY IF EXISTS "Allow public insert on observations" ON learning_observations;
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
@@ -114,3 +115,13 @@ CREATE POLICY "Allow service_role all on synonyms" ON synonym_registry
 
 CREATE POLICY "Allow service_role all on observations" ON learning_observations
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- SECURITY NOTICE (Principle of Least Privilege & STRIDE Hardening):
+-- 1. `learning_observations` is an internal telemetry and model-learning ledger.
+--    No public (anon) access is permitted. Only `service_role` (backend engine)
+--    can read, insert, or prune observation records.
+-- 2. `capacity_registry` and `synonym_registry` permit public SELECT ONLY for
+--    pre-approved entries (`status = 'APPROVED'`). All mutations require `service_role`.
+-- ============================================================================
+

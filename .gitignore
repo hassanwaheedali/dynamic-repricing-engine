@@ -11,8 +11,16 @@ build/
 dist/
 *.egg-info/
 
-# Virtual Environments
+# Environment & Secrets
 .env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+
+# Virtual Environments
 .venv
 env/
 venv/
