@@ -50,7 +50,6 @@ COLOR_FAMILIES: dict[str, list[str]] = {
         "STEEL",
         "TITANIUM",
         "GRAPHITE",
-        "CHROME",
         "PLATINUM",
     ],
     "Red / Maroon": ["RED", "MAROON", "BURGUNDY", "RUBY", "CRIMSON"],
@@ -577,29 +576,18 @@ DAWLANCE_CAPACITY_TO_TONNAGE: dict[str, str] = {
 # Backward compatibility alias
 _CAPACITY_TO_TONNAGE: dict[str, str] = DAWLANCE_CAPACITY_TO_TONNAGE
 
-UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = {
-    "0.75": {"09", "9"},
-    "1": {"12"},
-    "1.0": {"12"},
-    "1.5": {"18"},
-    "2": {"24"},
-    "2.0": {"24"},
-    "2.5": {"28", "30"},
-    "3": {"36"},
-    "3.0": {"36"},
-    "4": {"48"},
-    "4.0": {"48"},
-}
+def _invert_capacity_map(cap_map: dict[str, str]) -> dict[str, set[str]]:
+    """Invert capacity-to-tonnage map and generate equivalent tonnage representations."""
+    inv: dict[str, set[str]] = {}
+    for code, ton in cap_map.items():
+        inv.setdefault(ton, set()).add(code)
+        if "." not in ton:
+            inv.setdefault(f"{ton}.0", set()).add(code)
+    return inv
 
-DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = {
-    "0.75": {"10"},
-    "1": {"15"},
-    "1.0": {"15"},
-    "1.25": {"20"},
-    "1.5": {"30"},
-    "2": {"45"},
-    "2.0": {"45"},
-}
+
+UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(UNIVERSAL_CAPACITY_TO_TONNAGE)
+DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(DAWLANCE_CAPACITY_TO_TONNAGE)
 
 
 def get_capacity_tonnage(code: str, brand: str = "") -> str | None:
@@ -936,10 +924,6 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
     }
 
 
-SUB_SERIES_TOKENS: set[str] = {
-    "PRO", "PLUS", "+", "CLASSIC", "ELEGANT", "MAX", "ULTRA", "LITE", "PRIME", "X", "DELUXE", "PREMIUM",
-}
-
 ROOT_COLORS: set[str] = {
     "WHITE", "BLACK", "GREY", "GRAY", "SILVER", "RED", "BLUE", "GREEN",
     "GOLD", "BROWN", "PINK", "PURPLE", "MILKY", "DARK", "MAROON", "BURGUNDY",
@@ -1027,15 +1011,14 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
 
     # 3. Soft Residual Modifiers
-    # Sub-series tokens (PRO, PLUS, etc.) must NEVER be treated as cosmetic residuals!
     residuals: list[str] = []
     m_gc = re.search(r"\b(?:GC|GLASS\s+DOOR|CLEAR\s+LID|PILLOW\s+DRUM)\b", clean_title, re.IGNORECASE)
     if m_gc:
         residuals.append(m_gc.group(0).upper())
-    for t in tokens[1:]:
-        t_u = t.upper()
-        if t_u not in SUB_SERIES_TOKENS and is_sku_variant_tag(t):
-            residuals.append(t_u)
+    if anchor:
+        for t in tokens[1:]:
+            if is_sku_variant_tag(t):
+                residuals.append(t.upper())
     residuals = list(dict.fromkeys(residuals))
 
     # 4. Dynamic Series Extraction via CSV Metadata Subtraction
@@ -1072,7 +1055,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         cap_num = re.sub(r"[^0-9\.]", "", capacity)
         if cap_num:
             sub = re.sub(rf"\b{re.escape(cap_num)}\b", " ", sub)
-    for code in ("10", "15", "18", "20", "24", "28", "30", "36", "45", "48"):
+    all_known_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(DAWLANCE_CAPACITY_TO_TONNAGE.keys())
+    for code in all_known_cap_codes:
         sub = re.sub(rf"\b{code}\b", " ", sub)
 
     series_tokens = [tok.strip("-.,_ \"'+") for tok in sub.split()]
@@ -1143,30 +1127,30 @@ def referee_match(
                 candidate_slots=cand_slots,
             )
 
-    # 2. Dynamic Series and Sub-series Check
+    # 2. Dynamic Series and Sub-series Check (Pure Token-Based Set Logic, Zero Hardcoding)
     if target_slots.series:
-        target_series_words = [w.upper() for w in target_slots.series.split()]
+        target_series_words = set(target_slots.series.upper().split())
         cand_words = set(re.findall(r"[A-Z0-9]+", candidate_title.upper()))
 
-        for w in target_series_words:
-            if w not in cand_words:
-                return MatchDecision(
-                    is_match=False,
-                    reason=f"Missing required sub-series token: '{w}' from series '{target_slots.series}'",
-                    target_slots=target_slots,
-                    candidate_slots=cand_slots,
-                )
-
-        SUB_SERIES_TOKENS = {"CLASSIC", "ELEGANT", "PRO", "PLUS", "MAX", "ULTRA", "LITE", "BASIC", "DELUXE"}
-        t_sub = set(target_series_words).intersection(SUB_SERIES_TOKENS)
-        c_sub = cand_words.intersection(SUB_SERIES_TOKENS)
-        if t_sub and c_sub and t_sub != c_sub:
+        missing = target_series_words - cand_words
+        if missing:
             return MatchDecision(
                 is_match=False,
-                reason=f"Sub-series mismatch: {', '.join(t_sub)} vs {', '.join(c_sub)}",
+                reason=f"Missing required sub-series token(s): {', '.join(sorted(missing))} from series '{target_slots.series}'",
                 target_slots=target_slots,
                 candidate_slots=cand_slots,
             )
+
+        if cand_slots.series:
+            cand_series_words = set(cand_slots.series.upper().split())
+            extra = cand_series_words - target_series_words
+            if extra:
+                return MatchDecision(
+                    is_match=False,
+                    reason=f"Sub-series mismatch: candidate has extra series token(s) {', '.join(sorted(extra))} not in target '{target_slots.series}'",
+                    target_slots=target_slots,
+                    candidate_slots=cand_slots,
+                )
 
     # 3. Guarded Facets Zero-Tolerance Checks
     # 3a. T3 Compressor Guard
