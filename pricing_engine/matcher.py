@@ -2,10 +2,17 @@ import re
 
 # Category acronyms and fractions to safeguard from expansion
 SAFEGUARD_PATTERN = re.compile(
-    r"\b(?:W/M|D/F|A/C|H/C|H&C)\b"
+    r"\b(?:W/M|W/D|D/F|A/C|H/C|H&C|W/O)\b"
     r"|\bHeat\s*/\s*Cool\b"
     r"|\b\d+/\d+\s*(?:\"|inch|mm)\b"
-    r"|\b\d+W/\d+D\b",
+    r"|\b\d+W/\d+D\b"
+    # Technical model suffixes: 18HE/DC, HBU-48E/DC, 48CE/DC, HBU-48HE/T3DC-012GE
+    r"|[A-Za-z0-9\-]+/(?:DC|AC)\b"
+    r"|[A-Za-z0-9\-]+/T3[A-Za-z0-9\-]*\b"
+    # Subordinate model codes: 24CE03/KB-01
+    r"|[A-Za-z0-9\-]+/KB[-]?\d+"
+    # Model year codes: GN-261/21, GNE-396/20, GND-1606/23 (require hyphen in model code)
+    r"|[A-Z]{2,}-\d+/\d{2}\b",
     re.IGNORECASE,
 )
 
@@ -13,8 +20,8 @@ TAG_PATTERN = re.compile(r"[-_\s]*(?:T3|AAA|AA\+|AA|PRO|ULTRA|PLUS)+$", re.IGNOR
 
 # Standard category and capacity phrases to strip from search queries
 CATEGORY_PATTERNS = re.compile(
-    r"\b(?:AUTO\s+W/M|FRONT\s+LOAD\s+W/M|W/M|M/OVEN|M/O|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|CASSETTE|FLOOR\s+STANDING|DISHWASHER)\b"
-    r"|\b(?:AIR\s+CURTAIN|AIR\s+COOLER|AIR\s+FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWICH\s+MAKER)\b"
+    r"\b(?:AUTO\s+W/M|FRONT\s+LOAD\s+W/M|W/M|M/OVEN|M/O|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|CASSETTE|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER)\b"
+    r"|\b(?:AIR\s+CURTAIN|AIR\s+COOLER|AIR\s+FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
     r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|SMART|4K|FHD|HD|GAS\+ELECTRIC|BUILT-IN)\b"
     r"|\b(?:\d+(?:\.\d+)?\s*(?:TON|ΤΟN|KG|GM|LTR|LITRE|SETS|SETS?|FEET|FT|INCH|MM|CM|\"|\'))\b",
     re.IGNORECASE,
@@ -25,6 +32,7 @@ NON_SKU_TOKENS = {
     "TON", "ΤΟN", "KG", "GM", "LTR", "SET", "SETS", "FEET", "FT", "MM", "CM", "INCH",
     "AC", "AND", "WITH", "THE", "FOR", "TOP", "LID", "DOOR", "AIR", "CURTAIN",
     "BLENDER", "CHOPPER", "OVEN", "HEATER", "WASHER", "PURIFIER", "KETTLE", "SMART",
+    "W/O", "REF",
 }
 
 
@@ -101,7 +109,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         if not t_clean or t_clean.upper() in NON_SKU_TOKENS:
             continue
         if not model_tokens:
-            if re.search(r"\d", t_clean) and not is_dimension_or_spec_token(t_clean) and re.match(r"^[A-Za-z0-9\-_]+$", t_clean):
+            if len(t_clean) >= 3 and re.search(r"\d", t_clean) and not is_dimension_or_spec_token(t_clean) and re.match(r"^[A-Za-z0-9\-_]+$", t_clean):
                 model_tokens.append(t_clean)
         else:
             if is_sku_variant_tag(t_clean):
@@ -120,6 +128,64 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         parts = clean_first.split("-")
         search_token = parts[0] if parts and len(parts[0]) >= 5 else clean_first
         return search_token, raw_model
+
+    # 4. Name-only fallback: no digit-based model token found.
+    # Collect series names, capacity codes, and sub-variant descriptors.
+    # Stop-words that are NOT part of the product identity:
+    _NAME_STOP = {
+        "INVERTER", "INV", "SERIES", "NORMAL", "COOL", "ONLY",
+        "+", "(", ")", "[", "]",
+    }
+    # Brand-aware AC capacity codes:
+    # Dawlance: 10 (0.75T), 15 (1T), 20 (1.25T), 30 (1.5T), 45 (2T)
+    # Universal (Gree, Haier, Orient, PEL, Kenwood, etc.): 09/9 (0.75T), 12 (1T), 18 (1.5T), 24 (2T), 28/30 (2.5T), 36 (3T), 48 (4T)
+    if detected_brand and detected_brand.upper().startswith("DAW"):
+        _CAPACITY_CODES = {"10", "15", "20", "30", "45"}
+    elif detected_brand:
+        _CAPACITY_CODES = {"09", "9", "12", "18", "24", "28", "30", "36", "48"}
+    else:
+        _CAPACITY_CODES = {"09", "9", "10", "12", "15", "18", "20", "24", "28", "30", "36", "45", "48"}
+
+    remaining = CATEGORY_PATTERNS.sub(" ", clean).strip()
+    remaining = re.sub(r"[()]", " ", remaining)  # Strip parentheses
+    name_tokens = remaining.split()
+
+    significant: list[str] = []
+    capacity: str = ""
+    for t in name_tokens:
+        t_clean = t.strip("-.,_ \"'+")
+        if not t_clean:
+            continue
+        t_upper = t_clean.upper()
+        if t_upper in _CAPACITY_CODES and not capacity:
+            capacity = t_clean
+            significant.append(t_clean)
+        elif t_upper not in _NAME_STOP and t_upper not in NON_SKU_TOKENS:
+            significant.append(t_clean)
+
+    # If no numeric capacity code was found in name tokens, check for explicit tonnage phrase in full title
+    if not capacity:
+        m_ton = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:TON|ΤΟN)\b", full_name, re.IGNORECASE)
+        if m_ton:
+            ton_val = m_ton.group(1)
+            is_daw = bool(detected_brand and detected_brand.upper().startswith("DAW"))
+            ton_map = DAWLANCE_TONNAGE_TO_CODES if is_daw else UNIVERSAL_TONNAGE_TO_CODES
+            ton_codes = ton_map.get(ton_val)
+            if ton_codes:
+                capacity = sorted(ton_codes)[0]
+                significant.append(capacity)
+
+    if significant:
+        # Search query: Brand + first significant word + capacity (broad search)
+        query_parts = []
+        if detected_brand:
+            query_parts.append(detected_brand)
+        query_parts.append(significant[0])
+        if capacity:
+            query_parts.append(capacity)
+        search_query = " ".join(query_parts)
+        keyword_model = " ".join(significant)
+        return search_query, keyword_model
 
     parts = clean.split()
     fallback = parts[-1] if parts else clean
@@ -365,8 +431,171 @@ def expand_multivariant_titles(title: str) -> str:
 
     return result
 
+# Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
+# Follows industry-standard BTU coding (BTU / 1,000):
+# 09 / 9 = 0.75 Ton (approx. 9,000 BTU)
+# 12     = 1.0 Ton  (approx. 12,000 BTU)
+# 18     = 1.5 Ton  (approx. 18,000 - 19,000 BTU)
+# 24     = 2.0 Ton  (approx. 24,000 BTU)
+# 28, 30 = 2.5 Ton  (approx. 28,000 - 30,000 BTU)
+# 36     = 3.0 Ton  (approx. 36,000 BTU)
+# 48     = 4.0 Ton  (approx. 48,000 BTU)
+UNIVERSAL_CAPACITY_TO_TONNAGE: dict[str, str] = {
+    "09": "0.75",
+    "9": "0.75",
+    "12": "1",
+    "18": "1.5",
+    "24": "2",
+    "28": "2.5",
+    "30": "2.5",
+    "36": "3",
+    "48": "4",
+}
 
-def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
+# Dawlance proprietary AC capacity code → tonnage mapping
+# Dawlance uses custom cooling codes:
+# 10 = 0.75 Ton (9,000 - 10,000 BTU)
+# 15 = 1.0 Ton  (12,000 BTU)
+# 20 = 1.25 Ton (14,000 - 15,000 BTU)
+# 30 = 1.5 Ton  (18,000 BTU)
+# 45 = 2.0 Ton  (24,000 BTU)
+DAWLANCE_CAPACITY_TO_TONNAGE: dict[str, str] = {
+    "10": "0.75",
+    "15": "1",
+    "20": "1.25",
+    "30": "1.5",
+    "45": "2",
+}
+
+# Backward compatibility alias
+_CAPACITY_TO_TONNAGE: dict[str, str] = DAWLANCE_CAPACITY_TO_TONNAGE
+
+UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = {
+    "0.75": {"09", "9"},
+    "1": {"12"},
+    "1.0": {"12"},
+    "1.5": {"18"},
+    "2": {"24"},
+    "2.0": {"24"},
+    "2.5": {"28", "30"},
+    "3": {"36"},
+    "3.0": {"36"},
+    "4": {"48"},
+    "4.0": {"48"},
+}
+
+DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = {
+    "0.75": {"10"},
+    "1": {"15"},
+    "1.0": {"15"},
+    "1.25": {"20"},
+    "1.5": {"30"},
+    "2": {"45"},
+    "2.0": {"45"},
+}
+
+
+def get_capacity_tonnage(code: str, brand: str = "") -> str | None:
+    """Get the tonnage string for an AC capacity code, brand-aware."""
+    clean_code = code.strip().upper()
+    b_upper = brand.strip().upper()
+    is_dawlance = b_upper.startswith("DAW") or b_upper == "DAWLANCE"
+
+    if is_dawlance:
+        return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
+
+    if b_upper and not is_dawlance:
+        return UNIVERSAL_CAPACITY_TO_TONNAGE.get(clean_code)
+
+    # Brand unknown: determine by code exclusivity
+    if clean_code in ("10", "15", "20", "45"):
+        return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
+    if clean_code in ("09", "9", "12", "18", "24", "28", "36", "48"):
+        return UNIVERSAL_CAPACITY_TO_TONNAGE.get(clean_code)
+    return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
+
+
+def tonnage_matches_title(tonnage: str, title_upper: str) -> bool:
+    """Check if title contains the specified tonnage phrase (e.g. 1.5 Ton, 1 Ton, 1.0 Ton)."""
+    if "." not in tonnage:
+        num_pat = rf"(?:{re.escape(tonnage)}(?:\.0)?)"
+    elif tonnage.startswith("0."):
+        num_pat = rf"(?:0?{re.escape(tonnage[1:])})"
+    else:
+        num_pat = rf"(?:{re.escape(tonnage)})"
+    ton_pattern = rf"\b{num_pat}\s*(?:TON|ΤΟN)\b"
+    return bool(re.search(ton_pattern, title_upper))
+
+
+def reverse_tonnage_matches(kw: str, title_words: set[str], brand: str = "") -> bool:
+    """If kw is a tonnage (e.g. '1.5', '1', '2'), check if title contains equivalent capacity code."""
+    b_upper = brand.strip().upper()
+    is_daw = b_upper.startswith("DAW") or b_upper == "DAWLANCE"
+    tonnage_map = DAWLANCE_TONNAGE_TO_CODES if is_daw else UNIVERSAL_TONNAGE_TO_CODES
+    equiv_codes = tonnage_map.get(kw)
+    if equiv_codes:
+        return bool(equiv_codes.intersection(title_words))
+    return False
+
+
+def _keyword_match(expanded_title: str, target_keywords: str, brand: str = "") -> bool:
+    """Strict all-keyword containment match for name-only products.
+
+    ALL significant keywords from the target must appear in the seller title.
+    Implements T3 isolation: non-T3 target rejects T3 listings.
+    Supports both Universal (Gree, Haier, Orient, PEL, Kenwood) and Dawlance capacity mappings.
+
+    Args:
+        expanded_title: Expanded seller product title.
+        target_keywords: Space-separated keyword model (e.g. "AVANTE 30 CLASSIC", "PEARL 18").
+        brand: Optional brand name for capacity standard disambiguation.
+
+    Returns:
+        True if all keywords match; False otherwise.
+    """
+    title_upper = expanded_title.upper()
+    title_words = set(re.findall(r"[A-Z0-9]+", title_upper))
+
+    target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in target_keywords.split()]
+    target_tokens = [t for t in target_tokens if t]
+    target_set = set(target_tokens)
+
+    # Detect brand
+    target_brand = brand.strip()
+    if not target_brand:
+        for b in [
+            "DAWLANCE", "DAW", "GREE", "HAIER", "KENWOOD", "HOMAGE",
+            "ORIENT", "PEL", "TCL", "CHANGHONG", "ECOSTAR", "MIDEA", "DAIKIN",
+        ]:
+            if re.search(rf"\b{b}\b", target_keywords, re.IGNORECASE) or re.search(
+                rf"\b{b}\b", expanded_title, re.IGNORECASE
+            ):
+                target_brand = "DAWLANCE" if b in ("DAWLANCE", "DAW") else b
+                break
+
+    # T3 isolation: if target does NOT contain T3, reject sellers that DO have T3
+    has_t3_target = "T3" in target_set
+    has_t3_title = "T3" in title_words
+    if not has_t3_target and has_t3_title:
+        return False
+
+    # Check each keyword
+    for kw in target_tokens:
+        if kw in title_words:
+            continue
+        # Capacity code mapping (Dawlance vs Universal brands)
+        tonnage = get_capacity_tonnage(kw, target_brand)
+        if tonnage and tonnage_matches_title(tonnage, title_upper):
+            continue
+        # Reverse mapping: tonnage in target -> code in title
+        if reverse_tonnage_matches(kw, title_words, target_brand):
+            continue
+        return False
+
+    return True
+
+
+def is_strict_model_match(scraped_title: str, target_model: str, brand: str = "") -> bool:
     """Validate that scraped product title strictly matches target model.
 
     Enforces:
@@ -384,6 +613,23 @@ def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
     expanded_title = expand_multivariant_titles(scraped_title)
 
     clean_target = target_model.strip()
+
+    # Keyword mode detection: if target has no standard model-code token
+    # (e.g. "AVANTE 30 CLASSIC" vs "12AITH21W-T3"), use keyword matching.
+    # A standard model code is:
+    # 1. Alphanumeric compound token of 3+ chars (e.g. 12AITH21W, DWT-1165, HBU-48E)
+    # 2. Hyphenated numeric SKU (e.g. 100-1269, 60-50, 120-826)
+    # 3. Standalone numeric model code of 3+ digits (e.g. 1060, 183, 184)
+    _has_model_code = any(
+        (len(t) >= 3 and re.search(r"\d", t) and re.search(r"[A-Za-z]", t))
+        or bool(re.search(r"^\d+-\d+$", t))
+        or bool(re.search(r"^\d{3,}$", t))
+        for t in clean_target.split()
+        if t
+    )
+
+    if not _has_model_code:
+        return _keyword_match(expanded_title, clean_target, brand=brand)
 
     # Normalize alphanumerics for baseline containment
     norm_target = re.sub(r"[^A-Z0-9]", "", clean_target.upper())
@@ -431,5 +677,24 @@ def is_strict_model_match(scraped_title: str, target_model: str) -> bool:
                         break
             if not conflict:
                 return True
+
+    # 5. Technical slash suffix fallback:
+    # If target contains '/' (e.g. 18HE/DC, GN-261/21, 24CE03/KB-01),
+    # try matching just the base part before the slash — seller may have omitted the suffix.
+    if "/" in clean_target:
+        base_before_slash = clean_target.split("/")[0].strip()
+        norm_base_slash = re.sub(r"[^A-Z0-9]", "", base_before_slash.upper())
+        base_slash_core = tag_pattern.sub("", norm_base_slash)
+        if base_slash_core and base_slash_core in norm_title:
+            # Verify no capacity collision (reuse structural prefix check)
+            m_slash_num = re.match(r"^([0-9]+)([A-Z]+)", base_slash_core)
+            if m_slash_num:
+                slash_num = m_slash_num.group(1)
+                slash_series = m_slash_num.group(2)
+                for m_found in re.finditer(rf"([0-9]+){re.escape(slash_series)}", norm_title):
+                    found_num = m_found.group(1)
+                    if len(found_num) == len(slash_num) and found_num != slash_num:
+                        return False
+            return True
 
     return False

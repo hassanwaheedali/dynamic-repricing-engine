@@ -300,3 +300,280 @@ def test_non_model_safeguards_unmodified() -> None:
     assert expand_multivariant_titles("DAW D/F 9199 H&C Inverter") == "DAW D/F 9199 H&C Inverter"
     assert expand_multivariant_titles("Gree Inverter Heat / Cool Split AC") == "Gree Inverter Heat / Cool Split AC"
     assert expand_multivariant_titles("Midea Front Load 12W/8D KG") == "Midea Front Load 12W/8D KG"
+
+
+def test_technical_slash_safeguards() -> None:
+    """Verify technical slashes (/DC, /AC, /KB-xx, /YY year codes, W/O) are NOT expanded."""
+    from pricing_engine.matcher import expand_multivariant_titles
+
+    # Haier Cassette /DC (Direct Current) — NOT a variant separator
+    assert expand_multivariant_titles("HAIER CASSETTE 1.5TON INVERTER 18HE/DC") == \
+        "HAIER CASSETTE 1.5TON INVERTER 18HE/DC"
+    assert expand_multivariant_titles("HAIER CASSETTE 4TON INVERTER HBU-48E/DC") == \
+        "HAIER CASSETTE 4TON INVERTER HBU-48E/DC"
+    assert expand_multivariant_titles("HAIER FLOOR STANDING 48CE/DC INVERTER") == \
+        "HAIER FLOOR STANDING 48CE/DC INVERTER"
+
+    # Haier complex technical model
+    assert expand_multivariant_titles("HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE") == \
+        "HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE"
+
+    # Haier subordinate model code /KB-01
+    assert expand_multivariant_titles("HAIER CASSETTE 2TON NORMAL 24CE03/KB-01") == \
+        "HAIER CASSETTE 2TON NORMAL 24CE03/KB-01"
+
+    # Gaba National year codes /21, /20, /23
+    assert expand_multivariant_titles("GABA NATIONAL HOT PLATE GN-261/21") == \
+        "GABA NATIONAL HOT PLATE GN-261/21"
+    assert expand_multivariant_titles("GABA NATIONAL SANDWITCH MAKER GNE-396/20") == \
+        "GABA NATIONAL SANDWITCH MAKER GNE-396/20"
+    assert expand_multivariant_titles("GABA NATIONAL SPINNER GND-1606/23") == \
+        "GABA NATIONAL SPINNER GND-1606/23"
+
+    # W/O = "Without" — NOT a variant separator
+    assert expand_multivariant_titles("DAW W/D 1060 W/O REF WHITE") == \
+        "DAW W/D 1060 W/O REF WHITE"
+
+
+def test_technical_suffix_model_match() -> None:
+    """Verify is_strict_model_match handles technical slash suffixes (/DC, /AC, /KB-xx, /YY)."""
+    # 18HE/DC: exact match
+    assert is_strict_model_match("Haier Cassette 18HE/DC Inverter 1.5 Ton", "18HE/DC")
+    # 18HE/DC: partial match — seller omitted /DC
+    assert is_strict_model_match("Haier Cassette 18HE Inverter 1.5 Ton", "18HE/DC")
+    # Reverse: our catalog says 18HE, listing says 18HE/DC — should still match
+    assert is_strict_model_match("Haier Cassette 18HE/DC Inverter", "18HE")
+    # Capacity mismatch: 24HE/DC vs 18HE/DC — must reject
+    assert not is_strict_model_match("Haier Cassette 24HE/DC Inverter 2 Ton", "18HE/DC")
+
+    # HBU-48E/DC: exact + partial
+    assert is_strict_model_match("Haier Cassette HBU-48E/DC Inverter 4 Ton", "HBU-48E/DC")
+    assert is_strict_model_match("Haier Cassette HBU-48E Inverter 4 Ton", "HBU-48E/DC")
+
+    # 48CE/DC
+    assert is_strict_model_match("Haier Floor Standing 48CE/DC Inverter", "48CE/DC")
+    assert is_strict_model_match("Haier Floor Standing 48CE Inverter", "48CE/DC")
+
+    # GN-261/21: exact match
+    assert is_strict_model_match("Gaba National GN-261/21 Hot Plate", "GN-261/21")
+    # GN-261/21: seller omitted year
+    assert is_strict_model_match("Gaba National GN-261 Hot Plate", "GN-261/21")
+    # GN-261/21 must NOT match GN-262
+    assert not is_strict_model_match("Gaba National GN-262/21 Hot Plate", "GN-261/21")
+
+    # 24CE03/KB-01: exact match
+    assert is_strict_model_match("Haier Cassette 24CE03/KB-01 Normal 2 Ton", "24CE03/KB-01")
+    # 24CE03/KB-01: seller omitted subordinate code
+    assert is_strict_model_match("Haier Cassette 24CE03 Normal 2 Ton", "24CE03/KB-01")
+
+
+def test_name_only_extraction_dawlance_acs() -> None:
+    """Verify name-only Dawlance ACs extract meaningful search queries and keyword models."""
+    # AVANTE 30 CLASSIC — query should contain Avante+30, model should include CLASSIC
+    q, m = extract_search_query_and_model("DAW SPLIT AC AVANTE INVERTER 30 (CLASSIC", "Dawlance")
+    assert "Avante" in q or "AVANTE" in q.upper()
+    assert "30" in q
+    assert "AVANTE" in m.upper()
+    assert "30" in m
+    assert "CLASSIC" in m.upper()
+
+    # AVANTE 30 ELEGANT — differentiated from CLASSIC
+    q2, m2 = extract_search_query_and_model("DAW SPLIT AC AVANTE INVERTER 30 (ELEGANT", "Dawlance")
+    assert "AVANTE" in q2.upper()
+    assert "ELEGANT" in m2.upper()
+    assert "CLASSIC" not in m2.upper()
+
+    # FROST 20 COOL ONLY vs FROST 30 COOL ONLY — capacity differentiation
+    q3, m3 = extract_search_query_and_model("DAW SPLIT AC FROST INVERTER 20 (COOL ONLY)", "Dawlance")
+    assert "FROST" in q3.upper()
+    assert "20" in m3
+    q4, m4 = extract_search_query_and_model("DAW SPLIT AC FROST INVERTER 30 (COOL ONLY)", "Dawlance")
+    assert "30" in m4
+    assert m3 != m4  # Different capacities must produce different models
+
+    # CHROME 30 WHITE
+    q5, m5 = extract_search_query_and_model("DAW SPLIT AC CHROME INVERTER 30 WHITE", "Dawlance")
+    assert "CHROME" in q5.upper()
+    assert "WHITE" in m5.upper()
+
+    # ENERCON X 15 — X is part of series name
+    q6, m6 = extract_search_query_and_model("DAW SPLIT AC ENERCON X INVERTER 15", "Dawlance")
+    assert "ENERCON" in q6.upper()
+    assert "ENERCON" in m6.upper()
+    assert "X" in m6.upper().split()
+    assert "15" in m6
+
+    # DUAL PRO T3 15 — T3 is part of model name
+    q7, m7 = extract_search_query_and_model("DAW SPLIT AC DUAL PRO T3 INVERTER 15", "Dawlance")
+    assert "DUAL" in m7.upper()
+    assert "PRO" in m7.upper()
+    assert "T3" in m7.upper()
+    assert "15" in m7
+
+    # MEGA T3 PRO 30
+    q8, m8 = extract_search_query_and_model("DAW SPLIT AC MEGA T3 PRO INVERTER 30", "Dawlance")
+    assert "MEGA" in m8.upper()
+    assert "T3" in m8.upper()
+    assert "30" in m8
+
+    # Existing model-code products must NOT be affected
+    q_gree, m_gree = extract_search_query_and_model("Gree Inverter 1.5 Ton GS-18PITH11W", "Gree")
+    assert q_gree == "18PITH11W"
+
+
+def test_keyword_match_mode() -> None:
+    """Verify keyword match mode: ALL keywords must appear in seller title."""
+    # AVANTE 30 CLASSIC — all keywords match
+    assert is_strict_model_match(
+        "Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC"
+    )
+    # AVANTE 30 CLASSIC must reject ELEGANT
+    assert not is_strict_model_match(
+        "Dawlance Avante Inverter 1.5 Ton Elegant Silver", "AVANTE 30 CLASSIC"
+    )
+    # AVANTE 30 ELEGANT — correct match
+    assert is_strict_model_match(
+        "Dawlance Avante Inverter 1.5 Ton Elegant Silver", "AVANTE 30 ELEGANT"
+    )
+
+    # CHROME 30 WHITE vs CHROME 45 COPPER — capacity isolation
+    assert is_strict_model_match(
+        "Dawlance Chrome Inverter 1.5 Ton White", "CHROME 30 WHITE"
+    )
+    assert not is_strict_model_match(
+        "Dawlance Chrome+ Inverter 2 Ton Copper", "CHROME 30 WHITE"
+    )
+
+    # ENERCON X 15 — X is required
+    assert is_strict_model_match(
+        "Dawlance Enercon X Inverter 1 Ton", "ENERCON X 15"
+    )
+
+
+def test_keyword_match_t3_isolation() -> None:
+    """Verify T3 isolation: non-T3 target rejects T3 listings and vice versa."""
+    # SPRINTER 30 (non-T3) must reject T3 listing
+    assert not is_strict_model_match(
+        "Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER 30"
+    )
+    # SPRINTER 30 (non-T3) matches non-T3 listing
+    assert is_strict_model_match(
+        "Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER 30"
+    )
+
+    # SPRINTER T3 X 30 (T3 product) must reject non-T3 listing
+    assert not is_strict_model_match(
+        "Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER T3 X 30"
+    )
+    # SPRINTER T3 X 30 matches T3 listing
+    assert is_strict_model_match(
+        "Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER T3 X 30"
+    )
+
+    # MAGNA T3 30 MILKY — T3 is in target, must require T3 in seller
+    assert is_strict_model_match(
+        "Dawlance Magna T3 Inverter 1.5 Ton Milky White", "MAGNA T3 30 MILKY"
+    )
+    assert not is_strict_model_match(
+        "Dawlance Magna Inverter 1.5 Ton Silver", "MAGNA T3 30 MILKY"
+    )
+
+    # Model-code T3 (Gree) should NOT be affected — T3 is auxiliary tag, soft match
+    assert is_strict_model_match("Gree 12AITH21W-T3 Inverter AC", "12AITH21W")
+    assert is_strict_model_match("Gree 12AITH21W Inverter AC", "12AITH21W-T3")
+
+
+def test_hyphenated_numeric_skus_and_plus_models() -> None:
+    """Verify Haier numeric hyphenated SKUs, pure numbers, and Dawlance '+' series."""
+    # Haier washing machines: 100-1269 S6
+    assert is_strict_model_match("HAIER AUTO W/M 100-1269 S6", "100-1269 S6")
+    assert is_strict_model_match("Haier Automatic Washing Machine 100-1269 S6", "100-1269")
+    # Capacity / model isolation: 100-1269 must not match 100-826
+    assert not is_strict_model_match("HAIER AUTO W/M 100-826 S6", "100-1269 S6")
+
+    # Haier spinners: 60-50, 80-60
+    assert is_strict_model_match("HAIER SPINNER 60-50", "60-50")
+    assert is_strict_model_match("HAIER SPINNER 80-60", "80-60")
+    assert not is_strict_model_match("HAIER SPINNER 60-50", "80-60")
+
+    # Pure numeric model codes: 1060, 183 S.S
+    assert is_strict_model_match("DAW W/D 1060 W/O REF WHITE", "1060")
+    assert is_strict_model_match("GABA NATIONAL R/F 183 S.S", "183 S.S")
+    assert is_strict_model_match("Gaba National Refrigerator 183 SS", "183 S.S")
+
+    # Dawlance ACs with '+' in series name
+    assert is_strict_model_match(
+        "DAW FLOOR STANDING GLAMOUR+ INVERTER 45", "GLAMOUR+ 45"
+    )
+    assert is_strict_model_match(
+        "Dawlance Glamour Inverter 2 Ton", "GLAMOUR+ 45"
+    )
+    assert is_strict_model_match(
+        "DAW SPLIT AC ECONO+ X INVERTER 15", "ECONO+ X 15"
+    )
+    assert is_strict_model_match(
+        "DAW SPLIT AC MEGA T+ 10", "MEGA T+ 10"
+    )
+
+
+def test_multibrand_universal_capacity_mappings() -> None:
+    """Verify Universal AC capacity structure (Gree, Haier, Orient, PEL, Kenwood) alongside Dawlance.
+
+    Universal standard (BTU / 1,000):
+    09/9 = 0.75 Ton, 12 = 1.0 Ton, 18 = 1.5 Ton, 24 = 2.0 Ton, 28/30 = 2.5 Ton
+
+    Dawlance custom standard:
+    10 = 0.75 Ton, 15 = 1.0 Ton, 20 = 1.25 Ton, 30 = 1.5 Ton, 45 = 2.0 Ton
+    """
+    # 1. Haier: 18 = 1.5 Ton, 12 = 1.0 Ton, 24 = 2.0 Ton
+    assert is_strict_model_match("Haier Inverter 1.5 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
+    assert is_strict_model_match("Haier Inverter 1.5Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
+    assert not is_strict_model_match("Haier Inverter 1.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
+    assert not is_strict_model_match("Haier Inverter 2.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
+    assert is_strict_model_match("Haier Inverter 1 Ton HSU-12HFP", "12HFP", brand="Haier")
+
+    # 2. Gree: 09 = 0.75 Ton, 12 = 1.0 Ton, 24 = 2.0 Ton, 28/30 = 2.5 Ton
+    assert is_strict_model_match("Gree Inverter AC 0.75 Ton Pular", "PULAR 09", brand="Gree")
+    assert is_strict_model_match("Gree Inverter AC 1 Ton Fairy", "FAIRY 12", brand="Gree")
+    assert is_strict_model_match("Gree Inverter AC 1.0 Ton Fairy", "FAIRY 12", brand="Gree")
+    assert not is_strict_model_match("Gree Inverter AC 1.5 Ton Fairy", "FAIRY 12", brand="Gree")
+    assert is_strict_model_match("Gree Inverter AC 2 Ton Airy", "AIRY 24", brand="Gree")
+    assert is_strict_model_match("Gree Inverter AC 2.5 Ton Pular", "PULAR 28", brand="Gree")
+    assert is_strict_model_match("Gree Inverter AC 2.5 Ton Pular", "PULAR 30", brand="Gree")
+    # In Gree, 30 is 2.5 Ton — must reject 1.5 Ton!
+    assert not is_strict_model_match("Gree Inverter AC 1.5 Ton Pular", "PULAR 30", brand="Gree")
+
+    # 3. Orient: 18 = 1.5 Ton, 24 = 2.0 Ton
+    assert is_strict_model_match("Orient Inverter 1.5 Ton Ultron", "ULTRON 18", brand="Orient")
+    assert is_strict_model_match("Orient Inverter 2 Ton Ultron", "ULTRON 24", brand="Orient")
+    assert is_strict_model_match("Orient Inverter 2.0 Ton Ultron", "ULTRON 24", brand="Orient")
+    assert not is_strict_model_match("Orient Inverter 1.5 Ton Ultron", "ULTRON 24", brand="Orient")
+
+    # 4. PEL: 18 = 1.5 Ton, 12 = 1.0 Ton
+    assert is_strict_model_match("PEL Split AC 1.5 Ton Inverter Ace", "ACE 18", brand="PEL")
+    assert not is_strict_model_match("PEL Split AC 1.0 Ton Inverter Ace", "ACE 18", brand="PEL")
+    # Catalog extraction test for PEL explicit 1.5TON phrase
+    q_pel, m_pel = extract_search_query_and_model("PEL SPLIT AC 1.5TON INVERTER ACE", "PEL")
+    assert "18" in q_pel
+    assert "18" in m_pel
+    assert is_strict_model_match("PEL Split AC 1.5 Ton Inverter Ace", m_pel, brand="PEL")
+
+    # 5. Kenwood: 18 = 1.5 Ton, 09 = 0.75 Ton
+    assert is_strict_model_match("Kenwood Inverter 1.5 Ton eSmart", "ESMART 18", brand="Kenwood")
+    assert is_strict_model_match("Kenwood Inverter 0.75 Ton eSmart", "ESMART 09", brand="Kenwood")
+    assert not is_strict_model_match("Kenwood Inverter 1.0 Ton eSmart", "ESMART 09", brand="Kenwood")
+
+    # 6. Disambiguation of '30' (Dawlance 1.5 Ton vs Gree/Universal 2.5 Ton)
+    assert is_strict_model_match("Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance")
+    assert not is_strict_model_match("Dawlance Avante Inverter 2.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance")
+    assert is_strict_model_match("Gree Inverter AC 2.5 Ton Pular", "PULAR 30", brand="Gree")
+    assert not is_strict_model_match("Gree Inverter AC 1.5 Ton Pular", "PULAR 30", brand="Gree")
+
+    # 7. Brand auto-detection from title when brand arg is not explicitly provided
+    assert is_strict_model_match("Haier Inverter 1.5 Ton Pearl White", "PEARL 18 WHITE")
+    assert is_strict_model_match("Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC")
+    assert is_strict_model_match("Gree Inverter AC 1.0 Ton Fairy", "FAIRY 12")
+    assert is_strict_model_match("Orient Inverter 2.0 Ton Ultron", "ULTRON 24")
+    assert is_strict_model_match("Kenwood Inverter 1.5 Ton eSmart", "ESMART 18")
+
+
