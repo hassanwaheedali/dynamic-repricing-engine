@@ -1,9 +1,11 @@
 import pytest
 
 from pricing_engine.matcher import (
+    extract_product_slots,
     extract_search_query_and_model,
     generate_search_patterns,
     is_strict_model_match,
+    referee_match,
 )
 
 
@@ -625,5 +627,107 @@ def test_generate_search_patterns_refrigerator() -> None:
     assert any("276EBS" in p for p in patterns["tier_1"])
     assert any("276EBS" in p for p in patterns["tier_2"])
     assert any("276 EBS" in p or "276-EBS" in p for p in patterns["tier_3"])
+
+
+# ==============================================================================
+# PHASE 3: 4-SLOT STRUCTURAL EXTRACTION & NEGATIVE-COLLISION REFEREE TESTS
+# ==============================================================================
+
+
+def test_extract_product_slots_haier_washing_machine() -> None:
+    title = "HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE"
+    slots = extract_product_slots(title, brand="Haier")
+    assert slots.anchor == "120-826S6"
+    assert "GC" in slots.residuals
+    assert slots.guarded_facets.capacity in ("12KG", "12")
+
+
+def test_referee_match_haier_washing_machine_synonyms() -> None:
+    target_slots = extract_product_slots("HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier")
+    decision1 = referee_match(target_slots, "Haier 120-826S6 Glass Door Washing Machine", brand="Haier")
+    assert decision1.is_match is True
+    assert "Accepted" in decision1.reason
+
+    decision2 = referee_match(target_slots, "Haier HWM 120-826S6 GC Auto", brand="Haier")
+    assert decision2.is_match is True
+
+
+def test_referee_match_hardware_tub_rejection() -> None:
+    # 80-1217WB (Single/White) vs 80-1217GB (Grey/Twin)
+    target_slots = extract_product_slots("HAIER WASHING MACHINE HWM 80-1217WB", brand="Haier")
+    assert target_slots.guarded_facets.tub_series == "WB"
+
+    decision = referee_match(target_slots, "Haier Washing Machine HWM 80-1217GB", brand="Haier")
+    assert decision.is_match is False
+    assert "Hardware tub mismatch" in decision.reason or "Collision" in decision.reason
+
+
+def test_referee_match_t3_isolation() -> None:
+    # Non-T3 target strictly rejects T3 listings
+    target_non_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA 30 INVERTER", brand="Dawlance")
+    assert target_non_t3.guarded_facets.t3 is False or target_non_t3.guarded_facets.t3 is None
+
+    decision_rej = referee_match(target_non_t3, "Dawlance Magna Inverter AC 1.5 Ton T3", brand="Dawlance")
+    assert decision_rej.is_match is False
+    assert "T3 mismatch" in decision_rej.reason
+
+    # T3 target strictly rejects non-T3 listings
+    target_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA T3 30 INVERTER", brand="Dawlance")
+    assert target_t3.guarded_facets.t3 is True
+
+    decision_rej_non_t3 = referee_match(target_t3, "Dawlance Magna Inverter AC 1.5 Ton", brand="Dawlance")
+    assert decision_rej_non_t3.is_match is False
+    assert "T3 mismatch" in decision_rej_non_t3.reason
+
+    # T3 target matches T3 listing
+    decision_acc_t3 = referee_match(target_t3, "Dawlance Magna 1.5 Ton T3 Inverter", brand="Dawlance")
+    assert decision_acc_t3.is_match is True
+
+
+def test_referee_match_tv_screen_size_collision() -> None:
+    target_slots = extract_product_slots("HAIER LED 50S80EUX 4K SMART", brand="Haier")
+    assert target_slots.guarded_facets.capacity in ("50INCH", "50")
+
+    # 50 matches 50
+    decision_pass = referee_match(target_slots, "Haier Smart 4K LED 50 S80EUX", brand="Haier")
+    assert decision_pass.is_match is True
+
+    # 50 strictly rejects 43
+    decision_fail = referee_match(target_slots, "Haier Smart 4K LED 43S80EUX", brand="Haier")
+    assert decision_fail.is_match is False
+    assert "Capacity / screen size mismatch" in decision_fail.reason or "mismatch" in decision_fail.reason.lower()
+
+
+def test_referee_match_refrigerator_color_families() -> None:
+    target_slots = extract_product_slots("DAWLANCE REFRIGERATOR 276EBS SILVER", brand="Dawlance")
+    assert target_slots.guarded_facets.color_family == "Grey / Silver"
+
+    # Same family: Metallic Grey / Steel matches Silver
+    decision_same_fam = referee_match(target_slots, "Dawlance Refrigerator 276EBS Metallic Grey", brand="Dawlance")
+    assert decision_same_fam.is_match is True
+
+    # Cross family: Black collides with Silver
+    decision_black = referee_match(target_slots, "Dawlance Refrigerator 276EBS Midnight Black", brand="Dawlance")
+    assert decision_black.is_match is False
+    assert "Color collision" in decision_black.reason or "Color mismatch" in decision_black.reason
+
+    # Model collision: 276EBS vs 276EPR
+    decision_model = referee_match(target_slots, "Dawlance Refrigerator 276EPR RED", brand="Dawlance")
+    assert decision_model.is_match is False
+
+
+def test_referee_match_sub_series_integrity() -> None:
+    # CHROME PRO vs CHROME: PRO is a required sub-series differentiator
+    target_pro = extract_product_slots("DAWLANCE INVERTER CHROME PRO 30", brand="Dawlance")
+    assert "PRO" in target_pro.series.upper()
+
+    decision_missing_pro = referee_match(target_pro, "Dawlance Inverter AC Chrome 1.5 Ton", brand="Dawlance")
+    assert decision_missing_pro.is_match is False
+    assert "sub-series" in decision_missing_pro.reason.lower() or "missing" in decision_missing_pro.reason.lower()
+
+    # AVANTE CLASSIC vs AVANTE ELEGANT
+    target_classic = extract_product_slots("DAWLANCE AVANTE CLASSIC 30", brand="Dawlance")
+    decision_diff_series = referee_match(target_classic, "Dawlance Avante Elegant 1.5 Ton", brand="Dawlance")
+    assert decision_diff_series.is_match is False
 
 

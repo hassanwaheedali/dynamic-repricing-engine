@@ -74,7 +74,7 @@
 
 ### Phase 3: Token-Based Extraction & Negative-Collision Referee Matcher
 
-- [ ] **Task 3.1: 4-Slot Attribute Extractor with Residual Subtraction (`pricing_engine/matcher.py`)**
+- [x] **Task 3.1: 4-Slot Attribute Extractor with Residual Subtraction (`pricing_engine/matcher.py`)**
   - Implement `extract_product_slots(title: str, brand: str = "") -> ProductSlots`:
     - `anchor`: Primary numeric or alphanumeric SKU run (`120-826S6`, `276EBS`, `DWT-1165`).
     - `series`: Extracted dynamically via CSV Metadata Subtraction (Zero Static Noise Dict):
@@ -89,7 +89,7 @@
   - *Acceptance Criteria:* Correctly factors titles into slots without hardcoded series dictionaries.
   - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_extract_product_slots -v`
 
-- [ ] **Task 3.2: Negative-Collision Referee Matcher (`pricing_engine/matcher.py`)**
+- [x] **Task 3.2: Negative-Collision Referee Matcher (`pricing_engine/matcher.py`)**
   - Implement `referee_match(target_slots: ProductSlots, candidate_title: str) -> MatchDecision`:
     - Check 1: Anchor Model containment.
     - Check 2: Zero-Tolerance Collision Guards:
@@ -102,7 +102,7 @@
   - *Acceptance Criteria:* Accurately matches identical units and strictly rejects variant collisions.
   - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_referee_match -v`
 
-- [ ] **Task 3.3: Comprehensive Cross-Category Test Suite (`tests/test_matcher.py`)**
+- [x] **Task 3.3: Comprehensive Cross-Category Test Suite (`tests/test_matcher.py`)**
   - Add test cases covering:
     - Haier Washing Machines (`120-826S6 GC` matches `120-826S6 Glass Door`; `80-1217WB` rejects `80-1217GB`).
     - Dawlance ACs (`MAGNA T3 30 MILKY` matches `MAGNA 1.5 TON T3` and rejects non-T3).
@@ -112,9 +112,9 @@
   - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -v`
 
 ### Checkpoint: Phase 3 Complete
-- [ ] Zero series dictionaries required.
-- [ ] Residual subtraction reliably extracts series names.
-- [ ] Negative-collision referee guarantees variant safety.
+- [x] Zero series dictionaries required.
+- [x] Residual subtraction reliably extracts series names.
+- [x] Negative-collision referee guarantees variant safety.
 
 ---
 

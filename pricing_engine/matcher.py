@@ -1,4 +1,111 @@
 import re
+from dataclasses import dataclass, field
+
+
+@dataclass
+class GuardedFacets:
+    """Zero-tolerance guarded attributes for strict variant collision protection."""
+
+    t3: bool | None = None
+    capacity: str | None = None  # e.g. "1.5T", "12KG", "50INCH"
+    tub_series: str | None = None  # e.g. "WB", "GB"
+    color_family: str | None = None  # One of the 9 normalized color families
+    color_raw: str | None = None  # Original matched color text
+
+
+@dataclass
+class ProductSlots:
+    """4-Slot structural attribute representation of a product title."""
+
+    anchor: str  # Primary invariant alphanumeric model code (e.g. '120-826S6', '276EBS')
+    series: str  # Dynamic series extracted via residual subtraction (e.g. 'MAGNA', 'CHROME PRO')
+    guarded_facets: GuardedFacets
+    residuals: list[str] = field(default_factory=list)  # Soft modifiers: 'GC', 'GLASS DOOR', etc.
+
+
+@dataclass
+class MatchDecision:
+    """Detailed verdict and audit trail from the negative-collision referee."""
+
+    is_match: bool
+    reason: str
+    target_slots: ProductSlots | None = None
+    candidate_slots: ProductSlots | None = None
+
+
+# 9 Normalized Color Families (ADR-002)
+COLOR_FAMILIES: dict[str, list[str]] = {
+    "White": ["MILKY WHITE", "PEARL WHITE", "WHITE", "MILKY", "IVORY"],
+    "Black": ["PIANO BLACK", "MATTE BLACK", "MIDNIGHT BLACK", "BLACK", "DARK", "MIDNIGHT"],
+    "Grey / Silver": [
+        "METALLIC GREY",
+        "DARK METALLIC",
+        "METALLIC GRAY",
+        "STAINLESS STEEL",
+        "S.S",
+        "GREY",
+        "GRAY",
+        "SILVER",
+        "METALLIC",
+        "STEEL",
+        "TITANIUM",
+        "GRAPHITE",
+        "CHROME",
+        "PLATINUM",
+    ],
+    "Red / Maroon": ["RED", "MAROON", "BURGUNDY", "RUBY", "CRIMSON"],
+    "Gold / Bronze / Copper": [
+        "ROSE GOLD",
+        "CLASSIC GOLD",
+        "GOLD",
+        "CHAMPAGNE",
+        "BRONZE",
+        "COPPER",
+    ],
+    "Brown / Wood": ["BROWN", "CHOCOLATE", "WOOD", "WALNUT", "TEAK"],
+    "Blue": ["ROYAL BLUE", "SKY BLUE", "NAVY BLUE", "BLUE", "NAVY"],
+    "Green": ["GREEN", "EMERALD", "OLIVE"],
+    "Purple / Pink": ["PURPLE", "VIOLET", "PINK"],
+}
+
+# Single-letter color suffix codes attached to model codes (e.g. 12AITH21W -> W)
+COLOR_SUFFIX_MAP: dict[str, str] = {
+    "W": "White",
+    "B": "Black",
+    "D": "Black",
+    "S": "Grey / Silver",
+    "G": "Grey / Silver",
+    "R": "Red / Maroon",
+    "P": "Purple / Pink",
+}
+
+
+def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | None]:
+    """Extract and normalize color into one of 9 canonical families with anchor isolation.
+
+    Inviolability Rule: The internal letters of isolated alphanumeric anchors
+    (e.g. 120-826S6, 276EBS) are never mutated or parsed as full color names.
+    """
+    title_search = title
+    if anchor:
+        title_search = re.sub(rf"\b{re.escape(anchor)}\b", " ", title, flags=re.IGNORECASE)
+
+    # Search for multi-word and single-word color tokens
+    for family, aliases in COLOR_FAMILIES.items():
+        for alias in aliases:
+            if re.search(rf"\b{re.escape(alias)}\b", title_search, re.IGNORECASE):
+                return family, alias
+
+    # Fallback to trailing single-letter color code on model anchor (e.g. 12AITH21W -> W -> White)
+    if anchor:
+        m_suf = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRP])$", anchor, re.IGNORECASE)
+        if m_suf:
+            letter = m_suf.group(1).upper()
+            fam = COLOR_SUFFIX_MAP.get(letter)
+            if fam:
+                return fam, letter
+
+    return None, None
 
 # Category acronyms and fractions to safeguard from expansion
 SAFEGUARD_PATTERN = re.compile(
@@ -827,3 +934,295 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
         "tier_2": _dedupe(tier_2),
         "tier_3": _dedupe(tier_3),
     }
+
+
+SUB_SERIES_TOKENS: set[str] = {
+    "PRO", "PLUS", "+", "CLASSIC", "ELEGANT", "MAX", "ULTRA", "LITE", "PRIME", "X", "DELUXE", "PREMIUM",
+}
+
+ROOT_COLORS: set[str] = {
+    "WHITE", "BLACK", "GREY", "GRAY", "SILVER", "RED", "BLUE", "GREEN",
+    "GOLD", "BROWN", "PINK", "PURPLE", "MILKY", "DARK", "MAROON", "BURGUNDY",
+}
+
+
+def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
+    """Factor a catalog target or marketplace title into 4 orthogonal slots.
+
+    Slots (ADR-002):
+    1. anchor: Primary numeric or alphanumeric SKU run.
+    2. series: Extracted dynamically via CSV metadata subtraction (Zero Static Noise Dict).
+    3. guarded_facets: T3, capacity, tub_series, color_family, color_raw.
+    4. residuals: Extra marketing/cosmetic tokens ('GC', 'Glass Door', 'Pillow Drum').
+
+    Args:
+        title: Catalog or marketplace product title.
+        brand: Optional brand name from catalog metadata.
+
+    Returns:
+        Structured ProductSlots instance.
+    """
+    clean_title = title.strip()
+    detected_brand = brand.strip() or (clean_title.split()[0] if clean_title else "")
+    search_token, raw_model = extract_search_query_and_model(clean_title, brand=detected_brand)
+
+    tokens = raw_model.split()
+    first_token = tokens[0] if tokens else raw_model
+
+    # 1. Anchor Extraction
+    anchor = ""
+    if re.search(r"\d", first_token) and not is_dimension_or_spec_token(first_token):
+        core_stem, _ = extract_tag(first_token)
+        anchor = core_stem
+
+    # 2. Guarded Facets Extraction
+    # 2a. T3
+    t3_match = bool(re.search(r"(?:-|\b)T3\b", clean_title, re.IGNORECASE))
+    is_ac = bool(re.search(r"\b(?:AC|SPLIT|INVERTER|TON|ΤΟN)\b", clean_title, re.IGNORECASE))
+    t3 = t3_match if (t3_match or is_ac) else None
+
+    # 2b. Capacity
+    capacity: str | None = None
+    # Screen size
+    m_screen = re.search(r"\b(\d{2})\s*(?:INCH|\"|\')\b", clean_title, re.IGNORECASE)
+    if m_screen:
+        capacity = f"{m_screen.group(1)}INCH"
+    elif anchor and re.match(r"^(\d{2})[A-Z]\w{3,}$", anchor):
+        capacity = f"{anchor[:2]}INCH"
+    else:
+        # Washing machine KG
+        m_kg = re.search(r"\b(\d+(?:\.\d+)?)\s*KG\b", clean_title, re.IGNORECASE)
+        if m_kg:
+            capacity = f"{int(float(m_kg.group(1)))}KG"
+        elif anchor and re.match(r"^(\d{2,3})-\d+", anchor):
+            num_val = int(re.match(r"^(\d{2,3})-\d+", anchor).group(1))
+            capacity = f"{num_val // 10}KG"
+        else:
+            # AC Tonnage
+            m_ton = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:TON|ΤΟN)\b", clean_title, re.IGNORECASE)
+            if m_ton:
+                capacity = f"{m_ton.group(1)}T"
+            else:
+                # AC capacity codes
+                for t in (tokens + clean_title.split()):
+                    t_c = t.strip("-_., \"'")
+                    ton = get_capacity_tonnage(t_c, detected_brand)
+                    if ton:
+                        capacity = f"{ton}T"
+                        break
+
+    # 2c. Tub Series
+    m_tub = re.search(r"\b\d+-\d+(WB|GB)\b|\b(WB|GB)\b", clean_title, re.IGNORECASE)
+    tub_series = (m_tub.group(1) or m_tub.group(2)).upper() if m_tub else None
+
+    # 2d. Color Family & Raw
+    color_fam, color_raw = normalize_color(clean_title, anchor=anchor)
+
+    guarded = GuardedFacets(
+        t3=t3,
+        capacity=capacity,
+        tub_series=tub_series,
+        color_family=color_fam,
+        color_raw=color_raw,
+    )
+
+    # 3. Soft Residual Modifiers
+    # Sub-series tokens (PRO, PLUS, etc.) must NEVER be treated as cosmetic residuals!
+    residuals: list[str] = []
+    m_gc = re.search(r"\b(?:GC|GLASS\s+DOOR|CLEAR\s+LID|PILLOW\s+DRUM)\b", clean_title, re.IGNORECASE)
+    if m_gc:
+        residuals.append(m_gc.group(0).upper())
+    for t in tokens[1:]:
+        t_u = t.upper()
+        if t_u not in SUB_SERIES_TOKENS and is_sku_variant_tag(t):
+            residuals.append(t_u)
+    residuals = list(dict.fromkeys(residuals))
+
+    # 4. Dynamic Series Extraction via CSV Metadata Subtraction
+    sub = clean_title
+    if detected_brand:
+        sub = re.sub(rf"\b{re.escape(detected_brand)}\b", " ", sub, flags=re.IGNORECASE)
+    sub = CATEGORY_PATTERNS.sub(" ", sub)
+    sub = re.sub(
+        r"\b(?:WASHING\s+MACHINE|REFRIGERATOR|MICROWAVE(?:\s+OVEN)?|WATER\s+DISPENSER|AIR\s+CONDITIONER)\b",
+        " ",
+        sub,
+        flags=re.IGNORECASE,
+    )
+    sub = re.sub(
+        r"\b(?:HWM|DWT|DW|WM|WF|GN|GF|GW|GS|LED|TV)\b",
+        " ",
+        sub,
+        flags=re.IGNORECASE,
+    )
+    sub = re.sub(
+        r"\b(?:T3|INVERTER|INV|4K|SMART|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD)\b",
+        " ",
+        sub,
+        flags=re.IGNORECASE,
+    )
+    for r in residuals:
+        sub = re.sub(rf"\b{re.escape(r)}\b", " ", sub, flags=re.IGNORECASE)
+    if color_raw and color_raw.upper() in ROOT_COLORS:
+        sub = re.sub(rf"\b{re.escape(color_raw)}\b", " ", sub, flags=re.IGNORECASE)
+    if anchor:
+        sub = re.sub(rf"\b{re.escape(anchor)}\b", " ", sub, flags=re.IGNORECASE)
+    # Strip any standalone numbers that match capacity (e.g. 30, 18, 12)
+    if capacity:
+        cap_num = re.sub(r"[^0-9\.]", "", capacity)
+        if cap_num:
+            sub = re.sub(rf"\b{re.escape(cap_num)}\b", " ", sub)
+    for code in ("10", "15", "18", "20", "24", "28", "30", "36", "45", "48"):
+        sub = re.sub(rf"\b{code}\b", " ", sub)
+
+    series_tokens = [tok.strip("-.,_ \"'+") for tok in sub.split()]
+    series_tokens = [
+        tok for tok in series_tokens if tok and tok.upper() not in NON_SKU_TOKENS and len(tok) > 1
+    ]
+    series = " ".join(series_tokens).strip()
+
+    return ProductSlots(
+        anchor=anchor,
+        series=series,
+        guarded_facets=guarded,
+        residuals=residuals,
+    )
+
+
+def referee_match(
+    target: ProductSlots | str,
+    candidate_title: str,
+    brand: str = "",
+) -> MatchDecision:
+    """Evaluate candidate marketplace listing against target product slots.
+
+    Decision Principle (ADR-002):
+    Decision = Anchor Match AND NOT(Any Guarded Facet Collision)
+
+    Returns:
+        MatchDecision containing boolean verdict and detailed human-readable audit reason.
+    """
+    target_slots = extract_product_slots(target, brand=brand) if isinstance(target, str) else target
+    cand_slots = extract_product_slots(candidate_title, brand=brand)
+
+    # 1. Zero-Tolerance Hardware Tub Series Guard (e.g. WB vs GB)
+    if (
+        target_slots.guarded_facets.tub_series
+        and cand_slots.guarded_facets.tub_series
+        and target_slots.guarded_facets.tub_series != cand_slots.guarded_facets.tub_series
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Hardware tub mismatch: {target_slots.guarded_facets.tub_series} "
+                f"vs {cand_slots.guarded_facets.tub_series}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 2. Anchor Model Check
+    if target_slots.anchor:
+        norm_t = re.sub(r"[^A-Z0-9]", "", target_slots.anchor.upper())
+        norm_cand_title = re.sub(r"[^A-Z0-9]", "", candidate_title.upper())
+
+        if cand_slots.anchor:
+            norm_c = re.sub(r"[^A-Z0-9]", "", cand_slots.anchor.upper())
+            if norm_t != norm_c and norm_t not in norm_c and norm_c not in norm_t:
+                return MatchDecision(
+                    is_match=False,
+                    reason=f"Anchor model mismatch: {target_slots.anchor} vs {cand_slots.anchor}",
+                    target_slots=target_slots,
+                    candidate_slots=cand_slots,
+                )
+        elif norm_t not in norm_cand_title:
+            return MatchDecision(
+                is_match=False,
+                reason=f"Anchor model '{target_slots.anchor}' not found in candidate listing",
+                target_slots=target_slots,
+                candidate_slots=cand_slots,
+            )
+
+    # 2. Dynamic Series and Sub-series Check
+    if target_slots.series:
+        target_series_words = [w.upper() for w in target_slots.series.split()]
+        cand_words = set(re.findall(r"[A-Z0-9]+", candidate_title.upper()))
+
+        for w in target_series_words:
+            if w not in cand_words:
+                return MatchDecision(
+                    is_match=False,
+                    reason=f"Missing required sub-series token: '{w}' from series '{target_slots.series}'",
+                    target_slots=target_slots,
+                    candidate_slots=cand_slots,
+                )
+
+        SUB_SERIES_TOKENS = {"CLASSIC", "ELEGANT", "PRO", "PLUS", "MAX", "ULTRA", "LITE", "BASIC", "DELUXE"}
+        t_sub = set(target_series_words).intersection(SUB_SERIES_TOKENS)
+        c_sub = cand_words.intersection(SUB_SERIES_TOKENS)
+        if t_sub and c_sub and t_sub != c_sub:
+            return MatchDecision(
+                is_match=False,
+                reason=f"Sub-series mismatch: {', '.join(t_sub)} vs {', '.join(c_sub)}",
+                target_slots=target_slots,
+                candidate_slots=cand_slots,
+            )
+
+    # 3. Guarded Facets Zero-Tolerance Checks
+    # 3a. T3 Compressor Guard
+    if (
+        target_slots.guarded_facets.t3 is not None
+        and cand_slots.guarded_facets.t3 is not None
+        and target_slots.guarded_facets.t3 != cand_slots.guarded_facets.t3
+    ):
+        t_str = "T3" if target_slots.guarded_facets.t3 else "non-T3"
+        c_str = "T3" if cand_slots.guarded_facets.t3 else "non-T3"
+        return MatchDecision(
+            is_match=False,
+            reason=f"T3 mismatch: Target is {t_str}, candidate is {c_str}",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 3b. Capacity / Screen Size Guard
+    if target_slots.guarded_facets.capacity and cand_slots.guarded_facets.capacity:
+        def _norm_cap(c: str) -> str:
+            return re.sub(r"[^0-9\.]", "", c)
+
+        if _norm_cap(target_slots.guarded_facets.capacity) != _norm_cap(cand_slots.guarded_facets.capacity):
+            return MatchDecision(
+                is_match=False,
+                reason=(
+                    f"Capacity / screen size mismatch: {target_slots.guarded_facets.capacity} "
+                    f"vs {cand_slots.guarded_facets.capacity}"
+                ),
+                target_slots=target_slots,
+                candidate_slots=cand_slots,
+            )
+
+    # 3c. Color Family Collision Guard
+    if (
+        target_slots.guarded_facets.color_family
+        and cand_slots.guarded_facets.color_family
+        and target_slots.guarded_facets.color_family != cand_slots.guarded_facets.color_family
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Color collision: {target_slots.guarded_facets.color_raw} "
+                f"({target_slots.guarded_facets.color_family}) vs {cand_slots.guarded_facets.color_raw} "
+                f"({cand_slots.guarded_facets.color_family})"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # All checks passed cleanly
+    matched_id = target_slots.anchor or target_slots.series or "Target"
+    return MatchDecision(
+        is_match=True,
+        reason=f"Accepted: {matched_id} matched with zero guarded facet collisions",
+        target_slots=target_slots,
+        candidate_slots=cand_slots,
+    )
+
