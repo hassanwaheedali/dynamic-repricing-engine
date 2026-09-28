@@ -118,16 +118,13 @@ def evaluate_alfa_pricing(
 
     # Scenario 3: Undercut lowest viable seller
     lowest_viable = min(viable, key=lambda x: x.price)
-    target_adaptive_alfa = (
-        calculate_adaptive_target_price(
-            floor_min=cost_floors.floor_alfa,
-            competitor_price=lowest_viable.price,
-            cost_base=cost_floors.cost_base,
-            payout_rate=0.90,
-            large_gap_profit_target=max_profit_cap,
-        )
-        if max_profit_cap is not None
-        else None
+    large_cap_alfa = max_profit_cap if max_profit_cap is not None else 10000.0
+    target_adaptive_alfa = calculate_adaptive_target_price(
+        floor_min=cost_floors.floor_alfa,
+        competitor_price=lowest_viable.price,
+        cost_base=cost_floors.cost_base,
+        payout_rate=0.90,
+        large_gap_profit_target=large_cap_alfa,
     )
     final_p: int | None = find_winning_psychological_price(
         cost_floors.floor_alfa, lowest_viable.price, max_ceiling=target_adaptive_alfa
@@ -136,16 +133,12 @@ def evaluate_alfa_pricing(
     if final_p is None:
         # If psychological search couldn't beat lowest, try next higher viable seller
         for higher_viable in sorted(viable, key=lambda x: x.price)[1:]:
-            target_adaptive_alfa = (
-                calculate_adaptive_target_price(
-                    floor_min=cost_floors.floor_alfa,
-                    competitor_price=higher_viable.price,
-                    cost_base=cost_floors.cost_base,
-                    payout_rate=0.90,
-                    large_gap_profit_target=max_profit_cap,
-                )
-                if max_profit_cap is not None
-                else None
+            target_adaptive_alfa = calculate_adaptive_target_price(
+                floor_min=cost_floors.floor_alfa,
+                competitor_price=higher_viable.price,
+                cost_base=cost_floors.cost_base,
+                payout_rate=0.90,
+                large_gap_profit_target=large_cap_alfa,
             )
             final_p = find_winning_psychological_price(
                 cost_floors.floor_alfa, higher_viable.price, max_ceiling=target_adaptive_alfa
@@ -153,7 +146,6 @@ def evaluate_alfa_pricing(
             if final_p is not None:
                 lowest_viable = higher_viable
                 break
-
 
     if final_p is None:
         return PlatformPricingResult(
@@ -172,10 +164,17 @@ def evaluate_alfa_pricing(
     dropped_prefix = f"Filtered {len(dropped)} sub-floor offer(s). " if dropped else ""
     uncapped_p = find_winning_psychological_price(cost_floors.floor_alfa, lowest_viable.price)
     if uncapped_p is not None and final_p < uncapped_p:
-        reason = (
-            f"{dropped_prefix}Competitor {lowest_viable.vendor_name} (Rs. {lowest_viable.price:,.0f}) "
-            f"price is inflated. Capped price at Rs. {final_p:,.0f} (+Rs. {profit:,} profit) to ensure sales volume."
-        )
+        gap = lowest_viable.price - cost_floors.floor_alfa
+        if 2000.0 <= gap < 10000.0:
+            reason = (
+                f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied 50% split midpoint "
+                f"to winning psychological price Rs. {final_p:,.0f} (+Rs. {profit:,} profit) for maximum conversion."
+            )
+        else:
+            reason = (
+                f"{dropped_prefix}Competitor {lowest_viable.vendor_name} (Rs. {lowest_viable.price:,.0f}) "
+                f"price is inflated. Capped price at Rs. {final_p:,.0f} (+Rs. {profit:,} profit) to ensure sales volume."
+            )
     else:
         reason = (
             f"{dropped_prefix}Undercut viable competitor {lowest_viable.vendor_name} "

@@ -11,13 +11,13 @@
 
 ### Phase 1: Baseline Stabilization & Multi-Catalog Data Integration
 
-- [ ] **Task 1.1: Multi-Catalog Dataset Integration**
+- [x] **Task 1.1: Multi-Catalog Dataset Integration**
   - Bring `Haier_Washing_Machines_Uploading_and_Price.csv` and `final_haier_wm_repriced.csv` into the workspace root.
   - Sample representative models from `Stock Holding Report - FINAC - Products - MainSheet.csv` (Refrigerators: `276EBS SILVER`, `306IDB BLACK`, `418IFG1U1 IOT GREY`; Microwave Ovens; Water Dispensers; TVs: `50S80EUX`).
   - *Acceptance Criteria:* Catalog files present and readable by pandas; test fixture verified.
   - *Verification:* `.venv\Scripts\python -c "import pandas as pd; df = pd.read_csv('Haier_Washing_Machines_Uploading_and_Price.csv'); print(f'Loaded {len(df)} Haier products')"`
 
-- [ ] **Task 1.2: Restore AlfaMall 50% Midpoint Adaptive Pricing**
+- [x] **Task 1.2: Restore AlfaMall 50% Midpoint Adaptive Pricing**
   - In `pricing_engine/evaluator.py`:
     - Remove the `if max_profit_cap is not None else None` bypass on AlfaMall.
     - Set default `large_cap_alfa = max_profit_cap if max_profit_cap is not None else 10000.0`.
@@ -26,16 +26,16 @@
   - *Acceptance Criteria:* Large gap items on AlfaMall undercut to 50% split midpoint instead of hugging competitor by only Rs. 100.
   - *Verification:* `.venv\Scripts\pytest tests/test_evaluator.py -v`
 
-- [ ] **Task 1.3: Baseline Verification & Test Suite Checkpoint**
+- [x] **Task 1.3: Baseline Verification & Test Suite Checkpoint**
   - Run complete project test suite.
   - Run strict linter check.
   - *Acceptance Criteria:* All tests green; 0 linter warnings.
   - *Verification:* `.venv\Scripts\pytest -v` and `.venv\Scripts\ruff check .`
 
 ### Checkpoint: Phase 1 Complete
-- [ ] Catalogs integrated.
-- [ ] Evaluator 50% adaptive gap bug resolved on AlfaMall.
-- [ ] 100% tests green.
+- [x] Catalogs integrated.
+- [x] Evaluator 50% adaptive gap bug resolved on AlfaMall.
+- [x] 100% tests green.
 
 ---
 
