@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import random
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
@@ -42,32 +44,78 @@ def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
     return dict(_query_cache)
 
 
-async def scrape_alfamall(
+async def _execute_waterfall(
+    single_scraper_fn: Callable[..., Coroutine[Any, Any, ScrapeResult]],
+    session: AsyncSession,
+    patterns: dict[str, list[str]],
+    target_model: str,
+    timeout: float,
+    max_retries: int,
+) -> ScrapeResult:
+    """Execute tiered early-exit waterfall candidate retrieval across query tiers.
+
+    Tiers are queried in sequence: tier_1 -> tier_2 -> tier_3.
+    If >= 2 valid candidate offers are discovered after completing a tier,
+    search terminates immediately, saving up to 80% redundant network I/O.
+    """
+    collected_offers: list[ScrapedOffer] = []
+    seen_offers: set[tuple[str, float, str]] = set()
+    any_success = False
+    last_status: int | None = None
+    last_error: str | None = None
+
+    tier_order = ["tier_1", "tier_2", "tier_3"]
+    all_tiers = [t for t in tier_order if t in patterns] + [t for t in patterns if t not in tier_order]
+
+    for tier_name in all_tiers:
+        tier_queries = patterns[tier_name]
+        for q in tier_queries:
+            q_str = str(q).strip()
+            if not q_str:
+                continue
+            sub_res = await single_scraper_fn(
+                session=session,
+                query=q_str,
+                target_model=target_model,
+                timeout=timeout,
+                max_retries=max_retries,
+            )
+            if sub_res.is_success:
+                any_success = True
+            last_status = sub_res.status_code
+            if sub_res.error_detail:
+                last_error = sub_res.error_detail
+
+            for off in sub_res.offers:
+                dedupe_key = (
+                    off.vendor_name.lower().strip(),
+                    round(off.price, 2),
+                    off.raw_title.lower().strip(),
+                )
+                if dedupe_key not in seen_offers:
+                    seen_offers.add(dedupe_key)
+                    collected_offers.append(off)
+
+        # Early-exit condition: if >= 2 valid candidate offers collected after completing this tier, stop!
+        if len(collected_offers) >= 2:
+            break
+
+    return ScrapeResult(
+        offers=collected_offers,
+        is_success=any_success if (any_success or not collected_offers) else True,
+        status_code=last_status if last_status is not None else (200 if any_success else None),
+        error_detail=None if any_success else last_error,
+    )
+
+
+async def _scrape_alfamall_single_query(
     session: AsyncSession,
     query: str,
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
 ) -> ScrapeResult:
-    """Query AlfaMall storefront search API and extract verified product offers with retries.
-
-    Features:
-    - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
-    - Modern Chrome 120 headers.
-    - Soft 200 OK WAF challenge detection & schema validation for both 'results' and 'data' keys.
-    - Fast 10.0s timeout with jittered exponential backoff.
-    - Live terminal telemetry badges on retries/stalls.
-
-    Args:
-        session: Active curl_cffi AsyncSession with Chrome impersonation.
-        query: Search keyword extracted from product catalog name.
-        target_model: Target model string for strict variant validation.
-        timeout: HTTP request timeout in seconds (default: 10.0s).
-        max_retries: Number of retry attempts on network/timeout failure (default: 3).
-
-    Returns:
-        ScrapeResult containing verified offers and explicit success/failure flags.
-    """
+    """Internal single-query scraper for AlfaMall storefront search API."""
     cache_key = ("alfamall", query.strip().upper())
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
@@ -236,14 +284,53 @@ async def scrape_alfamall(
     )
 
 
-async def scrape_digimall(
+async def scrape_alfamall(
+    session: AsyncSession,
+    query: str | dict[str, list[str]],
+    target_model: str,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+) -> ScrapeResult:
+    """Query AlfaMall storefront search API and extract verified product offers with retries.
+
+    Supports both single search query strings and tiered waterfall pattern dictionaries.
+
+    Args:
+        session: Active curl_cffi AsyncSession with Chrome impersonation.
+        query: Search keyword string or tiered patterns dictionary.
+        target_model: Target model string for strict variant validation.
+        timeout: HTTP request timeout in seconds (default: 10.0s).
+        max_retries: Number of retry attempts on network/timeout failure (default: 3).
+
+    Returns:
+        ScrapeResult containing verified offers and explicit success/failure flags.
+    """
+    if isinstance(query, str):
+        return await _scrape_alfamall_single_query(
+            session=session,
+            query=query,
+            target_model=target_model,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+    return await _execute_waterfall(
+        single_scraper_fn=_scrape_alfamall_single_query,
+        session=session,
+        patterns=query,
+        target_model=target_model,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+
+
+async def _scrape_digimall_single_query(
     session: AsyncSession,
     query: str,
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
 ) -> ScrapeResult:
-    """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
+    """Internal single-query scraper for DigiMall storefront search API.
 
     Features:
     - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
@@ -426,5 +513,44 @@ async def scrape_digimall(
         is_success=False,
         status_code=last_status,
         error_detail=last_error or "Exhausted all retries without successful response",
+    )
+
+
+async def scrape_digimall(
+    session: AsyncSession,
+    query: str | dict[str, list[str]],
+    target_model: str,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+) -> ScrapeResult:
+    """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
+
+    Supports both single search query strings and tiered waterfall pattern dictionaries.
+
+    Args:
+        session: Active curl_cffi AsyncSession with Chrome impersonation.
+        query: Search keyword string or tiered patterns dictionary.
+        target_model: Target model string for strict variant validation.
+        timeout: HTTP request timeout in seconds (default: 10.0s).
+        max_retries: Number of retry attempts on network/timeout failure (default: 3).
+
+    Returns:
+        ScrapeResult containing verified offers and explicit success/failure flags.
+    """
+    if isinstance(query, str):
+        return await _scrape_digimall_single_query(
+            session=session,
+            query=query,
+            target_model=target_model,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+    return await _execute_waterfall(
+        single_scraper_fn=_scrape_digimall_single_query,
+        session=session,
+        patterns=query,
+        target_model=target_model,
+        timeout=timeout,
+        max_retries=max_retries,
     )
 

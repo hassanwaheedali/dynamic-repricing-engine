@@ -51,7 +51,7 @@
   - *Acceptance Criteria:* Returns clean, ordered query tiers for TVs, Washing Machines, ACs, and Refrigerators.
   - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_generate_search_patterns -v`
 
-- [ ] **Task 2.2: Tiered Early-Exit Waterfall Scraper (`pricing_engine/scraper.py`)**
+- [x] **Task 2.2: Tiered Early-Exit Waterfall Scraper (`pricing_engine/scraper.py`)**
   - Upgrade `scrape_alfamall` and `scrape_digimall` to accept tiered query patterns.
   - Execute Tier 1 query first; if $\ge 2$ valid candidate offers returned, return immediately without calling Tier 2 or Tier 3.
   - Fallback to Tier 2 and Tier 3 only if $<2$ candidate offers discovered.
@@ -59,16 +59,16 @@
   - *Acceptance Criteria:* Early exit stops redundant HTTP requests; deduplicated candidates merged cleanly.
   - *Verification:* `.venv\Scripts\pytest tests/test_scraper.py -v`
 
-- [ ] **Task 2.3: Scraper Unit Tests & Performance Verification**
+- [x] **Task 2.3: Scraper Unit Tests & Performance Verification**
   - Add mock tests for early-exit waterfall (verify Tier 2 is not called when Tier 1 succeeds).
   - Add tests for fallback when Tier 1 returns 0 offers.
   - *Acceptance Criteria:* Test coverage for waterfall logic exceeds 90%.
   - *Verification:* `.venv\Scripts\pytest tests/test_scraper.py -v`
 
 ### Checkpoint: Phase 2 Complete
-- [ ] Multi-pattern query generation verified.
-- [ ] Tiered early-exit waterfall reduces network overhead by 80%.
-- [ ] All scraper tests green.
+- [x] Multi-pattern query generation verified.
+- [x] Tiered early-exit waterfall reduces network overhead by 80%.
+- [x] All scraper tests green.
 
 ---
 

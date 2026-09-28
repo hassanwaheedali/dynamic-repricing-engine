@@ -20,7 +20,7 @@ from pricing_engine.calculator import (
     calculate_volumetric_weight,
 )
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
-from pricing_engine.matcher import extract_search_query_and_model
+from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
 from pricing_engine.models import (
     CostFloors,
     PlatformPricingResult,
@@ -617,11 +617,12 @@ async def process_item_async(
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
-    search_q, target_model = extract_search_query_and_model(product.name, brand=product.brand)
+    _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
+    patterns = generate_search_patterns(product.name, brand=product.brand)
 
     async with semaphore:
-        alfa_task = scrape_alfamall(session, search_q, target_model)
-        digi_task = scrape_digimall(session, search_q, target_model)
+        alfa_task = scrape_alfamall(session, patterns, target_model)
+        digi_task = scrape_digimall(session, patterns, target_model)
         alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
 
     csv_shipping = product.raw_row.get("Shipping Estimate")

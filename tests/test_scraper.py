@@ -163,3 +163,145 @@ def test_scraper_http_500_returns_failure_result() -> None:
         assert len(result.offers) == 0
 
     asyncio.run(_test())
+
+
+def test_waterfall_early_exit_when_tier_1_has_two_or_more_offers() -> None:
+    async def _test() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 GC WASHING MACHINE",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "95,000"},
+                    "vendor": {"name": "Vendor A"},
+                },
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "97,000"},
+                    "vendor": {"name": "Vendor B"},
+                },
+            ]
+        }
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        patterns = {
+            "tier_1": ["120-826S6 GC"],
+            "tier_2": ["120-826S6"],
+            "tier_3": ["120 826S6"],
+        }
+        result = await scrape_alfamall(mock_session, patterns, "120-826S6 GC")
+
+        assert result.is_success is True
+        assert len(result.offers) == 2
+        # Early-exit: Tier 2 and Tier 3 must NOT be called because Tier 1 returned >= 2 offers
+        assert mock_session.get.call_count == 1
+
+    asyncio.run(_test())
+
+
+def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
+    async def _test() -> None:
+        # First call (Tier 1) returns 1 offer
+        resp_tier1 = MagicMock()
+        resp_tier1.status_code = 200
+        resp_tier1.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "95,000"},
+                    "vendor": {"name": "Vendor A"},
+                }
+            ]
+        }
+
+        # Second call (Tier 2) returns 1 additional offer
+        resp_tier2 = MagicMock()
+        resp_tier2.status_code = 200
+        resp_tier2.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 AUTOMATIC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "96,000"},
+                    "vendor": {"name": "Vendor B"},
+                }
+            ]
+        }
+
+        mock_session = AsyncMock()
+        mock_session.get.side_effect = [resp_tier1, resp_tier2]
+
+        patterns = {
+            "tier_1": ["120-826S6 GC"],
+            "tier_2": ["120-826S6"],
+            "tier_3": ["120 826S6"],
+        }
+        result = await scrape_digimall(mock_session, patterns, "120-826S6")
+
+        assert result.is_success is True
+        assert len(result.offers) == 2
+        # Cascaded to Tier 2 (total 2 HTTP calls), then stopped before Tier 3 because pool has 2 offers
+        assert mock_session.get.call_count == 2
+
+    asyncio.run(_test())
+
+
+def test_waterfall_deduplicates_overlapping_offers_across_tiers() -> None:
+    async def _test() -> None:
+        # Tier 1 returns Seller A
+        resp_tier1 = MagicMock()
+        resp_tier1.status_code = 200
+        resp_tier1.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "95,000"},
+                    "vendor": {"name": "Vendor A"},
+                }
+            ]
+        }
+
+        # Tier 2 returns Seller A (same item/price) AND Seller B
+        resp_tier2 = MagicMock()
+        resp_tier2.status_code = 200
+        resp_tier2.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "95,000"},
+                    "vendor": {"name": "Vendor A"},
+                },
+                {
+                    "title": "HAIER 120-826S6",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "98,000"},
+                    "vendor": {"name": "Vendor B"},
+                },
+            ]
+        }
+
+        mock_session = AsyncMock()
+        mock_session.get.side_effect = [resp_tier1, resp_tier2]
+
+        patterns = {
+            "tier_1": ["120-826S6 GC"],
+            "tier_2": ["120-826S6"],
+            "tier_3": ["120 826S6"],
+        }
+        result = await scrape_alfamall(mock_session, patterns, "120-826S6")
+
+        assert result.is_success is True
+        # Deduplication check: Vendor A should appear only ONCE
+        assert len(result.offers) == 2
+        vendors = [o.vendor_name for o in result.offers]
+        assert vendors.count("Vendor A") == 1
+        assert vendors.count("Vendor B") == 1
+
+    asyncio.run(_test())
