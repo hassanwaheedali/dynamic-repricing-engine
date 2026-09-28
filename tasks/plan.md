@@ -1,51 +1,142 @@
-# Universal Brand-Agnostic Model Matching Engine: Architectural Plan (V2 - Structural Token-Run Architecture)
+# Implementation Plan: Enterprise Autonomous Multi-Pattern Repricing Engine
 
-## 1. Executive Summary & Root Cause Confirmation (5 User-Raised Gaps)
+## Overview & Executive Summary
 
-A thorough hand-trace analysis confirmed that all 5 issues raised by the user were critical architectural flaws in the previous regex-and-slicing approach:
-1. **Issue 1 (Missing Hyphen in Group 3):** Confirmed. In `VARIANT_CLUSTER_PATTERN`, group 3 lacked `-`. In `"GS-24AITH21W-T3/21B-T3"`, the regex failed completely upon encountering the hyphen in `-T3`, returning the listing unexpanded.
-2. **Issue 2 (TAG_PATTERN Dead Code):** Confirmed. Trailing tags like `-T3` in `GS-12AITH24W/S-T3` were excluded by the alphanumeric-only group 3, leaving `-T3` outside the match so `TAG_PATTERN` never triggered, attaching `-T3` only to the last token (`GS-12AITH24S-T3`) while leaving `GS-12AITH24W` bare.
-3. **Issue 3 (Asymmetric-Length Variants Break Fixed Length Alignment):** Confirmed. In `GS-12AITH24W/S-T3` (3 chars vs 1 char) and `GS-24PITH15/17G` (2 chars vs 3 chars), bidirectional asymmetry cannot be resolved by character slicing. It requires typed structural token runs (`digits`, `letters`, `tags`).
-4. **Issue 4 (Zero Hardcoding Violated):** Confirmed. Hardcoded brand prefixes (`GS|GF|GW`), capacities `(12, 18, 24, 36, 48, 60)`, and color words (`BLACK, SILVER...`) violated DRY and failed across the 768-product catalog in `MainSheet.csv` (Dawlance, Haier, Kenwood, Homage, Midea, PEL) which features multi-word compound colors (`MYSTIC GREY`, `CLOUD WHITE`, `EMERALD GREEN`, `BURGUNDY HONEY-COMB`).
-5. **Issue 5 (Suffix-Word Truncation in Extractor):** Confirmed. `extract_search_query_and_model("DAW AUTO W/M DWT-1165 PL")` dropped `" PL"` because the regex only captured contiguous hyphens and stopped at spaces, dropping vital variant designations (`PL`, `FLT`, `FLP`, `ES`, `S6`, `S8`).
+Build a production-grade, autonomous, brand-agnostic product identity resolution and repricing engine for Pakistani e-commerce platforms (AlfaMall and DigiMall / Faysal Bank). 
 
----
-
-## 2. Updated Architectural Blueprint: Typed Structural Token-Run Engine
-
-### A. Core Mathematical Formalism
-Instead of rigid regexes or fixed character-length slicing, model strings and marketplace titles are parsed into ordered tuples of **Structural Runs**:
-$$\text{Run} = (\text{Type} \in \{\text{'D' (Digits)}, \text{'L' (Letters)}, \text{'P' (Punctuation)}\}, \text{Value})$$
-
-### B. Three Autonomous Processing Layers
-1. **Layer 1: Brand & Fluff Stripper (`extract_search_query_and_model`)**:
-   - Dynamically strips the catalog `Brand` name (`Dawlance`, `Haier`, `Kenwood`, `Gree`, `Homage`, `Midea`, `PEL`).
-   - Strips category descriptors (`AUTO W/M`, `SPLIT AC`, `CASSETTE`, `FLOOR STANDING`, `M/O`, `D/F`, `R/F`).
-   - Captures full multi-token model signatures (`DWT-1165 PL`, `100-316S6 GC`, `HDG-2312B`, `12AITH21W-T3`).
-   - Automatically excludes marketing color phrases (`MYSTIC GREY`, `CLOUD WHITE`, `EMERALD GREEN`) without requiring hardcoded color dictionaries.
-2. **Layer 2: Structural Token-Run Title Expander (`expand_multivariant_titles`)**:
-   - **Safeguard Masking**: Masks category acronyms (`W/M`, `D/F`, `A/C`, `H/C`) and English phrases (`Heat / Cool`, `12W/8D`, `1/2" pipe`).
-   - **Direct Parenthetical Expansion**: Expands `STEM (V1/V2...)` directly using `distribute_runs(stem, [V1, V2...])`.
-   - **Slash-Cluster Run Alignment**: For tokens containing `/`, separates trailing tags (`-T3`, `AAA`, `PRO`), aligns variant sub-runs against the trailing runs of the model head, factorizes the common stem (`GS-24AITH`, `DWT-`, `HDG-`), and distributes bidirectional asymmetric prefixes/suffixes (`15/17G` -> `15G/17G`, `24W/S` -> `24W/24S`).
-3. **Layer 3: Slot-Invariant Strict Matcher (`is_strict_model_match`)**:
-   - Enforces exact canonical containment on expanded listings.
-   - **Zero-Hardcoded Slot Invariance**: Compares token slots. If the target model has a capacity number (e.g. `24`) in slot 0 before series `AITH`, any title containing a different number (e.g. `12` or `18`) in that exact slot is rejected—without maintaining any capacity lists.
-   - **Variant Isolation**: Target variant `B` (Black) requires `B` in the expanded model token; a listing containing only `W` without `B` is rejected.
+The engine replaces brittle, hardcoded regex dictionaries with a **Two-Stage Funnel**:
+1. **Candidate Retrieval**: High-recall multi-pattern scraping with a tiered early-exit waterfall.
+2. **Entity Resolution**: 4-slot structural attribute extraction (Anchor Model, Series Name via residual subtraction, Guarded Facets, Soft Residual Modifiers) paired with a Negative-Collision Referee Matcher.
+3. **Continuous Autonomous Learning**: Multi-seller confirmed co-occurrence mining persisted to Supabase Cloud PostgreSQL with zero-latency in-memory mirrors.
 
 ---
 
-## 3. Vertically Sliced Task Breakdown
+## Architectural Decisions
 
-### Task 1: Update `pricing_engine/matcher.py` with Structural Token-Run Parser
-- Implement `split_runs`, `extract_tag`, `distribute_runs`, `expand_slash_word`, and `expand_multivariant_titles`.
-- Update `extract_search_query_and_model` to handle multi-token models (`DWT-1165 PL`) and dynamic brand stripping.
-- Update `is_strict_model_match` with zero-hardcoded slot invariance.
+| Decision | Reference | Summary |
+| :--- | :--- | :--- |
+| **Multi-Pattern Waterfall** | [ADR-001](file:///d:/dynamic-repricing-engine/docs/decisions/ADR-001-multi-pattern-waterfall-candidate-retrieval.md) | Query Tier 1 (canonical) $\rightarrow$ early-exit if $\ge 2$ offers; cascade to Tier 2 (bare stem) and Tier 3 (permutations) only if needed. Reduces network I/O by 80%. |
+| **4-Slot Attribute Matcher** | [ADR-002](file:///d:/dynamic-repricing-engine/docs/decisions/ADR-002-four-slot-attribute-extraction-and-negative-collision.md) | Zero series dictionaries. Extract Series via Residual Subtraction. Strict isolation for T3, capacity/size, hardware tub codes (`WB` vs `GB`), and 8 universal root colors. |
+| **Autonomous Cloud Learning** | [ADR-003](file:///d:/dynamic-repricing-engine/docs/decisions/ADR-003-autonomous-cooccurrence-learning-and-cloud-sync.md) | Multi-seller confirmation gate ($\ge 3$ distinct vendors) before auto-promotion. Conflict quarantine and append-only audit trail in Supabase. |
 
-### Task 2: Update and Expand `tests/test_matcher.py`
-- Add unit tests covering all 5 user issues.
-- Add multi-brand test cases from `Stock Holding Report - FINAC - Products - MainSheet.csv` (Dawlance, Haier, Kenwood, Homage, Midea, Gree, PEL).
-- Verify 100% test pass on pytest.
+```mermaid
+graph TD
+    A["Catalog Target Product<br/>(e.g. DAW SPLIT AC MAGNA T3 30 / HAIER 120-826S6 GC)"] --> B["Multi-Pattern Seed Generator<br/>(Canonical, Bare Stem, Spaced/Hyphenated)"]
+    B --> C["Tiered Early-Exit Scraper<br/>(pricing_engine/scraper.py)"]
+    C --> D["Candidate Offer Pool<br/>(Merged & Deduplicated)"]
+    D --> E["4-Slot Attribute Extractor<br/>(Anchor, Series, Guarded Facets, Residuals)"]
+    E --> F{"Negative Collision Referee"}
+    F -- "Collision Detected (T3, KG, Color, WB/GB)" --> G["REJECT Offer (Audit Logged)"]
+    F -- "Anchor Match & Zero Collisions" --> H["ACCEPT Offer (Winning Pool)"]
+    H --> I["Dynamic Repricing Evaluator<br/>(5-Tier Adaptive Gap Ladder / 50% Midpoint)"]
+    H --> J["Co-Occurrence Pattern Miner<br/>(Residual Target vs Residual Offer)"]
+    J --> K{"≥3 Distinct Sellers?"}
+    K -- "Yes (≥95% Conf)" --> L["Promote to APPROVED (Supabase Cloud + In-Memory)"]
+    K -- "No (<3 Sellers)" --> M["Hold as CANDIDATE"]
+    K -- "Contradiction" --> N["Flag CONFLICT (Quarantine)"]
+```
 
-### Task 3: Quality Gates & Verification
-- Run `pytest -v` across all project tests.
-- Run `ruff check .` for 0 linting errors.
+---
+
+## Phased Implementation Roadmap
+
+### Phase 1: Baseline Stabilization & Multi-Catalog Data Integration
+**Goal**: Bring in real-world benchmark catalogs, restore AlfaMall 50% midpoint repricing logic, and establish green test baselines.
+
+- **Task 1.1**: Integrate Haier Washing Machines dataset (`Haier_Washing_Machines_Uploading_and_Price.csv`) and sample benchmark models from `Stock Holding Report` (Refrigerators, Microwave Ovens, ACs, Water Dispensers) into test fixtures.
+- **Task 1.2**: Align `pricing_engine/evaluator.py` by removing the `if max_profit_cap is not None` bypass on AlfaMall, ensuring default `large_cap_alfa = 10000.0` activates Tier 2 50% split midpoints on large gaps.
+- **Task 1.3**: Verify and commit baseline test suite (85+ existing unit tests green).
+
+### Phase 2: High-Performance Multi-Pattern Waterfall Scraper
+**Goal**: Implement high-recall multi-pattern seed generation with tiered early-exit execution to ensure maximum candidate discovery without network latency penalties.
+
+- **Task 2.1**: Implement `generate_search_patterns(canonical_name, brand)` in `pricing_engine/matcher.py`:
+  - Canonical query (Tier 1): `120-826S6 GC`, `50S80EUX`.
+  - Bare stem query (Tier 2): `120-826S6`, `S80EUX`.
+  - Spaced/glued permutations (Tier 3): `120 826S6`, `50 S80EUX`, `HWM-120-826S6`.
+  - Appliance Series queries: `MAGNA 30`, `MAGNA 1.5 TON`.
+- **Task 2.2**: Upgrade `scrape_alfamall` and `scrape_digimall` in `pricing_engine/scraper.py` with **Tiered Early-Exit Waterfall**:
+  - Run Tier 1 first; if $\ge 2$ viable candidate offers return, terminate query cycle immediately.
+  - Cascade to Tier 2 and Tier 3 only when candidates are sparse ($<2$).
+  - In-memory run-scoped cache `_query_cache[(platform, query)]` and UTF-8 safe Windows stdout.
+- **Task 2.3**: Unit test suite in `tests/test_scraper.py` covering multi-pattern generation, early exit behavior, and deduplication.
+
+### Phase 3: Token-Based Extraction & Negative-Collision Referee Matcher
+**Goal**: Scraped results ke har token (word) ko Target ke tokens ke sath aamnay-saamnay compare karna (Token-Based Matching). Zero dictionaries ke sath sub-series aur variant identity protect karna.
+
+- **Task 3.1**: Implement `extract_product_slots(title, brand)` in `pricing_engine/matcher.py`:
+  - **Slot 1 (Anchor Model)**: Extracts numeric/alphanumeric code (`120-826S6`, `276EBS`, `DWT-1165`).
+  - **Slot 2 (Series Name via CSV Metadata Subtraction — ZERO Static Noise Dict)**:
+    $$\text{Series} = \text{Title} - (\text{Brand Metadata} \cup \text{Category Metadata} \cup \text{Specs/Capacities} \cup \text{Colors})$$
+    - Brand and Category are taken directly from the CSV input row (`row['Brand']`, `row['Category']`).
+    - Sub-series tokens (`PRO`, `+`, `X`, `CLASSIC`, `ELEGANT`) are strictly preserved in the series token set:
+      `CHROME PRO` strictly requires `PRO` (never collapses into `CHROME`); `ECONO+ X` strictly requires `X`; `AVANTE CLASSIC` rejects `AVANTE ELEGANT`.
+  - **Slot 3 (Guarded Facets)**: T3 status, Capacity/Tonnage, Hardware Series (`WB` vs `GB`), and 9 Normalized Color Families (White/Milky, Black/Dark, Grey/Silver/Metallic/Steel, Red/Maroon, Gold/Copper/Bronze, Brown/Wood, Blue, Green, Purple/Pink) + Suffix Codes (`W`, `B`, `S`, `G`, `R`, `P`).
+  - **Slot 4 (Residual Modifiers)**: Extracted cosmetic tokens (`GC`, `Glass Door`, `Pillow Drum`).
+- **Task 3.2**: Implement `referee_match_decision(target_slots, candidate_title) -> MatchResult`:
+  - Anchor verification.
+  - Zero-tolerance negative collision guards (T3 mismatch $\rightarrow$ REJECT; Capacity mismatch $\rightarrow$ REJECT; Color mismatch $\rightarrow$ REJECT; Tub series `WB` vs `GB` $\rightarrow$ REJECT).
+  - Return structured `MatchResult(is_match=True/False, reason="...", residual_pair=(target_res, cand_res))`.
+- **Task 3.3**: Comprehensive unit tests in `tests/test_matcher.py` validating:
+  - TV screen size and series matching (`50S80EUX` vs `50 S80EUX` vs `43S80EUX`).
+  - AC Series matching (`MAGNA T3 30` matching `MAGNA 1.5 TON T3` and rejecting non-T3).
+  - Washing Machine hardware protection (`80-1217WB` rejecting `80-1217GB`).
+  - Cosmetic tolerance (`120-826S6 GC` matching `120-826S6 Glass Door`).
+
+### Phase 4: Autonomous Co-Occurrence Mining & Cloud Memory
+**Goal**: Persist discovered knowledge (e.g. `GC` $\iff$ `Glass Door`) across runs using Supabase Cloud PostgreSQL with offline resilience.
+
+- **Task 4.1**: Database schema & migration script `scripts/setup_supabase.sql`:
+  - `capacity_registry`: `(brand, code, tonnage, status, occurrences, confidence)`.
+  - `synonym_registry`: `(brand, category, anchor_model, tag, alias, occurrences, status)`.
+  - `learning_observations`: Append-only raw market observation audit log.
+- **Task 4.2**: Database client `pricing_engine/db.py` & In-Memory Registry `pricing_engine/registry.py`:
+  - High-speed async client with connectionless REST API.
+  - In-memory cached lookup ($<0.01$ms).
+  - Graceful fallback to local seed data when offline or unconfigured.
+- **Task 4.3**: Autonomous Pattern Miner `pricing_engine/learner.py`:
+  - Ingest residual pairs from accepted matches during scraping sweeps.
+  - Enforce the $\ge 3$ distinct seller promotion gate.
+  - Conflict quarantine for contradictory signals.
+- **Task 4.4**: Unit tests in `tests/test_db.py`, `tests/test_registry.py`, and `tests/test_learner.py`.
+
+### Phase 5: End-to-End Catalog Stress Testing & CI/CD Quality Gates
+**Goal**: Validate full pipeline execution across 768 products, eliminate all regressions, and lock CI/CD quality gates.
+
+- **Task 5.1**: Run pipeline simulation on:
+  - 38 Haier Washing Machines (`Haier_Washing_Machines_Uploading_and_Price.csv`).
+  - 42 Gree ACs (`Gree_Uploading_on_DigiMall_and_Price.csv`).
+  - Cross-section of 50 Refrigerators, Microwaves, and TVs from `Stock Holding Report`.
+- **Task 5.2**: Verify that 100% of products produce valid prices or explicit, justified status reasons:
+  - 0 false monopolies caused by trivial spacing or cosmetic tag omission.
+  - 0 capacity, color, or T3 cross-variant collisions.
+- **Task 5.3**: CI/CD automated workflow configuration (`.github/workflows/ci.yml`) enforcing:
+  - Strict formatting & linting: `ruff check .` with 0 warnings.
+  - 100% green test suite: `pytest -v`.
+  - Git save-point commit discipline.
+
+---
+
+## Git Workflow & Save-Point Strategy
+
+Following `git-workflow-and-versioning`:
+1. **Trunk-Based Commit Discipline**: Each task is implemented as a single, atomic, verified vertical slice.
+2. **Conventional Commit Syntax**:
+   - `feat(matcher): implement 4-slot structural attribute extractor`
+   - `feat(scraper): implement tiered early-exit waterfall candidate retrieval`
+   - `fix(evaluator): restore AlfaMall 50% midpoint adaptive pricing ladder`
+   - `test(matcher): add test suite for series extraction via residual subtraction`
+3. **Save-Point Protocol**:
+   $$\text{Code} \longrightarrow \text{Run Tests} \longrightarrow \text{Ruff Check} \longrightarrow \text{Atomic Git Commit}$$
+   If a test breaks or regression occurs, immediate revert to last known green save point.
+
+---
+
+## CI/CD Quality Gates & Definition of Done
+
+Every task must pass the standing Definition of Done before being marked complete:
+- [ ] **Tests Pass**: `pytest -v` passes with 0 failures and 0 errors.
+- [ ] **Linter Clean**: `ruff check .` passes with 0 warnings.
+- [ ] **Type Checked**: Public function signatures fully type-annotated (`X | None` modern Python 3.11+).
+- [ ] **No Regressions**: Existing 85 unit tests continue to pass without modification unless an obsolete assertion is explicitly superseded by an ADR.
+- [ ] **Runtime Verified**: Verified against real catalog items in `Stock Holding Report` or `final_haier_wm_repriced.csv`.
