@@ -41,7 +41,7 @@
 
 ### Phase 2: High-Performance Multi-Pattern Waterfall Scraper
 
-- [ ] **Task 2.1: Multi-Pattern Seed Query Generator (`pricing_engine/matcher.py`)**
+- [x] **Task 2.1: Multi-Pattern Seed Query Generator (`pricing_engine/matcher.py`)**
   - Implement `generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, list[str]]`:
     - `tier_1`: Exact clean target SKU (`["120-826S6 GC", "50S80EUX"]`).
     - `tier_2`: Bare alphanumeric stem without cosmetic tags (`["120-826S6", "S80EUX"]`).

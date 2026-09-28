@@ -2,6 +2,7 @@ import pytest
 
 from pricing_engine.matcher import (
     extract_search_query_and_model,
+    generate_search_patterns,
     is_strict_model_match,
 )
 
@@ -575,5 +576,54 @@ def test_multibrand_universal_capacity_mappings() -> None:
     assert is_strict_model_match("Gree Inverter AC 1.0 Ton Fairy", "FAIRY 12")
     assert is_strict_model_match("Orient Inverter 2.0 Ton Ultron", "ULTRON 24")
     assert is_strict_model_match("Kenwood Inverter 1.5 Ton eSmart", "ESMART 18")
+
+
+def test_generate_search_patterns_haier_washing_machine() -> None:
+    patterns = generate_search_patterns("HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier")
+    assert "tier_1" in patterns
+    assert "tier_2" in patterns
+    assert "tier_3" in patterns
+    assert any("120-826S6 GC" in p for p in patterns["tier_1"])
+    assert any("120-826S6" in p for p in patterns["tier_2"])
+    # Tier 3 spaced/glued/prefixed
+    assert any("120 826S6" in p for p in patterns["tier_3"])
+    assert any("HWM" in p for p in patterns["tier_3"])
+
+
+def test_generate_search_patterns_variant_preservation() -> None:
+    # WB / GB hardware variant code must NOT be stripped from bare stem
+    patterns = generate_search_patterns("HAIER WASHING MACHINE HWM 80-1217WB", brand="Haier")
+    assert any("80-1217WB" in p for p in patterns["tier_1"])
+    assert any("80-1217WB" in p for p in patterns["tier_2"])
+    # WB must not be dropped into just '80-1217'
+    assert "80-1217" not in patterns["tier_2"]
+
+
+def test_generate_search_patterns_tv() -> None:
+    patterns = generate_search_patterns("HAIER LED 50S80EUX 4K SMART", brand="Haier")
+    assert any("50S80EUX" in p for p in patterns["tier_1"])
+    assert any("S80EUX" in p for p in patterns["tier_2"])
+    assert any("50 S80EUX" in p for p in patterns["tier_3"])
+
+
+def test_generate_search_patterns_gree_ac() -> None:
+    patterns = generate_search_patterns("GREE SPLIT AC GS-12AITH21W-T3", brand="Gree")
+    assert any("12AITH21W-T3" in p for p in patterns["tier_1"])
+    assert any("12AITH21W" in p for p in patterns["tier_2"])
+    assert any("GS-12AITH21W" in p or "GS-12AITH21W-T3" in p or "12AITH21" in p for p in patterns["tier_3"])
+
+
+def test_generate_search_patterns_dawlance_series_ac() -> None:
+    patterns = generate_search_patterns("DAWLANCE SPLIT AC MAGNA 30 INVERTER", brand="Dawlance")
+    assert any("MAGNA 30" in p for p in patterns["tier_1"])
+    assert any("MAGNA" in p for p in patterns["tier_2"])
+    assert any("MAGNA 1.5 TON" in p for p in patterns["tier_3"])
+
+
+def test_generate_search_patterns_refrigerator() -> None:
+    patterns = generate_search_patterns("DAWLANCE REFRIGERATOR 276EBS SILVER", brand="Dawlance")
+    assert any("276EBS" in p for p in patterns["tier_1"])
+    assert any("276EBS" in p for p in patterns["tier_2"])
+    assert any("276 EBS" in p or "276-EBS" in p for p in patterns["tier_3"])
 
 

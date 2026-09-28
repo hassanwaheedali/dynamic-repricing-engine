@@ -698,3 +698,132 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
             return True
 
     return False
+
+
+def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, list[str]]:
+    """Generate tiered search query patterns for multi-pattern waterfall candidate retrieval.
+
+    Tiers (ADR-001):
+    - Tier 1 (Exact Clean): Target SKU with variant tags (e.g. '120-826S6 GC', '50S80EUX').
+    - Tier 2 (Bare Alphanumeric Stem): Core model without cosmetic tags/prefixes (e.g. '120-826S6', 'S80EUX').
+    - Tier 3 (Permutated Stem): Spaced, glued, and prefixed permutations, plus series tonnage
+      (e.g. '120 826S6', '50 S80EUX', 'MAGNA 1.5 TON').
+
+    Args:
+        canonical_name: Catalog product name.
+        brand: Optional brand name (e.g. 'Haier', 'Gree', 'Dawlance').
+
+    Returns:
+        Dictionary mapping 'tier_1', 'tier_2', 'tier_3' to ordered lists of unique search strings.
+    """
+    clean_name = canonical_name.strip()
+    if not clean_name:
+        return {"tier_1": [], "tier_2": [], "tier_3": []}
+
+    detected_brand = brand.strip() or clean_name.split()[0]
+    search_token, raw_model = extract_search_query_and_model(clean_name, brand=detected_brand)
+
+    tier_1: list[str] = []
+    tier_2: list[str] = []
+    tier_3: list[str] = []
+
+    # Detect prefixes like HWM, DWT, GS, GW, GF, GN, WF in the raw catalog name
+    pfx_match = re.search(r"\b(HWM|DWT|DW|WM|WF|GN|GS|GW|GF)\b", clean_name, re.IGNORECASE)
+    pfx = pfx_match.group(1).upper() if pfx_match else ""
+
+    tokens = raw_model.split()
+    first_token = tokens[0] if tokens else raw_model
+
+    # Check for TV pattern: 2-digit screen size glued to series (e.g. 50S80EUX, 43P735)
+    tv_match = re.match(r"^(\d{2})([A-Z]\w{3,})$", first_token)
+
+    # Check for series + capacity pattern (e.g. MAGNA 30, AVANTE 15, PEARL 18)
+    is_series_capacity = len(tokens) >= 2 and tokens[-1].isdigit() and len(tokens[-1]) <= 2
+
+    # Check for refrigerator alphanumeric stem (e.g. 276EBS, 306IDB)
+    fridge_match = re.match(r"^(\d{3,})([A-Za-z]+)$", first_token)
+
+    # Auxiliary tag stripping (e.g. -T3, AAA, PRO)
+    core_stem, aux_tag = extract_tag(first_token)
+
+    if tv_match:
+        screen_size = tv_match.group(1)
+        tv_series = tv_match.group(2)
+        tier_1.append(first_token)
+        if detected_brand:
+            tier_1.append(f"{detected_brand} {first_token}")
+        tier_2.append(tv_series)
+        tier_3.append(f"{screen_size} {tv_series}")
+        if detected_brand:
+            tier_3.append(f"{detected_brand} {tv_series}")
+
+    elif is_series_capacity:
+        series_name = " ".join(tokens[:-1])
+        cap_code = tokens[-1]
+        tier_1.append(raw_model)
+        if detected_brand:
+            tier_1.append(f"{detected_brand} {raw_model}")
+        tier_2.append(series_name)
+
+        # Map capacity code to tonnage (Dawlance vs Universal)
+        tonnage = get_capacity_tonnage(cap_code, detected_brand)
+        if tonnage:
+            tier_3.append(f"{series_name} {tonnage} TON")
+            tier_3.append(f"{series_name} {tonnage}TON")
+            if detected_brand:
+                tier_3.append(f"{detected_brand} {series_name} {tonnage} TON")
+        tier_3.append(f"{series_name} {cap_code}")
+
+    else:
+        # Standard model codes: washing machines, ACs, refrigerators
+        tier_1.append(raw_model)
+        if aux_tag and core_stem not in tier_1:
+            tier_1.append(core_stem)
+
+        # Tier 2: Bare alphanumeric stem without cosmetic tags
+        bare_stem = core_stem
+        tier_2.append(bare_stem)
+
+        # Tier 3: Spaced, glued, and prefixed permutations
+        if "-" in bare_stem:
+            spaced = bare_stem.replace("-", " ")
+            glued = bare_stem.replace("-", "")
+            tier_3.append(spaced)
+            tier_3.append(glued)
+            if pfx:
+                tier_3.append(f"{pfx}-{bare_stem}")
+                tier_3.append(f"{pfx} {bare_stem}")
+                tier_3.append(f"{pfx} {spaced}")
+        elif fridge_match:
+            digits = fridge_match.group(1)
+            letters = fridge_match.group(2)
+            tier_3.append(f"{digits} {letters}")
+            tier_3.append(f"{digits}-{letters}")
+            if detected_brand:
+                tier_3.append(f"{detected_brand} {bare_stem}")
+
+        if pfx and "-" not in bare_stem:
+            tier_3.append(f"{pfx}-{bare_stem}")
+            tier_3.append(f"{pfx} {bare_stem}")
+
+        # If AC model ends with color letter (W, B, S, G), also add bare series to tier 3
+        m_color_suffix = re.match(r"^(\d+[A-Za-z]+?\d+)[WBSG]$", bare_stem, re.IGNORECASE)
+        if m_color_suffix:
+            tier_3.append(m_color_suffix.group(1))
+
+    # Helper to deduplicate while preserving order
+    def _dedupe(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        res: list[str] = []
+        for x in items:
+            s = x.strip()
+            if s and s not in seen:
+                seen.add(s)
+                res.append(s)
+        return res
+
+    return {
+        "tier_1": _dedupe(tier_1),
+        "tier_2": _dedupe(tier_2),
+        "tier_3": _dedupe(tier_3),
+    }
