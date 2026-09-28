@@ -285,6 +285,3 @@ def calculate_adaptive_target_price(
 
     # Fallback to 50% midpoint if cost_base is not provided
     return floor_min + (gap * 0.50)
-
-
-

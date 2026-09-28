@@ -175,9 +175,7 @@ class InMemoryRegistry:
         return cls._alias_to_tag.get((b_u, c_u, a_u))
 
     @classmethod
-    def are_synonyms(
-        cls, token1: str, token2: str, brand: str = "", category: str = ""
-    ) -> bool:
+    def are_synonyms(cls, token1: str, token2: str, brand: str = "", category: str = "") -> bool:
         """Determine if two tokens are equivalent within (brand, category) bounds in <0.01ms."""
         cls._ensure_initialized()
         t1 = token1.strip().upper()

@@ -18,8 +18,19 @@ def test_haier_washing_machines_catalog_integrity() -> None:
     df = pd.read_csv(catalog_path)
     assert len(df) == 38, f"Expected 38 products, got {len(df)}"
 
-    required_columns = {"S.NO", "Brand", "Name ", "Length", "Width", "Height", "Net Price", "Profit"}
-    assert required_columns.issubset(set(df.columns)), f"Missing columns: {required_columns - set(df.columns)}"
+    required_columns = {
+        "S.NO",
+        "Brand",
+        "Name ",
+        "Length",
+        "Width",
+        "Height",
+        "Net Price",
+        "Profit",
+    }
+    assert required_columns.issubset(set(df.columns)), (
+        f"Missing columns: {required_columns - set(df.columns)}"
+    )
 
     # Ensure all net prices and dimensions are valid positive numbers (strip commas if formatted as strings)
     net_prices = df["Net Price"].astype(str).str.replace(",", "").str.strip().astype(float)
@@ -54,7 +65,9 @@ def test_final_haier_repriced_benchmark_integrity() -> None:
         "Alfa Reason",
         "Digi Reason",
     }
-    assert audit_columns.issubset(set(df.columns)), f"Missing audit columns: {audit_columns - set(df.columns)}"
+    assert audit_columns.issubset(set(df.columns)), (
+        f"Missing audit columns: {audit_columns - set(df.columns)}"
+    )
 
 
 def test_stock_holding_report_cross_category_samples() -> None:

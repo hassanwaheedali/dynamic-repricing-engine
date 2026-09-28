@@ -106,6 +106,7 @@ def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | Non
 
     return None, None
 
+
 # Category acronyms and fractions to safeguard from expansion
 SAFEGUARD_PATTERN = re.compile(
     r"\b(?:W/M|W/D|D/F|A/C|H/C|H&C|W/O)\b"
@@ -135,10 +136,38 @@ CATEGORY_PATTERNS = re.compile(
 
 # Common non-SKU unit stop-tokens
 NON_SKU_TOKENS = {
-    "TON", "ΤΟN", "KG", "GM", "LTR", "SET", "SETS", "FEET", "FT", "MM", "CM", "INCH",
-    "AC", "AND", "WITH", "THE", "FOR", "TOP", "LID", "DOOR", "AIR", "CURTAIN",
-    "BLENDER", "CHOPPER", "OVEN", "HEATER", "WASHER", "PURIFIER", "KETTLE", "SMART",
-    "W/O", "REF",
+    "TON",
+    "ΤΟN",
+    "KG",
+    "GM",
+    "LTR",
+    "SET",
+    "SETS",
+    "FEET",
+    "FT",
+    "MM",
+    "CM",
+    "INCH",
+    "AC",
+    "AND",
+    "WITH",
+    "THE",
+    "FOR",
+    "TOP",
+    "LID",
+    "DOOR",
+    "AIR",
+    "CURTAIN",
+    "BLENDER",
+    "CHOPPER",
+    "OVEN",
+    "HEATER",
+    "WASHER",
+    "PURIFIER",
+    "KETTLE",
+    "SMART",
+    "W/O",
+    "REF",
 }
 
 
@@ -148,7 +177,11 @@ def is_dimension_or_spec_token(token: str) -> bool:
     if not clean:
         return True
     # Units attached to numbers: 3FEET, 3FT, 4FEET, 7KG, 13SETS, 40INCH, 3IN1, etc.
-    if re.match(r"^\d+(?:\.\d+)?(?:FEET|FT|INCH|MM|CM|KG|GM|LTR|LITRE|SETS?|TON|\"|\')?$", clean, re.IGNORECASE):
+    if re.match(
+        r"^\d+(?:\.\d+)?(?:FEET|FT|INCH|MM|CM|KG|GM|LTR|LITRE|SETS?|TON|\"|\')?$",
+        clean,
+        re.IGNORECASE,
+    ):
         # Standalone pure numbers with >= 3 digits (like 1088, 1400, 9270, 330) are valid model codes
         if re.match(r"^\d+$", clean):
             return len(clean) <= 2
@@ -199,7 +232,9 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     if detected_brand:
         clean = re.sub(rf"^\b{re.escape(detected_brand)}\b\s*", "", clean, flags=re.IGNORECASE)
         if len(detected_brand) >= 4:
-            clean = re.sub(rf"^\b{re.escape(detected_brand[:3])}\b\s*", "", clean, flags=re.IGNORECASE)
+            clean = re.sub(
+                rf"^\b{re.escape(detected_brand[:3])}\b\s*", "", clean, flags=re.IGNORECASE
+            )
 
     # 2. Strip standard category and capacity phrases
     clean = CATEGORY_PATTERNS.sub(" ", clean).strip()
@@ -215,7 +250,12 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         if not t_clean or t_clean.upper() in NON_SKU_TOKENS:
             continue
         if not model_tokens:
-            if len(t_clean) >= 3 and re.search(r"\d", t_clean) and not is_dimension_or_spec_token(t_clean) and re.match(r"^[A-Za-z0-9\-_]+$", t_clean):
+            if (
+                len(t_clean) >= 3
+                and re.search(r"\d", t_clean)
+                and not is_dimension_or_spec_token(t_clean)
+                and re.match(r"^[A-Za-z0-9\-_]+$", t_clean)
+            ):
                 model_tokens.append(t_clean)
         else:
             if is_sku_variant_tag(t_clean):
@@ -230,7 +270,12 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         # Never strip genuine prefixes like WF-5254 (Westpoint) or GN-5024 (Gaba National) where no series letters follow the digits!
         clean_first = first_token
         if detected_brand and re.search(r"\d+[A-Za-z]", first_token):
-            clean_first = re.sub(rf"^{re.escape(detected_brand[0])}[A-Za-z][-_]?(?=\d)", "", first_token, flags=re.IGNORECASE)
+            clean_first = re.sub(
+                rf"^{re.escape(detected_brand[0])}[A-Za-z][-_]?(?=\d)",
+                "",
+                first_token,
+                flags=re.IGNORECASE,
+            )
         parts = clean_first.split("-")
         search_token = parts[0] if parts and len(parts[0]) >= 5 else clean_first
         return search_token, raw_model
@@ -239,8 +284,17 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     # Collect series names, capacity codes, and sub-variant descriptors.
     # Stop-words that are NOT part of the product identity:
     _NAME_STOP = {
-        "INVERTER", "INV", "SERIES", "NORMAL", "COOL", "ONLY",
-        "+", "(", ")", "[", "]",
+        "INVERTER",
+        "INV",
+        "SERIES",
+        "NORMAL",
+        "COOL",
+        "ONLY",
+        "+",
+        "(",
+        ")",
+        "[",
+        "]",
     }
     # Brand-aware AC capacity codes:
     # Dawlance: 10 (0.75T), 15 (1T), 20 (1.25T), 30 (1.5T), 45 (2T)
@@ -250,7 +304,21 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     elif detected_brand:
         _CAPACITY_CODES = {"09", "9", "12", "18", "24", "28", "30", "36", "48"}
     else:
-        _CAPACITY_CODES = {"09", "9", "10", "12", "15", "18", "20", "24", "28", "30", "36", "45", "48"}
+        _CAPACITY_CODES = {
+            "09",
+            "9",
+            "10",
+            "12",
+            "15",
+            "18",
+            "20",
+            "24",
+            "28",
+            "30",
+            "36",
+            "45",
+            "48",
+        }
 
     remaining = CATEGORY_PATTERNS.sub(" ", clean).strip()
     remaining = re.sub(r"[()]", " ", remaining)  # Strip parentheses
@@ -297,11 +365,12 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     fallback = parts[-1] if parts else clean
     return fallback, clean
 
+
 def extract_tag(s: str) -> tuple[str, str]:
     """Separate trailing auxiliary tag (e.g. -T3, AAA, PRO) from token core."""
     m = TAG_PATTERN.search(s)
     if m:
-        return s[:m.start()], m.group(0)
+        return s[: m.start()], m.group(0)
     return s, ""
 
 
@@ -325,18 +394,20 @@ def distribute_runs(stem: str, parts: list[str], trailing_tag: str = "") -> list
         core, tag = extract_tag(p)
         m_dig = re.match(r"^([0-9]+)", core)
         digits = m_dig.group(1) if m_dig else ""
-        remainder = core[len(digits):]
+        remainder = core[len(digits) :]
         m_let = re.search(r"([A-Za-z]+)$", remainder)
         letters = m_let.group(1) if m_let else ""
-        middle = remainder[:len(remainder) - len(letters)]
-        parsed.append({
-            "raw": p,
-            "core": core,
-            "digits": digits,
-            "middle": middle,
-            "letters": letters,
-            "tag": tag,
-        })
+        middle = remainder[: len(remainder) - len(letters)]
+        parsed.append(
+            {
+                "raw": p,
+                "core": core,
+                "digits": digits,
+                "middle": middle,
+                "letters": letters,
+                "tag": tag,
+            }
+        )
 
     common_tag = trailing_tag
     if not common_tag:
@@ -376,18 +447,20 @@ def expand_slash_word(word: str) -> list[str]:
         core, tag = extract_tag(p)
         m_dig = re.match(r"^([0-9]+)", core)
         digits = m_dig.group(1) if m_dig else ""
-        remainder = core[len(digits):]
+        remainder = core[len(digits) :]
         m_let = re.search(r"([A-Za-z]+)$", remainder)
         letters = m_let.group(1) if m_let else ""
-        middle = remainder[:len(remainder) - len(letters)]
-        parsed.append({
-            "raw": p,
-            "core": core,
-            "digits": digits,
-            "middle": middle,
-            "letters": letters,
-            "tag": tag,
-        })
+        middle = remainder[: len(remainder) - len(letters)]
+        parsed.append(
+            {
+                "raw": p,
+                "core": core,
+                "digits": digits,
+                "middle": middle,
+                "letters": letters,
+                "tag": tag,
+            }
+        )
 
     p0 = parsed[0]["core"]
     p1 = parsed[1]["core"]
@@ -401,7 +474,7 @@ def expand_slash_word(word: str) -> list[str]:
     split_idx = -1
 
     # 1. Exact run sequence match at tail of lead_runs
-    if n_lead >= n_sub and [t for t, _ in lead_runs[n_lead - n_sub:]] == sub_types:
+    if n_lead >= n_sub and [t for t, _ in lead_runs[n_lead - n_sub :]] == sub_types:
         split_idx = n_lead - n_sub
 
     # 2. Match numeric runs: align with the last digit run in lead_runs
@@ -445,7 +518,7 @@ def expand_slash_word(word: str) -> list[str]:
     distribute_pre = prefix_digits if (prefix_digits and some_lack_dig) else ""
 
     last_letters = parsed[-1]["letters"]
-    var0_remainder = var0_core[len(prefix_digits):]
+    var0_remainder = var0_core[len(prefix_digits) :]
     m_var0_let = re.search(r"([A-Za-z]+)$", var0_remainder)
     var0_has_letters = bool(m_var0_let)
     distribute_suf = last_letters if (last_letters and not var0_has_letters) else ""
@@ -487,7 +560,7 @@ def expand_multivariant_titles(title: str) -> str:
 
     def mask_fn(m: re.Match[str]) -> str:
         safeguards.append(m.group(0))
-        return f"__SAFEGUARD_{len(safeguards)-1}__"
+        return f"__SAFEGUARD_{len(safeguards) - 1}__"
 
     clean_title = SAFEGUARD_PATTERN.sub(mask_fn, title)
 
@@ -537,6 +610,7 @@ def expand_multivariant_titles(title: str) -> str:
 
     return result
 
+
 # Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
 # Follows industry-standard BTU coding (BTU / 1,000):
 # 09 / 9 = 0.75 Ton (approx. 9,000 BTU)
@@ -576,6 +650,7 @@ DAWLANCE_CAPACITY_TO_TONNAGE: dict[str, str] = {
 # Backward compatibility alias
 _CAPACITY_TO_TONNAGE: dict[str, str] = DAWLANCE_CAPACITY_TO_TONNAGE
 
+
 def _invert_capacity_map(cap_map: dict[str, str]) -> dict[str, set[str]]:
     """Invert capacity-to-tonnage map and generate equivalent tonnage representations."""
     inv: dict[str, set[str]] = {}
@@ -586,7 +661,9 @@ def _invert_capacity_map(cap_map: dict[str, str]) -> dict[str, set[str]]:
     return inv
 
 
-UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(UNIVERSAL_CAPACITY_TO_TONNAGE)
+UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(
+    UNIVERSAL_CAPACITY_TO_TONNAGE
+)
 DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(DAWLANCE_CAPACITY_TO_TONNAGE)
 
 
@@ -659,8 +736,19 @@ def _keyword_match(expanded_title: str, target_keywords: str, brand: str = "") -
     target_brand = brand.strip()
     if not target_brand:
         for b in [
-            "DAWLANCE", "DAW", "GREE", "HAIER", "KENWOOD", "HOMAGE",
-            "ORIENT", "PEL", "TCL", "CHANGHONG", "ECOSTAR", "MIDEA", "DAIKIN",
+            "DAWLANCE",
+            "DAW",
+            "GREE",
+            "HAIER",
+            "KENWOOD",
+            "HOMAGE",
+            "ORIENT",
+            "PEL",
+            "TCL",
+            "CHANGHONG",
+            "ECOSTAR",
+            "MIDEA",
+            "DAIKIN",
         ]:
             if re.search(rf"\b{b}\b", target_keywords, re.IGNORECASE) or re.search(
                 rf"\b{b}\b", expanded_title, re.IGNORECASE
@@ -766,7 +854,7 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
                 norm_w_core = tag_pattern.sub("", norm_w)
                 idx = norm_w_core.find(base_no_w)
                 if idx != -1:
-                    rem = norm_w_core[idx + len(base_no_w):]
+                    rem = norm_w_core[idx + len(base_no_w) :]
                     if rem and rem != "W":
                         conflict = True
                         break
@@ -925,8 +1013,22 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
 
 
 ROOT_COLORS: set[str] = {
-    "WHITE", "BLACK", "GREY", "GRAY", "SILVER", "RED", "BLUE", "GREEN",
-    "GOLD", "BROWN", "PINK", "PURPLE", "MILKY", "DARK", "MAROON", "BURGUNDY",
+    "WHITE",
+    "BLACK",
+    "GREY",
+    "GRAY",
+    "SILVER",
+    "RED",
+    "BLUE",
+    "GREEN",
+    "GOLD",
+    "BROWN",
+    "PINK",
+    "PURPLE",
+    "MILKY",
+    "DARK",
+    "MAROON",
+    "BURGUNDY",
 }
 
 
@@ -988,7 +1090,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
                 capacity = f"{m_ton.group(1)}T"
             else:
                 # AC capacity codes
-                for t in (tokens + clean_title.split()):
+                for t in tokens + clean_title.split():
                     t_c = t.strip("-_., \"'")
                     ton = get_capacity_tonnage(t_c, detected_brand)
                     if ton:
@@ -1012,7 +1114,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     # 3. Soft Residual Modifiers
     residuals: list[str] = []
-    m_gc = re.search(r"\b(?:GC|GLASS\s+DOOR|CLEAR\s+LID|PILLOW\s+DRUM)\b", clean_title, re.IGNORECASE)
+    m_gc = re.search(
+        r"\b(?:GC|GLASS\s+DOOR|CLEAR\s+LID|PILLOW\s+DRUM)\b", clean_title, re.IGNORECASE
+    )
     if m_gc:
         residuals.append(m_gc.group(0).upper())
     if anchor:
@@ -1055,7 +1159,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         cap_num = re.sub(r"[^0-9\.]", "", capacity)
         if cap_num:
             sub = re.sub(rf"\b{re.escape(cap_num)}\b", " ", sub)
-    all_known_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(DAWLANCE_CAPACITY_TO_TONNAGE.keys())
+    all_known_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(
+        DAWLANCE_CAPACITY_TO_TONNAGE.keys()
+    )
     for code in all_known_cap_codes:
         sub = re.sub(rf"\b{code}\b", " ", sub)
 
@@ -1170,10 +1276,13 @@ def referee_match(
 
     # 3b. Capacity / Screen Size Guard
     if target_slots.guarded_facets.capacity and cand_slots.guarded_facets.capacity:
+
         def _norm_cap(c: str) -> str:
             return re.sub(r"[^0-9\.]", "", c)
 
-        if _norm_cap(target_slots.guarded_facets.capacity) != _norm_cap(cand_slots.guarded_facets.capacity):
+        if _norm_cap(target_slots.guarded_facets.capacity) != _norm_cap(
+            cand_slots.guarded_facets.capacity
+        ):
             return MatchDecision(
                 is_match=False,
                 reason=(
@@ -1209,4 +1318,3 @@ def referee_match(
         target_slots=target_slots,
         candidate_slots=cand_slots,
     )
-

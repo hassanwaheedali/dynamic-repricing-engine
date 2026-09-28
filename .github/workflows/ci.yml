@@ -1,0 +1,43 @@
+name: CI Quality Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gates:
+    name: Lint, Format & Multi-Catalog Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: "Quality Gate 1: Code Style & Static Linter (Ruff)"
+        run: ruff check .
+
+      - name: "Quality Gate 2: Code Formatting Verification (Ruff)"
+        run: ruff format --check .
+
+      - name: "Quality Gate 3: Comprehensive Multi-Catalog Test Suite"
+        run: pytest -v --durations=10
+
+      - name: "Quality Gate 4: Multi-Catalog Benchmark & Simulation Gates"
+        run: pytest tests/test_fixtures.py tests/test_simulation.py -v

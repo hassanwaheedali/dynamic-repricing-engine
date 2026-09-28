@@ -146,7 +146,12 @@ def test_autonomous_learner_promotes_candidates_with_three_distinct_vendors() ->
         {"vendor_name": "Mega-Store Official", "normalized_merchant": "megastoreofficial"},
     ]
     assert learner.count_distinct_merchants(sybil_observations) == 2
-    assert learner.is_consensus_reached(learner.count_distinct_merchants(sybil_observations), threshold=3) is False
+    assert (
+        learner.is_consensus_reached(
+            learner.count_distinct_merchants(sybil_observations), threshold=3
+        )
+        is False
+    )
 
 
 def test_learner_multi_catalog_real_world_washing_machines_and_appliances() -> None:
@@ -155,59 +160,74 @@ def test_learner_multi_catalog_real_world_washing_machines_and_appliances() -> N
     learner.clear_buffer()
 
     # 1. Dawlance DWT-1165 PL (Pillow Drum)
-    assert learner.buffer_observation(
-        brand="Dawlance",
-        category="WASHING_MACHINE",
-        anchor_model="DWT-1165",
-        target_residual="PL",
-        candidate_residual="PILLOW DRUM",
-        vendor_name="AlfaMall Partner A",
-        raw_title="Dawlance DWT-1165 Pillow Drum Automatic Washing Machine",
-    ) is True
+    assert (
+        learner.buffer_observation(
+            brand="Dawlance",
+            category="WASHING_MACHINE",
+            anchor_model="DWT-1165",
+            target_residual="PL",
+            candidate_residual="PILLOW DRUM",
+            vendor_name="AlfaMall Partner A",
+            raw_title="Dawlance DWT-1165 Pillow Drum Automatic Washing Machine",
+        )
+        is True
+    )
 
     # 2. Dawlance DWT-14470 ES (Energy Saver)
-    assert learner.buffer_observation(
-        brand="Dawlance",
-        category="WASHING_MACHINE",
-        anchor_model="DWT-14470",
-        target_residual="ES",
-        candidate_residual="ENERGY SAVER",
-        vendor_name="DigiMall Store B",
-        raw_title="Dawlance DWT-14470 Energy Saver Top Load",
-    ) is True
+    assert (
+        learner.buffer_observation(
+            brand="Dawlance",
+            category="WASHING_MACHINE",
+            anchor_model="DWT-14470",
+            target_residual="ES",
+            candidate_residual="ENERGY SAVER",
+            vendor_name="DigiMall Store B",
+            raw_title="Dawlance DWT-14470 Energy Saver Top Load",
+        )
+        is True
+    )
 
     # 3. Dawlance DWT-11671 FLT (Flush Lid Top)
-    assert learner.buffer_observation(
-        brand="Dawlance",
-        category="WASHING_MACHINE",
-        anchor_model="DWT-11671",
-        target_residual="FLT",
-        candidate_residual="FLUSH LID",
-        vendor_name="Lahore Appliances",
-        raw_title="Dawlance DWT-11671 Flush Lid Washing Machine",
-    ) is True
+    assert (
+        learner.buffer_observation(
+            brand="Dawlance",
+            category="WASHING_MACHINE",
+            anchor_model="DWT-11671",
+            target_residual="FLT",
+            candidate_residual="FLUSH LID",
+            vendor_name="Lahore Appliances",
+            raw_title="Dawlance DWT-11671 Flush Lid Washing Machine",
+        )
+        is True
+    )
 
     # 4. Haier Front Load HW 105-BD14376PGU1 (Direct Motion / Belt Drive)
-    assert learner.buffer_observation(
-        brand="Haier",
-        category="FRONT_LOAD_WASHING_MACHINE",
-        anchor_model="105-BD14376PGU1",
-        target_residual="DM",
-        candidate_residual="DIRECT MOTION",
-        vendor_name="Official Haier Flagship",
-        raw_title="Haier 105-BD14376PGU1 Front Load Direct Motion",
-    ) is True
+    assert (
+        learner.buffer_observation(
+            brand="Haier",
+            category="FRONT_LOAD_WASHING_MACHINE",
+            anchor_model="105-BD14376PGU1",
+            target_residual="DM",
+            candidate_residual="DIRECT MOTION",
+            vendor_name="Official Haier Flagship",
+            raw_title="Haier 105-BD14376PGU1 Front Load Direct Motion",
+        )
+        is True
+    )
 
     # 5. Microwave Oven touch panel (from M/O category in Stock Holding Report)
-    assert learner.buffer_observation(
-        brand="Dawlance",
-        category="MICROWAVE_OVEN",
-        anchor_model="DW-MD7",
-        target_residual="TP",
-        candidate_residual="TOUCH PANEL",
-        vendor_name="Metro Electronics",
-        raw_title="Dawlance DW-MD7 Touch Panel Microwave Oven",
-    ) is True
+    assert (
+        learner.buffer_observation(
+            brand="Dawlance",
+            category="MICROWAVE_OVEN",
+            anchor_model="DW-MD7",
+            target_residual="TP",
+            candidate_residual="TOUCH PANEL",
+            vendor_name="Metro Electronics",
+            raw_title="Dawlance DW-MD7 Touch Panel Microwave Oven",
+        )
+        is True
+    )
 
     assert learner.buffer_size == 5
 
@@ -218,14 +238,14 @@ def test_learner_blocks_anchor_and_metric_leakage_from_stock_sheet_models() -> N
     learner.clear_buffer()
 
     real_anchors_and_metrics = [
-        ("DWT-1165", "PL"),          # Real anchor DWT-1165 cannot be target_residual
-        ("PL", "DWT-1165"),          # Real anchor cannot be candidate_residual
-        ("11671", "FLT"),            # Digits from DWT-11671
-        ("FTV60AXV1", "NORMAL"),     # Daikin AC model
-        ("1088", "INSECT"),          # Anex 1088 model
-        ("12KG", "10KG"),            # Capacity leakage
-        ("2.0TON", "1.5TON"),        # Tonnage leakage
-        ("3FT", "AIR CURTAIN"),      # Air curtain dimension
+        ("DWT-1165", "PL"),  # Real anchor DWT-1165 cannot be target_residual
+        ("PL", "DWT-1165"),  # Real anchor cannot be candidate_residual
+        ("11671", "FLT"),  # Digits from DWT-11671
+        ("FTV60AXV1", "NORMAL"),  # Daikin AC model
+        ("1088", "INSECT"),  # Anex 1088 model
+        ("12KG", "10KG"),  # Capacity leakage
+        ("2.0TON", "1.5TON"),  # Tonnage leakage
+        ("3FT", "AIR CURTAIN"),  # Air curtain dimension
     ]
 
     for target_res, cand_res in real_anchors_and_metrics:
@@ -276,4 +296,3 @@ def test_learner_cross_category_polysemy_isolation_across_catalogs() -> None:
     assert learner.buffer_size == 2
     cats = {obs["category"] for obs in learner._buffer}
     assert cats == {"WASHING_MACHINE", "REFRIGERATOR"}
-

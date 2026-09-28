@@ -65,7 +65,9 @@ async def _execute_waterfall(
     last_error: str | None = None
 
     tier_order = ["tier_1", "tier_2", "tier_3"]
-    all_tiers = [t for t in tier_order if t in patterns] + [t for t in patterns if t not in tier_order]
+    all_tiers = [t for t in tier_order if t in patterns] + [
+        t for t in patterns if t not in tier_order
+    ]
 
     for tier_name in all_tiers:
         tier_queries = patterns[tier_name]
@@ -163,7 +165,9 @@ async def _scrape_alfamall_single_query(
                     data = resp.json()
                 except Exception as exc:
                     last_error = f"Invalid JSON / WAF challenge: {exc}"
-                    logger.warning("AlfaMall returned non-JSON body on 200 OK for query '%s'", query)
+                    logger.warning(
+                        "AlfaMall returned non-JSON body on 200 OK for query '%s'", query
+                    )
                     continue
 
                 if not isinstance(data, dict):
@@ -395,7 +399,9 @@ async def _scrape_digimall_single_query(
                     data = resp.json()
                 except Exception as exc:
                     last_error = f"Invalid JSON / WAF challenge: {exc}"
-                    logger.warning("DigiMall returned non-JSON body on 200 OK for query '%s'", query)
+                    logger.warning(
+                        "DigiMall returned non-JSON body on 200 OK for query '%s'", query
+                    )
                     continue
 
                 if not isinstance(data, dict):
@@ -553,4 +559,3 @@ async def scrape_digimall(
         timeout=timeout,
         max_retries=max_retries,
     )
-

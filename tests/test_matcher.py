@@ -83,8 +83,12 @@ def test_strict_model_match_floor_standing_36tfih() -> None:
 def test_strict_model_match_cool_only_vs_heat_cool() -> None:
     # Cool only (PITC) must reject Heat & Cool (PITH)
     target_cool_only = "18PITC12W"
-    assert is_strict_model_match("Gree 1.5 Ton Inverter AC GS-18PITC12W-T3 Cool Only", target_cool_only)
-    assert not is_strict_model_match("Gree 1.5 Ton Inverter AC GS-18PITH12W Heat & Cool", target_cool_only)
+    assert is_strict_model_match(
+        "Gree 1.5 Ton Inverter AC GS-18PITC12W-T3 Cool Only", target_cool_only
+    )
+    assert not is_strict_model_match(
+        "Gree 1.5 Ton Inverter AC GS-18PITH12W Heat & Cool", target_cool_only
+    )
 
 
 def test_strict_model_match_black_target_rejects_white() -> None:
@@ -301,7 +305,10 @@ def test_non_model_safeguards_unmodified() -> None:
 
     assert expand_multivariant_titles("DAW AUTO W/M DWT-1165 PL") == "DAW AUTO W/M DWT-1165 PL"
     assert expand_multivariant_titles("DAW D/F 9199 H&C Inverter") == "DAW D/F 9199 H&C Inverter"
-    assert expand_multivariant_titles("Gree Inverter Heat / Cool Split AC") == "Gree Inverter Heat / Cool Split AC"
+    assert (
+        expand_multivariant_titles("Gree Inverter Heat / Cool Split AC")
+        == "Gree Inverter Heat / Cool Split AC"
+    )
     assert expand_multivariant_titles("Midea Front Load 12W/8D KG") == "Midea Front Load 12W/8D KG"
 
 
@@ -310,32 +317,47 @@ def test_technical_slash_safeguards() -> None:
     from pricing_engine.matcher import expand_multivariant_titles
 
     # Haier Cassette /DC (Direct Current) — NOT a variant separator
-    assert expand_multivariant_titles("HAIER CASSETTE 1.5TON INVERTER 18HE/DC") == \
-        "HAIER CASSETTE 1.5TON INVERTER 18HE/DC"
-    assert expand_multivariant_titles("HAIER CASSETTE 4TON INVERTER HBU-48E/DC") == \
-        "HAIER CASSETTE 4TON INVERTER HBU-48E/DC"
-    assert expand_multivariant_titles("HAIER FLOOR STANDING 48CE/DC INVERTER") == \
-        "HAIER FLOOR STANDING 48CE/DC INVERTER"
+    assert (
+        expand_multivariant_titles("HAIER CASSETTE 1.5TON INVERTER 18HE/DC")
+        == "HAIER CASSETTE 1.5TON INVERTER 18HE/DC"
+    )
+    assert (
+        expand_multivariant_titles("HAIER CASSETTE 4TON INVERTER HBU-48E/DC")
+        == "HAIER CASSETTE 4TON INVERTER HBU-48E/DC"
+    )
+    assert (
+        expand_multivariant_titles("HAIER FLOOR STANDING 48CE/DC INVERTER")
+        == "HAIER FLOOR STANDING 48CE/DC INVERTER"
+    )
 
     # Haier complex technical model
-    assert expand_multivariant_titles("HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE") == \
-        "HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE"
+    assert (
+        expand_multivariant_titles("HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE")
+        == "HAIER FLOOR 4TON INVERTER HBU-48HE/T3DC-012GE"
+    )
 
     # Haier subordinate model code /KB-01
-    assert expand_multivariant_titles("HAIER CASSETTE 2TON NORMAL 24CE03/KB-01") == \
-        "HAIER CASSETTE 2TON NORMAL 24CE03/KB-01"
+    assert (
+        expand_multivariant_titles("HAIER CASSETTE 2TON NORMAL 24CE03/KB-01")
+        == "HAIER CASSETTE 2TON NORMAL 24CE03/KB-01"
+    )
 
     # Gaba National year codes /21, /20, /23
-    assert expand_multivariant_titles("GABA NATIONAL HOT PLATE GN-261/21") == \
-        "GABA NATIONAL HOT PLATE GN-261/21"
-    assert expand_multivariant_titles("GABA NATIONAL SANDWITCH MAKER GNE-396/20") == \
-        "GABA NATIONAL SANDWITCH MAKER GNE-396/20"
-    assert expand_multivariant_titles("GABA NATIONAL SPINNER GND-1606/23") == \
-        "GABA NATIONAL SPINNER GND-1606/23"
+    assert (
+        expand_multivariant_titles("GABA NATIONAL HOT PLATE GN-261/21")
+        == "GABA NATIONAL HOT PLATE GN-261/21"
+    )
+    assert (
+        expand_multivariant_titles("GABA NATIONAL SANDWITCH MAKER GNE-396/20")
+        == "GABA NATIONAL SANDWITCH MAKER GNE-396/20"
+    )
+    assert (
+        expand_multivariant_titles("GABA NATIONAL SPINNER GND-1606/23")
+        == "GABA NATIONAL SPINNER GND-1606/23"
+    )
 
     # W/O = "Without" — NOT a variant separator
-    assert expand_multivariant_titles("DAW W/D 1060 W/O REF WHITE") == \
-        "DAW W/D 1060 W/O REF WHITE"
+    assert expand_multivariant_titles("DAW W/D 1060 W/O REF WHITE") == "DAW W/D 1060 W/O REF WHITE"
 
 
 def test_technical_suffix_model_match() -> None:
@@ -387,10 +409,14 @@ def test_name_only_extraction_dawlance_acs() -> None:
     assert "CLASSIC" not in m2.upper()
 
     # FROST 20 COOL ONLY vs FROST 30 COOL ONLY — capacity differentiation
-    q3, m3 = extract_search_query_and_model("DAW SPLIT AC FROST INVERTER 20 (COOL ONLY)", "Dawlance")
+    q3, m3 = extract_search_query_and_model(
+        "DAW SPLIT AC FROST INVERTER 20 (COOL ONLY)", "Dawlance"
+    )
     assert "FROST" in q3.upper()
     assert "20" in m3
-    q4, m4 = extract_search_query_and_model("DAW SPLIT AC FROST INVERTER 30 (COOL ONLY)", "Dawlance")
+    q4, m4 = extract_search_query_and_model(
+        "DAW SPLIT AC FROST INVERTER 30 (COOL ONLY)", "Dawlance"
+    )
     assert "30" in m4
     assert m3 != m4  # Different capacities must produce different models
 
@@ -440,46 +466,30 @@ def test_keyword_match_mode() -> None:
     )
 
     # CHROME 30 WHITE vs CHROME 45 COPPER — capacity isolation
-    assert is_strict_model_match(
-        "Dawlance Chrome Inverter 1.5 Ton White", "CHROME 30 WHITE"
-    )
-    assert not is_strict_model_match(
-        "Dawlance Chrome+ Inverter 2 Ton Copper", "CHROME 30 WHITE"
-    )
+    assert is_strict_model_match("Dawlance Chrome Inverter 1.5 Ton White", "CHROME 30 WHITE")
+    assert not is_strict_model_match("Dawlance Chrome+ Inverter 2 Ton Copper", "CHROME 30 WHITE")
 
     # ENERCON X 15 — X is required
-    assert is_strict_model_match(
-        "Dawlance Enercon X Inverter 1 Ton", "ENERCON X 15"
-    )
+    assert is_strict_model_match("Dawlance Enercon X Inverter 1 Ton", "ENERCON X 15")
 
 
 def test_keyword_match_t3_isolation() -> None:
     """Verify T3 isolation: non-T3 target rejects T3 listings and vice versa."""
     # SPRINTER 30 (non-T3) must reject T3 listing
-    assert not is_strict_model_match(
-        "Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER 30"
-    )
+    assert not is_strict_model_match("Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER 30")
     # SPRINTER 30 (non-T3) matches non-T3 listing
-    assert is_strict_model_match(
-        "Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER 30"
-    )
+    assert is_strict_model_match("Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER 30")
 
     # SPRINTER T3 X 30 (T3 product) must reject non-T3 listing
-    assert not is_strict_model_match(
-        "Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER T3 X 30"
-    )
+    assert not is_strict_model_match("Dawlance Sprinter Inverter 1.5 Ton", "SPRINTER T3 X 30")
     # SPRINTER T3 X 30 matches T3 listing
-    assert is_strict_model_match(
-        "Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER T3 X 30"
-    )
+    assert is_strict_model_match("Dawlance Sprinter T3 X Inverter 1.5 Ton", "SPRINTER T3 X 30")
 
     # MAGNA T3 30 MILKY — T3 is in target, must require T3 in seller
     assert is_strict_model_match(
         "Dawlance Magna T3 Inverter 1.5 Ton Milky White", "MAGNA T3 30 MILKY"
     )
-    assert not is_strict_model_match(
-        "Dawlance Magna Inverter 1.5 Ton Silver", "MAGNA T3 30 MILKY"
-    )
+    assert not is_strict_model_match("Dawlance Magna Inverter 1.5 Ton Silver", "MAGNA T3 30 MILKY")
 
     # Model-code T3 (Gree) should NOT be affected — T3 is auxiliary tag, soft match
     assert is_strict_model_match("Gree 12AITH21W-T3 Inverter AC", "12AITH21W")
@@ -505,18 +515,10 @@ def test_hyphenated_numeric_skus_and_plus_models() -> None:
     assert is_strict_model_match("Gaba National Refrigerator 183 SS", "183 S.S")
 
     # Dawlance ACs with '+' in series name
-    assert is_strict_model_match(
-        "DAW FLOOR STANDING GLAMOUR+ INVERTER 45", "GLAMOUR+ 45"
-    )
-    assert is_strict_model_match(
-        "Dawlance Glamour Inverter 2 Ton", "GLAMOUR+ 45"
-    )
-    assert is_strict_model_match(
-        "DAW SPLIT AC ECONO+ X INVERTER 15", "ECONO+ X 15"
-    )
-    assert is_strict_model_match(
-        "DAW SPLIT AC MEGA T+ 10", "MEGA T+ 10"
-    )
+    assert is_strict_model_match("DAW FLOOR STANDING GLAMOUR+ INVERTER 45", "GLAMOUR+ 45")
+    assert is_strict_model_match("Dawlance Glamour Inverter 2 Ton", "GLAMOUR+ 45")
+    assert is_strict_model_match("DAW SPLIT AC ECONO+ X INVERTER 15", "ECONO+ X 15")
+    assert is_strict_model_match("DAW SPLIT AC MEGA T+ 10", "MEGA T+ 10")
 
 
 def test_multibrand_universal_capacity_mappings() -> None:
@@ -529,10 +531,18 @@ def test_multibrand_universal_capacity_mappings() -> None:
     10 = 0.75 Ton, 15 = 1.0 Ton, 20 = 1.25 Ton, 30 = 1.5 Ton, 45 = 2.0 Ton
     """
     # 1. Haier: 18 = 1.5 Ton, 12 = 1.0 Ton, 24 = 2.0 Ton
-    assert is_strict_model_match("Haier Inverter 1.5 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
-    assert is_strict_model_match("Haier Inverter 1.5Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
-    assert not is_strict_model_match("Haier Inverter 1.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
-    assert not is_strict_model_match("Haier Inverter 2.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier")
+    assert is_strict_model_match(
+        "Haier Inverter 1.5 Ton Pearl White", "PEARL 18 WHITE", brand="Haier"
+    )
+    assert is_strict_model_match(
+        "Haier Inverter 1.5Ton Pearl White", "PEARL 18 WHITE", brand="Haier"
+    )
+    assert not is_strict_model_match(
+        "Haier Inverter 1.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier"
+    )
+    assert not is_strict_model_match(
+        "Haier Inverter 2.0 Ton Pearl White", "PEARL 18 WHITE", brand="Haier"
+    )
     assert is_strict_model_match("Haier Inverter 1 Ton HSU-12HFP", "12HFP", brand="Haier")
 
     # 2. Gree: 09 = 0.75 Ton, 12 = 1.0 Ton, 24 = 2.0 Ton, 28/30 = 2.5 Ton
@@ -564,24 +574,34 @@ def test_multibrand_universal_capacity_mappings() -> None:
     # 5. Kenwood: 18 = 1.5 Ton, 09 = 0.75 Ton
     assert is_strict_model_match("Kenwood Inverter 1.5 Ton eSmart", "ESMART 18", brand="Kenwood")
     assert is_strict_model_match("Kenwood Inverter 0.75 Ton eSmart", "ESMART 09", brand="Kenwood")
-    assert not is_strict_model_match("Kenwood Inverter 1.0 Ton eSmart", "ESMART 09", brand="Kenwood")
+    assert not is_strict_model_match(
+        "Kenwood Inverter 1.0 Ton eSmart", "ESMART 09", brand="Kenwood"
+    )
 
     # 6. Disambiguation of '30' (Dawlance 1.5 Ton vs Gree/Universal 2.5 Ton)
-    assert is_strict_model_match("Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance")
-    assert not is_strict_model_match("Dawlance Avante Inverter 2.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance")
+    assert is_strict_model_match(
+        "Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance Avante Inverter 2.5 Ton Classic Gold", "AVANTE 30 CLASSIC", brand="Dawlance"
+    )
     assert is_strict_model_match("Gree Inverter AC 2.5 Ton Pular", "PULAR 30", brand="Gree")
     assert not is_strict_model_match("Gree Inverter AC 1.5 Ton Pular", "PULAR 30", brand="Gree")
 
     # 7. Brand auto-detection from title when brand arg is not explicitly provided
     assert is_strict_model_match("Haier Inverter 1.5 Ton Pearl White", "PEARL 18 WHITE")
-    assert is_strict_model_match("Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC")
+    assert is_strict_model_match(
+        "Dawlance Avante Inverter 1.5 Ton Classic Gold", "AVANTE 30 CLASSIC"
+    )
     assert is_strict_model_match("Gree Inverter AC 1.0 Ton Fairy", "FAIRY 12")
     assert is_strict_model_match("Orient Inverter 2.0 Ton Ultron", "ULTRON 24")
     assert is_strict_model_match("Kenwood Inverter 1.5 Ton eSmart", "ESMART 18")
 
 
 def test_generate_search_patterns_haier_washing_machine() -> None:
-    patterns = generate_search_patterns("HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier")
+    patterns = generate_search_patterns(
+        "HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier"
+    )
     assert "tier_1" in patterns
     assert "tier_2" in patterns
     assert "tier_3" in patterns
@@ -612,7 +632,9 @@ def test_generate_search_patterns_gree_ac() -> None:
     patterns = generate_search_patterns("GREE SPLIT AC GS-12AITH21W-T3", brand="Gree")
     assert any("12AITH21W-T3" in p for p in patterns["tier_1"])
     assert any("12AITH21W" in p for p in patterns["tier_2"])
-    assert any("GS-12AITH21W" in p or "GS-12AITH21W-T3" in p or "12AITH21" in p for p in patterns["tier_3"])
+    assert any(
+        "GS-12AITH21W" in p or "GS-12AITH21W-T3" in p or "12AITH21" in p for p in patterns["tier_3"]
+    )
 
 
 def test_generate_search_patterns_dawlance_series_ac() -> None:
@@ -643,8 +665,12 @@ def test_extract_product_slots_haier_washing_machine() -> None:
 
 
 def test_referee_match_haier_washing_machine_synonyms() -> None:
-    target_slots = extract_product_slots("HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier")
-    decision1 = referee_match(target_slots, "Haier 120-826S6 Glass Door Washing Machine", brand="Haier")
+    target_slots = extract_product_slots(
+        "HAIER TOP LOAD HWM 120-826S6 GC WASHING MACHINE", brand="Haier"
+    )
+    decision1 = referee_match(
+        target_slots, "Haier 120-826S6 Glass Door Washing Machine", brand="Haier"
+    )
     assert decision1.is_match is True
     assert "Accepted" in decision1.reason
 
@@ -667,7 +693,9 @@ def test_referee_match_t3_isolation() -> None:
     target_non_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA 30 INVERTER", brand="Dawlance")
     assert target_non_t3.guarded_facets.t3 is False or target_non_t3.guarded_facets.t3 is None
 
-    decision_rej = referee_match(target_non_t3, "Dawlance Magna Inverter AC 1.5 Ton T3", brand="Dawlance")
+    decision_rej = referee_match(
+        target_non_t3, "Dawlance Magna Inverter AC 1.5 Ton T3", brand="Dawlance"
+    )
     assert decision_rej.is_match is False
     assert "T3 mismatch" in decision_rej.reason
 
@@ -675,12 +703,16 @@ def test_referee_match_t3_isolation() -> None:
     target_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA T3 30 INVERTER", brand="Dawlance")
     assert target_t3.guarded_facets.t3 is True
 
-    decision_rej_non_t3 = referee_match(target_t3, "Dawlance Magna Inverter AC 1.5 Ton", brand="Dawlance")
+    decision_rej_non_t3 = referee_match(
+        target_t3, "Dawlance Magna Inverter AC 1.5 Ton", brand="Dawlance"
+    )
     assert decision_rej_non_t3.is_match is False
     assert "T3 mismatch" in decision_rej_non_t3.reason
 
     # T3 target matches T3 listing
-    decision_acc_t3 = referee_match(target_t3, "Dawlance Magna 1.5 Ton T3 Inverter", brand="Dawlance")
+    decision_acc_t3 = referee_match(
+        target_t3, "Dawlance Magna 1.5 Ton T3 Inverter", brand="Dawlance"
+    )
     assert decision_acc_t3.is_match is True
 
 
@@ -695,7 +727,10 @@ def test_referee_match_tv_screen_size_collision() -> None:
     # 50 strictly rejects 43
     decision_fail = referee_match(target_slots, "Haier Smart 4K LED 43S80EUX", brand="Haier")
     assert decision_fail.is_match is False
-    assert "Capacity / screen size mismatch" in decision_fail.reason or "mismatch" in decision_fail.reason.lower()
+    assert (
+        "Capacity / screen size mismatch" in decision_fail.reason
+        or "mismatch" in decision_fail.reason.lower()
+    )
 
 
 def test_referee_match_refrigerator_color_families() -> None:
@@ -703,16 +738,22 @@ def test_referee_match_refrigerator_color_families() -> None:
     assert target_slots.guarded_facets.color_family == "Grey / Silver"
 
     # Same family: Metallic Grey / Steel matches Silver
-    decision_same_fam = referee_match(target_slots, "Dawlance Refrigerator 276EBS Metallic Grey", brand="Dawlance")
+    decision_same_fam = referee_match(
+        target_slots, "Dawlance Refrigerator 276EBS Metallic Grey", brand="Dawlance"
+    )
     assert decision_same_fam.is_match is True
 
     # Cross family: Black collides with Silver
-    decision_black = referee_match(target_slots, "Dawlance Refrigerator 276EBS Midnight Black", brand="Dawlance")
+    decision_black = referee_match(
+        target_slots, "Dawlance Refrigerator 276EBS Midnight Black", brand="Dawlance"
+    )
     assert decision_black.is_match is False
     assert "Color collision" in decision_black.reason or "Color mismatch" in decision_black.reason
 
     # Model collision: 276EBS vs 276EPR
-    decision_model = referee_match(target_slots, "Dawlance Refrigerator 276EPR RED", brand="Dawlance")
+    decision_model = referee_match(
+        target_slots, "Dawlance Refrigerator 276EPR RED", brand="Dawlance"
+    )
     assert decision_model.is_match is False
 
 
@@ -721,13 +762,18 @@ def test_referee_match_sub_series_integrity() -> None:
     target_pro = extract_product_slots("DAWLANCE INVERTER CHROME PRO 30", brand="Dawlance")
     assert "PRO" in target_pro.series.upper()
 
-    decision_missing_pro = referee_match(target_pro, "Dawlance Inverter AC Chrome 1.5 Ton", brand="Dawlance")
+    decision_missing_pro = referee_match(
+        target_pro, "Dawlance Inverter AC Chrome 1.5 Ton", brand="Dawlance"
+    )
     assert decision_missing_pro.is_match is False
-    assert "sub-series" in decision_missing_pro.reason.lower() or "missing" in decision_missing_pro.reason.lower()
+    assert (
+        "sub-series" in decision_missing_pro.reason.lower()
+        or "missing" in decision_missing_pro.reason.lower()
+    )
 
     # AVANTE CLASSIC vs AVANTE ELEGANT
     target_classic = extract_product_slots("DAWLANCE AVANTE CLASSIC 30", brand="Dawlance")
-    decision_diff_series = referee_match(target_classic, "Dawlance Avante Elegant 1.5 Ton", brand="Dawlance")
+    decision_diff_series = referee_match(
+        target_classic, "Dawlance Avante Elegant 1.5 Ton", brand="Dawlance"
+    )
     assert decision_diff_series.is_match is False
-
-

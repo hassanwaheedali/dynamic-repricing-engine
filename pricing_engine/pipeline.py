@@ -88,7 +88,11 @@ def determine_risk_alert(res: PlatformPricingResult) -> str:
     Returns:
         One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE'.
     """
-    if res.status == "Server Down / Unreachable" or res.final_price is None or res.real_profit is None:
+    if (
+        res.status == "Server Down / Unreachable"
+        or res.final_price is None
+        or res.real_profit is None
+    ):
         return "SERVER_DOWN"
     if res.real_profit <= 0:
         return "NEGATIVE_MARGIN"
@@ -253,7 +257,9 @@ def render_start_banner(
     grid.add_row("Source Catalog:", f"{input_path.name} ({total_items} items loaded)")
     grid.add_row("Output Target:", f"{output_path.name}")
     grid.add_row("Scraper Workers:", f"Direct JSON Search APIs ({concurrency} concurrent workers)")
-    grid.add_row("Pricing Strategy:", "AlfaMall 10% Floor | DigiMall Two-Tier (10% -> 8% Bank Switch)")
+    grid.add_row(
+        "Pricing Strategy:", "AlfaMall 10% Floor | DigiMall Two-Tier (10% -> 8% Bank Switch)"
+    )
 
     console.print()
     console.print(
@@ -318,9 +324,8 @@ def build_scraped_sellers_table(
     tbl.add_column("Engine Evaluation / Status", ratio=1)
 
     # 1. AlfaMall Scraped Competitors
-    is_alfa_down = (
-        alfa_res.status == "Server Down / Unreachable"
-        or (isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success)
+    is_alfa_down = alfa_res.status == "Server Down / Unreachable" or (
+        isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
     )
 
     if is_alfa_down:
@@ -354,7 +359,9 @@ def build_scraped_sellers_table(
                 status = "[bold green]Target Undercut (Lowest Viable)[/]"
             else:
                 status = "[dim]Viable Competitor[/]"
-            tbl.add_row("[bold #2c4699]AlfaMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status)
+            tbl.add_row(
+                "[bold #2c4699]AlfaMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status
+            )
 
         if len(sorted_alfa) > 8:
             rem = len(sorted_alfa) - 8
@@ -376,9 +383,8 @@ def build_scraped_sellers_table(
             )
 
     # 2. DigiMall Scraped Competitors
-    is_digi_down = (
-        digi_res.status == "Server Down / Unreachable"
-        or (isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success)
+    is_digi_down = digi_res.status == "Server Down / Unreachable" or (
+        isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
     )
 
     hard_digi_floor = floors.floor_digi_8
@@ -415,7 +421,9 @@ def build_scraped_sellers_table(
                 status = f"[bold green]Target Undercut ({comm_note})[/]"
             else:
                 status = "[dim]Viable Competitor[/]"
-            tbl.add_row("[bold #229693]DigiMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status)
+            tbl.add_row(
+                "[bold #229693]DigiMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status
+            )
 
         if len(sorted_digi) > 8:
             rem = len(sorted_digi) - 8
@@ -509,13 +517,11 @@ def render_audit_card(
     plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
 
     # Active offers summary
-    is_alfa_down = (
-        alfa_res.status == "Server Down / Unreachable"
-        or (isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success)
+    is_alfa_down = alfa_res.status == "Server Down / Unreachable" or (
+        isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
     )
-    is_digi_down = (
-        digi_res.status == "Server Down / Unreachable"
-        or (isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success)
+    is_digi_down = digi_res.status == "Server Down / Unreachable" or (
+        isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
     )
 
     if is_alfa_down:
@@ -550,7 +556,9 @@ def render_audit_card(
         alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif alfa_res.final_price is not None:
         if alfa_res.status == "Safe Fallback":
-            alfa_p_str = f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+            alfa_p_str = (
+                f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+            )
         elif "capped" in (alfa_res.reason or "").lower():
             alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
         else:
@@ -562,7 +570,9 @@ def render_audit_card(
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif digi_res.final_price is not None:
         if digi_res.status == "Safe Fallback":
-            digi_p_str = f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+            digi_p_str = (
+                f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
+            )
         elif "capped" in (digi_res.reason or "").lower():
             digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
         else:
@@ -579,7 +589,9 @@ def render_audit_card(
         if alfa_res.real_profit <= 0:
             alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
         elif alfa_res.real_profit < 700:
-            alfa_prof_str = f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            alfa_prof_str = (
+                f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            )
         else:
             alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
     else:
@@ -591,7 +603,9 @@ def render_audit_card(
         if digi_res.real_profit <= 0:
             digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
         elif digi_res.real_profit < 700:
-            digi_prof_str = f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            digi_prof_str = (
+                f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            )
         else:
             digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
     else:
@@ -779,7 +793,11 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         alfa_reason_lower = alfa_reason.lower()
         alfa_alert = str(rec.get("Alfa Risk Alert", ""))
 
-        if "server is down" in alfa_reason_lower or "unreachable" in alfa_reason_lower or alfa_alert == "SERVER_DOWN":
+        if (
+            "server is down" in alfa_reason_lower
+            or "unreachable" in alfa_reason_lower
+            or alfa_alert == "SERVER_DOWN"
+        ):
             alfa_p = "[bold red]DOWN[/]"
             alfa_profit = "[dim red]0[/]"
         elif pd.notna(alfa_p_val) and alfa_p_val is not None and str(alfa_p_val).strip() != "":
@@ -807,7 +825,11 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         digi_reason_lower = digi_reason.lower()
         digi_alert = str(rec.get("Digi Risk Alert", ""))
 
-        if "server is down" in digi_reason_lower or "unreachable" in digi_reason_lower or digi_alert == "SERVER_DOWN":
+        if (
+            "server is down" in digi_reason_lower
+            or "unreachable" in digi_reason_lower
+            or digi_alert == "SERVER_DOWN"
+        ):
             digi_p = "[bold red]DOWN[/]"
             digi_profit = "[dim red]0[/]"
             digi_comm = "[dim red]N/A[/]"
@@ -828,7 +850,9 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
             else:
                 digi_profit = f"[bold green]+{int(digi_prof_val):,}[/]"
 
-            raw_digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
+            raw_digi_comm = (
+                str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
+            )
             if "8" in raw_digi_comm:
                 digi_comm = f"[bold yellow]{raw_digi_comm}[/]"
             else:
@@ -971,4 +995,3 @@ async def run_pipeline(
         )
 
     return out_df
-

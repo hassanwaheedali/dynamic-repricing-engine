@@ -57,8 +57,10 @@ def test_simulation_haier_washing_machine_pipeline() -> None:
         )
 
         async def _run() -> None:
-            with patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa_offers), \
-                 patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi_offers):
+            with (
+                patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa_offers),
+                patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi_offers),
+            ):
                 out_df = await run_pipeline(
                     input_path=tmp_input,
                     output_path=tmp_output,
@@ -126,8 +128,10 @@ def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
         )
 
         async def _run() -> None:
-            with patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa), \
-                 patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi):
+            with (
+                patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa),
+                patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi),
+            ):
                 out_df = await run_pipeline(
                     input_path=tmp_input,
                     output_path=tmp_output,
@@ -215,8 +219,10 @@ def test_simulation_stock_holding_report_cross_category_and_risk_alerts() -> Non
         )
 
         async def _run() -> None:
-            with patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa), \
-                 patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi):
+            with (
+                patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_alfa),
+                patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_digi),
+            ):
                 out_df = await run_pipeline(
                     input_path=tmp_input,
                     output_path=tmp_output,
@@ -229,10 +235,18 @@ def test_simulation_stock_holding_report_cross_category_and_risk_alerts() -> Non
                 assert "Digi Risk Alert" in out_df.columns
 
                 for alert in out_df["Alfa Risk Alert"].dropna():
-                    assert alert in ("NONE", "THIN_BUFFER", "SAFE_FALLBACK", "SERVER_DOWN", "NEGATIVE_MARGIN")
+                    assert alert in (
+                        "NONE",
+                        "THIN_BUFFER",
+                        "SAFE_FALLBACK",
+                        "SERVER_DOWN",
+                        "NEGATIVE_MARGIN",
+                    )
 
                 # Verify clean output without ANSI color leakage
                 for text in out_df["Alfa Reason"].dropna():
-                    assert "\x1b[" not in str(text), "ANSI color escape leaked into CSV reason string"
+                    assert "\x1b[" not in str(text), (
+                        "ANSI color escape leaked into CSV reason string"
+                    )
 
         asyncio.run(_run())

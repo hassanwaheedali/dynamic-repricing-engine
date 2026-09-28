@@ -120,7 +120,9 @@ def test_digi_upper_band_win_when_lowest_below_8_percent(sample_floors: CostFloo
     # Case 1: Upper seller is between 8% floor and 10% floor (79,500) -> Must switch to 8% to win
     offers_8 = [
         ScrapedOffer(vendor_name="SuicideSeller", price=77000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="UpperSellerTight", price=79500.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="UpperSellerTight", price=79500.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result_8 = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers_8)
     assert result_8.status == "Win via 8% Switch"
@@ -133,7 +135,9 @@ def test_digi_upper_band_win_when_lowest_below_8_percent(sample_floors: CostFloo
     # Case 2: Upper seller is above 10% floor (81,000) -> Stays on default 10% tier (+2% bank spread profit)
     offers_10 = [
         ScrapedOffer(vendor_name="SuicideSeller", price=77000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="UpperSellerHigh", price=81000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="UpperSellerHigh", price=81000.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result_10 = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers_10)
     assert result_10.status == "Safe Win (10% Tier)"
@@ -175,9 +179,13 @@ def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
     offers = [
         ScrapedOffer(vendor_name="Tech House", price=444999.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="Musab Mall", price=444999.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="YZ international", price=445099.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="YZ international", price=445099.0, is_sold_out=False, raw_title="AC"
+        ),
         ScrapedOffer(vendor_name="Home Cart", price=463549.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="Scroll-N-Shop.pk", price=489999.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="Scroll-N-Shop.pk", price=489999.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
@@ -188,7 +196,6 @@ def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
     assert result.real_profit == 10388  # +Rs. 10,388 (~10k sweet spot with clean .999)
     assert len(result.dropped) == 4
     assert "sweet-spot price Rs. 478,999" in result.reason
-
 
 
 def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
@@ -205,10 +212,14 @@ def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
         floor_digi_8=(cost_base + 500.0) / 0.92,
     )
     offers = [
-        ScrapedOffer(vendor_name="iShopping Team", price=162299.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="iShopping Team", price=162299.0, is_sold_out=False, raw_title="AC"
+        ),
         ScrapedOffer(vendor_name="Tech House", price=165999.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="Musab Mall", price=165999.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="YZ international", price=166099.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="YZ international", price=166099.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
@@ -236,12 +247,22 @@ def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> N
         floor_digi_8=(cost_base + 500.0) / 0.92,
     )
     offers = [
-        ScrapedOffer(vendor_name="iShopping Team", price=168749.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="Electronics World", price=171304.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="iShopping Team", price=168749.0, is_sold_out=False, raw_title="AC"
+        ),
+        ScrapedOffer(
+            vendor_name="Electronics World", price=171304.0, is_sold_out=False, raw_title="AC"
+        ),
         ScrapedOffer(vendor_name="Musab Mall", price=171999.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="YZ international", price=172099.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="YZ international", price=172999.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="YZ international", price=173099.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="YZ international", price=172099.0, is_sold_out=False, raw_title="AC"
+        ),
+        ScrapedOffer(
+            vendor_name="YZ international", price=172999.0, is_sold_out=False, raw_title="AC"
+        ),
+        ScrapedOffer(
+            vendor_name="YZ international", price=173099.0, is_sold_out=False, raw_title="AC"
+        ),
         ScrapedOffer(vendor_name="EZZI TRADERS", price=180549.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
@@ -252,7 +273,10 @@ def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> N
     assert result.final_price == 173050
     assert result.real_profit == 543
     assert len(result.dropped) == 5
-    assert "gap is tight. Undercut to winning rounded price Rs. 173,050 with guaranteed +Rs. 543 profit." in result.reason
+    assert (
+        "gap is tight. Undercut to winning rounded price Rs. 173,050 with guaranteed +Rs. 543 profit."
+        in result.reason
+    )
 
 
 def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
@@ -268,7 +292,9 @@ def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
         floor_digi_8=(cost_base + 500.0) / 0.92,
     )
     offers = [
-        ScrapedOffer(vendor_name="iShopping Team", price=146849.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="iShopping Team", price=146849.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
@@ -278,7 +304,10 @@ def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
     assert result.final_price == 150999
     assert result.real_profit == 1794
     assert len(result.dropped) == 1
-    assert "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit on 8% Faysal Bank rate)" in result.reason
+    assert (
+        "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit on 8% Faysal Bank rate)"
+        in result.reason
+    )
 
 
 def test_alfa_server_down_does_not_trigger_false_monopoly(sample_floors: CostFloors) -> None:
@@ -319,7 +348,9 @@ def test_asymmetric_portal_failure_isolated(sample_floors: CostFloors) -> None:
     # AlfaMall succeeds with viable seller, DigiMall fails with 500.
     # Neither should corrupt or block the other!
     alfa_success = ScrapeResult(
-        offers=[ScrapedOffer(vendor_name="LiveSeller", price=82000.0, is_sold_out=False, raw_title="AC")],
+        offers=[
+            ScrapedOffer(vendor_name="LiveSeller", price=82000.0, is_sold_out=False, raw_title="AC")
+        ],
         is_success=True,
     )
     digi_fail = ScrapeResult(
@@ -340,5 +371,3 @@ def test_asymmetric_portal_failure_isolated(sample_floors: CostFloors) -> None:
     # Digi cleanly reports Server Down
     assert digi_res.final_price is None
     assert digi_res.status == "Server Down / Unreachable"
-
-

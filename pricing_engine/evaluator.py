@@ -290,7 +290,9 @@ def evaluate_digi_pricing(
         )
         if final_p_10 is not None:
             profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
-            uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_10, lowest_offer.price)
+            uncapped_p = find_winning_psychological_price(
+                cost_floors.floor_digi_10, lowest_offer.price
+            )
             if gap_10 >= 10000.0 and uncapped_p is not None and final_p_10 < uncapped_p:
                 reason = (
                     f"Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
@@ -335,7 +337,9 @@ def evaluate_digi_pricing(
                     f"gap is tight. Undercut to winning rounded price Rs. {final_p_8:,.0f} with guaranteed +Rs. {profit:,} profit."
                 )
             else:
-                uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_offer.price)
+                uncapped_p = find_winning_psychological_price(
+                    cost_floors.floor_digi_8, lowest_offer.price
+                )
                 if gap_8 >= 10000.0 and uncapped_p is not None and final_p_8 < uncapped_p:
                     reason = (
                         f"Triggered emergency 8% Faysal Bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
@@ -380,8 +384,14 @@ def evaluate_digi_pricing(
                 )
                 if final_p_10 is not None:
                     profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
-                    uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_10, lowest_upper.price)
-                    if gap_upper_10 >= 10000.0 and uncapped_p is not None and final_p_10 < uncapped_p:
+                    uncapped_p = find_winning_psychological_price(
+                        cost_floors.floor_digi_10, lowest_upper.price
+                    )
+                    if (
+                        gap_upper_10 >= 10000.0
+                        and uncapped_p is not None
+                        and final_p_10 < uncapped_p
+                    ):
                         reason = (
                             f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
                             f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
@@ -423,8 +433,14 @@ def evaluate_digi_pricing(
                         f"with guaranteed +Rs. {profit:,} profit."
                     )
                 else:
-                    uncapped_p = find_winning_psychological_price(cost_floors.floor_digi_8, lowest_upper.price)
-                    if gap_upper_8 >= 10000.0 and uncapped_p is not None and final_p_upper < uncapped_p:
+                    uncapped_p = find_winning_psychological_price(
+                        cost_floors.floor_digi_8, lowest_upper.price
+                    )
+                    if (
+                        gap_upper_8 >= 10000.0
+                        and uncapped_p is not None
+                        and final_p_upper < uncapped_p
+                    ):
                         reason = (
                             f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
                             f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
@@ -475,4 +491,3 @@ def evaluate_digi_pricing(
         active_pool=[],
         effective_comm="8.00%",
     )
-

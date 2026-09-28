@@ -130,7 +130,9 @@ def test_total_without_profit_matches_digi_effective_commission() -> None:
         ),
     )
     # Competitor triggers 8% switch (e.g. at 475,000 which is between 8% floor 468,251 and 10% floor 478,657)
-    digi_offer_8 = [ScrapedOffer(vendor_name="DigiSeller", price=475000.0, is_sold_out=False, raw_title="AC")]
+    digi_offer_8 = [
+        ScrapedOffer(vendor_name="DigiSeller", price=475000.0, is_sold_out=False, raw_title="AC")
+    ]
     record_8 = process_product_with_offers(product, [], digi_offer_8)
 
     assert record_8["Digi Effective Commision"] == "8.00%"
@@ -150,7 +152,11 @@ def test_total_without_profit_matches_digi_effective_commission() -> None:
         ),
     )
     # Cost base = 145,000, 10% floor = 161,667. Competitor at 165,000 is viable at 10% tier
-    digi_offer_10 = [ScrapedOffer(vendor_name="DigiSellerHigh", price=165000.0, is_sold_out=False, raw_title="AC")]
+    digi_offer_10 = [
+        ScrapedOffer(
+            vendor_name="DigiSellerHigh", price=165000.0, is_sold_out=False, raw_title="AC"
+        )
+    ]
     record_10 = process_product_with_offers(prod_standard, [], digi_offer_10)
 
     assert record_10["Digi Effective Commision"] == "10.00%"
@@ -173,8 +179,12 @@ def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
             }
         ),
     )
-    alfa_offers = [ScrapedOffer(vendor_name="Nasim", price=479499.0, is_sold_out=False, raw_title="AC")]
-    digi_offers = [ScrapedOffer(vendor_name="Scroll", price=489999.0, is_sold_out=False, raw_title="AC")]
+    alfa_offers = [
+        ScrapedOffer(vendor_name="Nasim", price=479499.0, is_sold_out=False, raw_title="AC")
+    ]
+    digi_offers = [
+        ScrapedOffer(vendor_name="Scroll", price=489999.0, is_sold_out=False, raw_title="AC")
+    ]
 
     record = process_product_with_offers(product, alfa_offers, digi_offers)
 
@@ -187,8 +197,6 @@ def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
     assert record["Final Price Digi"] == 478999
     assert record["Digi Real Profit"] == 10388
     assert record["Digi Effective Commision"] == "10.00%"
-
-
 
 
 def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
@@ -327,7 +335,9 @@ def test_process_product_with_offers_server_down_isolation() -> None:
         ),
     )
     # Alfa is down (500), Digi is live with 0 offers (Monopoly)
-    alfa_down = ScrapeResult(offers=[], is_success=False, status_code=500, error_detail="HTTP 500: Server Error")
+    alfa_down = ScrapeResult(
+        offers=[], is_success=False, status_code=500, error_detail="HTTP 500: Server Error"
+    )
     digi_ok = ScrapeResult(offers=[], is_success=True, status_code=200)
 
     record = process_product_with_offers(product, alfa_down, digi_ok)
@@ -360,8 +370,12 @@ def test_process_product_with_offers_both_servers_down() -> None:
             }
         ),
     )
-    alfa_down = ScrapeResult(offers=[], is_success=False, status_code=502, error_detail="Bad Gateway")
-    digi_down = ScrapeResult(offers=[], is_success=False, status_code=504, error_detail="Gateway Timeout")
+    alfa_down = ScrapeResult(
+        offers=[], is_success=False, status_code=502, error_detail="Bad Gateway"
+    )
+    digi_down = ScrapeResult(
+        offers=[], is_success=False, status_code=504, error_detail="Gateway Timeout"
+    )
 
     record = process_product_with_offers(product, alfa_down, digi_down)
 
@@ -836,7 +850,10 @@ def test_item_3_slash_expansion_digimall_reprice_win() -> None:
     assert record["Digi Real Profit"] == 1489
 
     # 4. Reason documents the 8% switch undercut
-    assert "8% bank rate" in record["Digi Reason"].lower() or "emergency 8%" in record["Digi Reason"].lower()
+    assert (
+        "8% bank rate" in record["Digi Reason"].lower()
+        or "emergency 8%" in record["Digi Reason"].lower()
+    )
 
     # 5. Risk Alert is NONE (Healthy margin >= 700)
     assert record["Digi Risk Alert"] == "NONE"
@@ -890,7 +907,9 @@ def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
     assert len(filtered_offers) == 1
     assert filtered_offers[0].vendor_name == "Legit Seller Gen2"
 
-    record = process_product_with_offers(product, alfa_offers=filtered_offers, digi_offers=filtered_offers)
+    record = process_product_with_offers(
+        product, alfa_offers=filtered_offers, digi_offers=filtered_offers
+    )
 
     # AlfaMall undercuts Gen 2 (153,999 -> Tier 4 adaptive undercut 153,799), completely ignoring Gen 1 (130,000)
     assert record["Final Price Alfa"] == 153799
@@ -997,10 +1016,13 @@ def test_pipeline_autonomous_learner_buffering() -> None:
 
     async def _run() -> None:
         from unittest.mock import AsyncMock
+
         mock_session = AsyncMock()
         sem = asyncio.Semaphore(1)
-        with patch("pricing_engine.pipeline.scrape_alfamall", return_value=candidate_offers), \
-             patch("pricing_engine.pipeline.scrape_digimall", return_value=[]):
+        with (
+            patch("pricing_engine.pipeline.scrape_alfamall", return_value=candidate_offers),
+            patch("pricing_engine.pipeline.scrape_digimall", return_value=[]),
+        ):
             _ = await process_item_async(product, mock_session, sem, verbose=False)
 
         assert default_learner.buffer_size >= 1
@@ -1013,13 +1035,3 @@ def test_pipeline_autonomous_learner_buffering() -> None:
         assert obs["normalized_merchant"] == "megastorelahore"
 
     asyncio.run(_run())
-
-
-
-
-
-
-
-
-
-

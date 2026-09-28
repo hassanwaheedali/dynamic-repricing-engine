@@ -89,10 +89,14 @@ def test_adaptive_target_tier5_under_800_tight_gap() -> None:
     # Gap < 800 PKR (e.g. 600 or 700 PKR) -> Closest Rs. 100 undercut
     floor = 70000.0
     competitor_600 = 70600.0
-    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_600) == 70500.0
+    assert (
+        calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_600) == 70500.0
+    )
 
     competitor_700 = 70700.0
-    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_700) == 70600.0
+    assert (
+        calculate_adaptive_target_price(floor_min=floor, competitor_price=competitor_700) == 70600.0
+    )
 
 
 def test_adaptive_target_tier4_800_to_1500_gap() -> None:
@@ -126,8 +130,6 @@ def test_adaptive_target_tier2_2000_to_10000_gap() -> None:
     assert calculate_adaptive_target_price(floor_min=floor, competitor_price=79000.0) == 74500.0
 
 
-
-
 def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     # Gap >= 10,000 PKR: Item #1 scenario
     # Landed Cost = 430,291, Floor 10% = 478,656.67, Competitor = 489,999.0
@@ -142,7 +144,9 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
         large_gap_profit_target=10000.0,
     )
     # Target should be bounded around the 10k profit point
-    price = find_winning_psychological_price(floor_min=floor, competitor_price=competitor, max_ceiling=target)
+    price = find_winning_psychological_price(
+        floor_min=floor, competitor_price=competitor, max_ceiling=target
+    )
     assert price == 478999
     # Profit at 478,999 on DigiMall: (478999 * 0.92) - 430291 = 10,388 (~10k sweet spot with clean .999 ending)
     profit = round((price * 0.92) - cost_base)
@@ -162,7 +166,9 @@ def test_tight_margin_under_100_selects_round_50_item18() -> None:
         cost_base=cost_base,
         payout_rate=0.92,
     )
-    price = find_winning_psychological_price(floor_min=floor_min, competitor_price=competitor, max_ceiling=target)
+    price = find_winning_psychological_price(
+        floor_min=floor_min, competitor_price=competitor, max_ceiling=target
+    )
 
     assert price == 173050
     assert price < competitor
@@ -184,7 +190,9 @@ def test_undercut_gap_150_selects_round_50_when_no_psychological_price() -> None
         cost_base=cost_base,
         payout_rate=0.92,
     )
-    price = find_winning_psychological_price(floor_min=floor_min, competitor_price=competitor, max_ceiling=target)
+    price = find_winning_psychological_price(
+        floor_min=floor_min, competitor_price=competitor, max_ceiling=target
+    )
 
     assert price == 173050
     assert price < competitor
@@ -244,6 +252,3 @@ def test_fallback_psychological_price_always_ends_in_999() -> None:
     assert price >= 149592.39
     profit = round((price * 0.92) - 137125.0)
     assert profit == 1794
-
-
-
