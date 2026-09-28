@@ -1,0 +1,7 @@
+curl_cffi>=0.7.0
+pandas>=2.0.0
+rich>=13.0.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+mypy>=1.9.0
+ruff>=0.3.0
