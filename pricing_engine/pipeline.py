@@ -29,6 +29,7 @@ from pricing_engine.matcher import (
     referee_match,
 )
 from pricing_engine.models import (
+    STATUS_SERVER_DOWN,
     CostFloors,
     PlatformPricingResult,
     ProductInput,
@@ -98,7 +99,7 @@ def determine_risk_alert(res: PlatformPricingResult) -> str:
         One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE'.
     """
     if (
-        res.status == "Server Down / Unreachable"
+        res.status == STATUS_SERVER_DOWN
         or res.final_price is None
         or res.real_profit is None
     ):
@@ -333,7 +334,7 @@ def build_scraped_sellers_table(
     tbl.add_column("Status", ratio=1)
 
     # 1. AlfaMall Scraped Competitors
-    is_alfa_down = alfa_res.status == "Server Down / Unreachable" or (
+    is_alfa_down = alfa_res.status == STATUS_SERVER_DOWN or (
         isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
     )
 
@@ -448,7 +449,7 @@ def build_scraped_sellers_table(
             )
 
     # 2. DigiMall Scraped Competitors
-    is_digi_down = digi_res.status == "Server Down / Unreachable" or (
+    is_digi_down = digi_res.status == STATUS_SERVER_DOWN or (
         isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
     )
 
@@ -638,10 +639,10 @@ def render_audit_card(
     plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
 
     # Active offers summary
-    is_alfa_down = alfa_res.status == "Server Down / Unreachable" or (
+    is_alfa_down = alfa_res.status == STATUS_SERVER_DOWN or (
         isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
     )
-    is_digi_down = digi_res.status == "Server Down / Unreachable" or (
+    is_digi_down = digi_res.status == STATUS_SERVER_DOWN or (
         isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
     )
 
@@ -673,7 +674,7 @@ def render_audit_card(
     plat_tbl.add_row("Bank Commission", "10.00% Standard", digi_comm_badge)
 
     # Final Price
-    if alfa_res.status == "Server Down / Unreachable":
+    if alfa_res.status == STATUS_SERVER_DOWN:
         alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif alfa_res.final_price is not None:
         if alfa_res.status == "Safe Fallback":
@@ -687,7 +688,7 @@ def render_audit_card(
     else:
         alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
-    if digi_res.status == "Server Down / Unreachable":
+    if digi_res.status == STATUS_SERVER_DOWN:
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif digi_res.final_price is not None:
         if digi_res.status == "Safe Fallback":
@@ -704,7 +705,7 @@ def render_audit_card(
     plat_tbl.add_row("Final Price", alfa_p_str, digi_p_str)
 
     # Real Profit
-    if alfa_res.status == "Server Down / Unreachable":
+    if alfa_res.status == STATUS_SERVER_DOWN:
         alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif alfa_res.final_price is not None:
         if alfa_res.real_profit <= 0:
@@ -718,7 +719,7 @@ def render_audit_card(
     else:
         alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
-    if digi_res.status == "Server Down / Unreachable":
+    if digi_res.status == STATUS_SERVER_DOWN:
         digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif digi_res.final_price is not None:
         if digi_res.real_profit <= 0:

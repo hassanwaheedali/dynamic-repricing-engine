@@ -4,7 +4,13 @@ from pricing_engine.calculator import (
     get_fallback_psychological_price,
     get_monopoly_psychological_price,
 )
-from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer, ScrapeResult
+from pricing_engine.models import (
+    STATUS_SERVER_DOWN,
+    CostFloors,
+    PlatformPricingResult,
+    ScrapedOffer,
+    ScrapeResult,
+)
 
 MONOPOLY_PROFIT: float = 4000.0
 FALLBACK_PROFIT: float = 1500.0
@@ -52,7 +58,7 @@ def evaluate_alfa_pricing(
             max_price=None,
             final_price=None,
             real_profit=0,
-            status="Server Down / Unreachable",
+            status=STATUS_SERVER_DOWN,
             reason=(
                 f"AlfaMall search API unreachable ({err_msg}). "
                 "Skipped to prevent blind mispricing while server is down."
@@ -239,7 +245,7 @@ def evaluate_digi_pricing(
             max_price=None,
             final_price=None,
             real_profit=0,
-            status="Server Down / Unreachable",
+            status=STATUS_SERVER_DOWN,
             reason=(
                 f"DigiMall search API unreachable ({err_msg}). "
                 "Skipped to prevent blind mispricing while server is down."

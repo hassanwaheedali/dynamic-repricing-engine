@@ -2,6 +2,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
+
 
 @dataclass(frozen=True, slots=True)
 class CostFloors:
