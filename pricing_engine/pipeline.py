@@ -124,6 +124,18 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def resolve_shipping_estimate(product: ProductInput) -> float:
+    """Resolve shipping estimate from CSV if provided, or compute from volumetric weight."""
+    csv_shipping = product.raw_row.get("Shipping Estimate")
+    if pd.notna(csv_shipping) and _safe_float(csv_shipping) > 0:
+        return round(_safe_float(csv_shipping), 2)
+    vol_weight = calculate_volumetric_weight(
+        product.length, product.width, product.height, divisor=DIVISOR
+    )
+    return calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE)
+
+
+
 def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     """Parse and sanitize a raw CSV row into a strongly typed ProductInput.
 
@@ -228,14 +240,7 @@ def process_product_with_offers(
     Returns:
         Repriced output dictionary.
     """
-    csv_shipping = product.raw_row.get("Shipping Estimate")
-    if pd.notna(csv_shipping) and _safe_float(csv_shipping) > 0:
-        shipping = round(_safe_float(csv_shipping), 2)
-    else:
-        vol_weight = calculate_volumetric_weight(
-            product.length, product.width, product.height, divisor=DIVISOR
-        )
-        shipping = calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE)
+    shipping = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(cost_base, min_profit=500.0)
@@ -766,14 +771,7 @@ async def process_item_async(
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
-    csv_shipping = product.raw_row.get("Shipping Estimate")
-    if pd.notna(csv_shipping) and _safe_float(csv_shipping) > 0:
-        shipping = round(_safe_float(csv_shipping), 2)
-    else:
-        vol_weight = calculate_volumetric_weight(
-            product.length, product.width, product.height, divisor=DIVISOR
-        )
-        shipping = calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE)
+    shipping = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(cost_base, min_profit=500.0)
