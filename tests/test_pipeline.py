@@ -1035,3 +1035,176 @@ def test_pipeline_autonomous_learner_buffering() -> None:
         assert obs["normalized_merchant"] == "megastorelahore"
 
     asyncio.run(_run())
+
+
+def test_build_scraped_sellers_table_smart_formatting() -> None:
+    """Verify smart table formatting renders dropped summary, target undercut, and true ceiling."""
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.pipeline import build_scraped_sellers_table
+
+    floors = CostFloors(
+        floor_alfa=88226.0,
+        floor_digi_10=88226.0,
+        floor_digi_8=86307.0,
+        cost_base=78903.0,
+        zero_margin_10=87670.0,
+        zero_margin_8=85764.0,
+    )
+
+    # 5 sub-floor sellers and 3 viable sellers (total 8 sellers)
+    alfa_offers = [
+        ScrapedOffer(vendor_name="Sub Seller 1", price=81500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Sub Seller 2", price=81500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Sub Seller 3", price=82000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Sub Seller 4", price=83000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Sub Seller 5", price=84000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Kia Chahiye", price=88599.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Electronics World", price=91499.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Ceiling Seller", price=102078.0, is_sold_out=False, raw_title=""),
+    ]
+
+    alfa_res = PlatformPricingResult(
+        final_price=88499.0,
+        min_price=88499.0,
+        max_price=88499.0,
+        real_profit=746.0,
+        reason="Undercut lowest viable",
+        status="Won",
+        effective_comm="10.00%",
+    )
+    digi_res = PlatformPricingResult(
+        final_price=88499.0,
+        min_price=88499.0,
+        max_price=88499.0,
+        real_profit=2516.0,
+        reason="Won at 10%",
+        status="Won",
+        effective_comm="10.00%",
+    )
+
+    tbl = build_scraped_sellers_table(floors, alfa_offers, [], alfa_res, digi_res)
+
+    # Convert table rows to string to inspect contents
+    rows_text = []
+    for col in tbl.columns:
+        for cell in col._cells:
+            rows_text.append(str(cell))
+    full_table_text = " ".join(rows_text)
+
+    # 1. Target Undercut (Lowest Viable) MUST be present in the table
+    assert "Target Undercut (Lowest Viable)" in full_table_text
+    assert "Kia Chahiye" in full_table_text
+    assert "88,599" in full_table_text
+
+    # 2. Sub-floor rollup must be present because there are 5 dropped sellers (> 3)
+    assert "more sub-floor" in full_table_text or "more sellers" in full_table_text
+    assert "Sub Seller 1" in full_table_text
+    assert "Sub Seller 2" in full_table_text
+
+    # 3. Market ceiling must be visible
+    assert "102,078" in full_table_text
+
+
+def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
+    """Verify clean rendering when all scraped competitors are below the floor."""
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.pipeline import build_scraped_sellers_table
+
+    floors = CostFloors(
+        floor_alfa=88226.0,
+        floor_digi_10=88226.0,
+        floor_digi_8=86307.0,
+        cost_base=78903.0,
+        zero_margin_10=87670.0,
+        zero_margin_8=85764.0,
+    )
+
+    alfa_offers = [
+        ScrapedOffer(vendor_name=f"Loss Seller {i}", price=80000.0 + (i * 500), is_sold_out=False, raw_title="")
+        for i in range(6)
+    ]
+
+    alfa_res = PlatformPricingResult(
+        final_price=89999.0,
+        min_price=89999.0,
+        max_price=89999.0,
+        real_profit=2096.0,
+        reason="All competitors selling at loss",
+        status="Safe Fallback",
+        effective_comm="10.00%",
+    )
+    digi_res = PlatformPricingResult(
+        final_price=89999.0,
+        min_price=89999.0,
+        max_price=89999.0,
+        real_profit=3896.0,
+        reason="All competitors selling at loss",
+        status="Safe Fallback",
+        effective_comm="8.00%",
+    )
+
+    tbl = build_scraped_sellers_table(floors, alfa_offers, [], alfa_res, digi_res)
+    rows_text = []
+    for col in tbl.columns:
+        for cell in col._cells:
+            rows_text.append(str(cell))
+    full_table_text = " ".join(rows_text)
+
+    # When all are sub-floor, should render dropped status and loss-makers rollup
+    assert "All sub-floor" in full_table_text
+    assert "more loss-makers" in full_table_text
+    assert "Loss Seller 0" in full_table_text
+
+
+def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
+    """Verify DigiMall correctly renders Target Undercut (8% Viable) on emergency switch."""
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.pipeline import build_scraped_sellers_table
+
+    floors = CostFloors(
+        floor_alfa=88226.0,
+        floor_digi_10=88226.0,
+        floor_digi_8=86307.0,
+        cost_base=78903.0,
+        zero_margin_10=87670.0,
+        zero_margin_8=85764.0,
+    )
+
+    digi_offers = [
+        ScrapedOffer(vendor_name="Sub Seller", price=85000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Electronics World", price=86702.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Kia Chahiye", price=87500.0, is_sold_out=False, raw_title=""),
+    ]
+
+    alfa_res = PlatformPricingResult(
+        final_price=88499.0,
+        min_price=88499.0,
+        max_price=88499.0,
+        real_profit=746.0,
+        reason="Won",
+        status="Won",
+        effective_comm="10.00%",
+    )
+    digi_res = PlatformPricingResult(
+        final_price=86499.0,
+        min_price=86499.0,
+        max_price=86499.0,
+        real_profit=677.0,
+        reason="Triggered emergency 8% switch",
+        status="Won",
+        effective_comm="8.00%",
+    )
+
+    tbl = build_scraped_sellers_table(floors, [], digi_offers, alfa_res, digi_res)
+    rows_text = []
+    for col in tbl.columns:
+        for cell in col._cells:
+            rows_text.append(str(cell))
+    full_table_text = " ".join(rows_text)
+
+    # Must display 8% Viable badge
+    assert "Target Undercut (8% Viable)" in full_table_text
+    assert "Electronics World" in full_table_text
+    assert "86,702" in full_table_text
+
+

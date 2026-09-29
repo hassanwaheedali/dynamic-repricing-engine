@@ -23,6 +23,8 @@ class ScrapedOffer:
     price: float
     is_sold_out: bool
     raw_title: str
+    duplicate_count: int = 1
+
 
 
 @dataclass(frozen=True, slots=True)

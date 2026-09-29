@@ -44,6 +44,34 @@ def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
     return dict(_query_cache)
 
 
+def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
+    """Deduplicate offers by (vendor_name.lower().strip(), round(price, 2)), tracking duplicate counts."""
+    counts: dict[tuple[str, float], int] = {}
+    first_seen: dict[tuple[str, float], ScrapedOffer] = {}
+    for off in offers:
+        key = (off.vendor_name.lower().strip(), round(off.price, 2))
+        counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
+        if key not in first_seen:
+            first_seen[key] = off
+
+    unique_offers: list[ScrapedOffer] = []
+    for key, off in first_seen.items():
+        total_dupes = counts[key]
+        if total_dupes > 1:
+            unique_offers.append(
+                ScrapedOffer(
+                    vendor_name=off.vendor_name,
+                    price=off.price,
+                    is_sold_out=off.is_sold_out,
+                    raw_title=off.raw_title,
+                    duplicate_count=total_dupes,
+                )
+            )
+        else:
+            unique_offers.append(off)
+    return unique_offers
+
+
 async def _execute_waterfall(
     single_scraper_fn: Callable[..., Coroutine[Any, Any, ScrapeResult]],
     session: AsyncSession,
@@ -51,6 +79,7 @@ async def _execute_waterfall(
     target_model: str,
     timeout: float,
     max_retries: int,
+    floor_price: float | None = None,
 ) -> ScrapeResult:
     """Execute tiered early-exit waterfall candidate retrieval across query tiers.
 
@@ -59,7 +88,7 @@ async def _execute_waterfall(
     search terminates immediately, saving up to 80% redundant network I/O.
     """
     collected_offers: list[ScrapedOffer] = []
-    seen_offers: set[tuple[str, float, str]] = set()
+    seen_offers: set[tuple[str, float]] = set()
     any_success = False
     last_status: int | None = None
     last_error: str | None = None
@@ -81,6 +110,7 @@ async def _execute_waterfall(
                 target_model=target_model,
                 timeout=timeout,
                 max_retries=max_retries,
+                floor_price=floor_price,
             )
             if sub_res.is_success:
                 any_success = True
@@ -89,11 +119,7 @@ async def _execute_waterfall(
                 last_error = sub_res.error_detail
 
             for off in sub_res.offers:
-                dedupe_key = (
-                    off.vendor_name.lower().strip(),
-                    round(off.price, 2),
-                    off.raw_title.lower().strip(),
-                )
+                dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
                 if dedupe_key not in seen_offers:
                     seen_offers.add(dedupe_key)
                     collected_offers.append(off)
@@ -116,6 +142,7 @@ async def _scrape_alfamall_single_query(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
+    floor_price: float | None = None,
 ) -> ScrapeResult:
     """Internal single-query scraper for AlfaMall storefront search API."""
     cache_key = ("alfamall", query.strip().upper())
@@ -128,6 +155,7 @@ async def _scrape_alfamall_single_query(
                     price=o.price,
                     is_sold_out=o.is_sold_out,
                     raw_title=o.raw_title,
+                    duplicate_count=o.duplicate_count,
                 )
                 for o in cached.offers
             ],
@@ -139,7 +167,7 @@ async def _scrape_alfamall_single_query(
     params = {
         "page": "1",
         "q": query,
-        "limit": "18",
+        "limit": "100",
         "storefront": "23",
         "storefront_domain": "alfamall.com",
     }
@@ -211,6 +239,55 @@ async def _scrape_alfamall_single_query(
                             )
                         )
 
+                # Conditional page 2 probe if all page 1 offers are sub-floor
+                total_count = data.get("count") or data.get("total")
+                if (
+                    floor_price is not None
+                    and isinstance(total_count, int)
+                    and total_count > len(raw_items)
+                    and offers
+                    and all(o.price <= floor_price for o in offers)
+                ):
+                    params_p2 = {**params, "page": "2"}
+                    try:
+                        resp_p2 = await session.get(
+                            ALFA_SEARCH_URL, params=params_p2, headers=headers, timeout=timeout
+                        )
+                        if resp_p2.status_code == 200:
+                            data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
+                            raw_p2 = data_p2.get("results") or data_p2.get("data") or []
+                            if isinstance(raw_p2, list):
+                                for item_p2 in raw_p2:
+                                    t2 = str(item_p2.get("title", ""))
+                                    if not is_strict_model_match(t2, target_model):
+                                        continue
+                                    so2 = bool(item_p2.get("sold_out", False))
+                                    var2 = item_p2.get("variant_detail", {})
+                                    pr_str2 = (
+                                        var2.get("discounted_price")
+                                        or var2.get("original_price")
+                                        or "0"
+                                    )
+                                    try:
+                                        pr2 = float(str(pr_str2).replace(",", "").strip())
+                                    except ValueError:
+                                        continue
+                                    v_obj2 = item_p2.get("vendor") or {}
+                                    v2 = v_obj2.get("name") or "Unknown Vendor"
+                                    if pr2 > 0:
+                                        offers.append(
+                                            ScrapedOffer(
+                                                vendor_name=str(v2),
+                                                price=pr2,
+                                                is_sold_out=so2,
+                                                raw_title=t2,
+                                            )
+                                        )
+                    except Exception as exc_p2:
+                        logger.debug("AlfaMall page 2 probe exception: %s", exc_p2)
+
+                offers = deduplicate_offers(offers)
+
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
                     offers=offers,
@@ -222,6 +299,7 @@ async def _scrape_alfamall_single_query(
                     _query_cache[cache_key] = result
 
                 return result
+
 
             elif resp.status_code in (429, 500, 502, 503, 504):
                 last_error = f"HTTP {resp.status_code} Server/Gateway Error"
@@ -294,6 +372,7 @@ async def scrape_alfamall(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
+    floor_price: float | None = None,
 ) -> ScrapeResult:
     """Query AlfaMall storefront search API and extract verified product offers with retries.
 
@@ -305,6 +384,7 @@ async def scrape_alfamall(
         target_model: Target model string for strict variant validation.
         timeout: HTTP request timeout in seconds (default: 10.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
+        floor_price: Optional price floor to probe page 2 if all page 1 items are sub-floor.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -316,6 +396,7 @@ async def scrape_alfamall(
             target_model=target_model,
             timeout=timeout,
             max_retries=max_retries,
+            floor_price=floor_price,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_alfamall_single_query,
@@ -324,6 +405,7 @@ async def scrape_alfamall(
         target_model=target_model,
         timeout=timeout,
         max_retries=max_retries,
+        floor_price=floor_price,
     )
 
 
@@ -333,6 +415,7 @@ async def _scrape_digimall_single_query(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
+    floor_price: float | None = None,
 ) -> ScrapeResult:
     """Internal single-query scraper for DigiMall storefront search API.
 
@@ -349,6 +432,7 @@ async def _scrape_digimall_single_query(
         target_model: Target model string for strict variant validation.
         timeout: HTTP request timeout in seconds (default: 10.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
+        floor_price: Optional price floor for conditional sub-floor page 2 probing.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -363,6 +447,7 @@ async def _scrape_digimall_single_query(
                     price=o.price,
                     is_sold_out=o.is_sold_out,
                     raw_title=o.raw_title,
+                    duplicate_count=o.duplicate_count,
                 )
                 for o in cached.offers
             ],
@@ -375,7 +460,7 @@ async def _scrape_digimall_single_query(
         "storefront": "23",
         "q": query,
         "page": "1",
-        "limit": "18",
+        "limit": "100",
     }
     headers = {
         **COMMON_HEADERS,
@@ -444,6 +529,55 @@ async def _scrape_digimall_single_query(
                                 raw_title=title,
                             )
                         )
+
+                # Conditional page 2 probe if all page 1 offers are sub-floor
+                total_count = data.get("count") or data.get("total")
+                if (
+                    floor_price is not None
+                    and isinstance(total_count, int)
+                    and total_count > len(raw_items)
+                    and offers
+                    and all(o.price <= floor_price for o in offers)
+                ):
+                    params_p2 = {**params, "page": "2"}
+                    try:
+                        resp_p2 = await session.get(
+                            DIGI_SEARCH_URL, params=params_p2, headers=headers, timeout=timeout
+                        )
+                        if resp_p2.status_code == 200:
+                            data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
+                            raw_p2 = data_p2.get("results") or data_p2.get("data") or []
+                            if isinstance(raw_p2, list):
+                                for item_p2 in raw_p2:
+                                    t2 = str(item_p2.get("title", ""))
+                                    if not is_strict_model_match(t2, target_model):
+                                        continue
+                                    so2 = bool(item_p2.get("sold_out", False))
+                                    var2 = item_p2.get("variant_detail", {})
+                                    pr_str2 = (
+                                        var2.get("discounted_price")
+                                        or var2.get("original_price")
+                                        or "0"
+                                    )
+                                    try:
+                                        pr2 = float(str(pr_str2).replace(",", "").strip())
+                                    except ValueError:
+                                        continue
+                                    v_obj2 = item_p2.get("vendor") or {}
+                                    v2 = v_obj2.get("name") or "Unknown Vendor"
+                                    if pr2 > 0:
+                                        offers.append(
+                                            ScrapedOffer(
+                                                vendor_name=str(v2),
+                                                price=pr2,
+                                                is_sold_out=so2,
+                                                raw_title=t2,
+                                            )
+                                        )
+                    except Exception as exc_p2:
+                        logger.debug("DigiMall page 2 probe exception: %s", exc_p2)
+
+                offers = deduplicate_offers(offers)
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
@@ -528,6 +662,7 @@ async def scrape_digimall(
     target_model: str,
     timeout: float = 10.0,
     max_retries: int = 3,
+    floor_price: float | None = None,
 ) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
@@ -539,6 +674,7 @@ async def scrape_digimall(
         target_model: Target model string for strict variant validation.
         timeout: HTTP request timeout in seconds (default: 10.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
+        floor_price: Optional price floor for conditional sub-floor page 2 probing.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -550,6 +686,7 @@ async def scrape_digimall(
             target_model=target_model,
             timeout=timeout,
             max_retries=max_retries,
+            floor_price=floor_price,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_digimall_single_query,
@@ -558,4 +695,6 @@ async def scrape_digimall(
         target_model=target_model,
         timeout=timeout,
         max_retries=max_retries,
+        floor_price=floor_price,
     )
+

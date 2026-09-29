@@ -347,32 +347,88 @@ def build_scraped_sellers_table(
         sorted_alfa = sorted(active_alfa, key=lambda x: x.price)
         sold_out_alfa = [o for o in alfa_offers if o.is_sold_out]
 
-        lowest_viable_alfa = min(
-            (o for o in sorted_alfa if o.price > floors.floor_alfa),
-            key=lambda x: x.price,
-            default=None,
-        )
-        for o in sorted_alfa[:8]:
-            if o.price <= floors.floor_alfa:
-                status = f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]"
-            elif lowest_viable_alfa and o == lowest_viable_alfa:
-                status = "[bold green]Target Undercut (Lowest Viable)[/]"
-            else:
-                status = "[dim]Viable Competitor[/]"
-            tbl.add_row(
-                "[bold #2c4699]AlfaMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status
-            )
+        dropped_alfa = [o for o in sorted_alfa if o.price <= floors.floor_alfa]
+        viable_alfa = [o for o in sorted_alfa if o.price > floors.floor_alfa]
 
-        if len(sorted_alfa) > 8:
-            rem = len(sorted_alfa) - 8
-            min_rem = sorted_alfa[8].price
-            max_rem = sorted_alfa[-1].price
+        if viable_alfa:
+            # 1. Dropped sub-floor offers (top 3 if > 3, else all)
+            if len(dropped_alfa) > 3:
+                for o in dropped_alfa[:3]:
+                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    tbl.add_row(
+                        "[bold #2c4699]AlfaMall[/]",
+                        o.vendor_name[:17],
+                        f"Rs. {o.price:,.0f}",
+                        f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
+                    )
+                rem_dropped = len(dropped_alfa) - 3
+                tbl.add_row(
+                    "[bold #2c4699]AlfaMall[/]",
+                    f"[dim]... +{rem_dropped} more sub-floor[/]",
+                    f"[dim]Rs. {dropped_alfa[3].price:,.0f}+[/]",
+                    f"[dim red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]",
+                )
+            else:
+                for o in dropped_alfa:
+                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    tbl.add_row(
+                        "[bold #2c4699]AlfaMall[/]",
+                        o.vendor_name[:17],
+                        f"Rs. {o.price:,.0f}",
+                        f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
+                    )
+
+            # 2. Target Undercut (Lowest Viable) - ALWAYS explicitly rendered
+            lowest_viable = viable_alfa[0]
+            lv_dupe = f" [dim][{lowest_viable.duplicate_count - 1} dupes dropped][/]" if lowest_viable.duplicate_count > 1 else ""
             tbl.add_row(
                 "[bold #2c4699]AlfaMall[/]",
-                f"[dim]... +{rem} more sellers[/]",
-                f"[dim]Rs. {min_rem:,.0f}+[/]",
-                f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
+                lowest_viable.vendor_name[:17],
+                f"Rs. {lowest_viable.price:,.0f}",
+                f"[bold green]Target Undercut (Lowest Viable)[/]{lv_dupe}",
             )
+
+            # 3. Next 2-3 viable competitors
+            for o in viable_alfa[1:4]:
+                v_dupe = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                tbl.add_row(
+                    "[bold #2c4699]AlfaMall[/]",
+                    o.vendor_name[:17],
+                    f"Rs. {o.price:,.0f}",
+                    f"[dim]Viable Competitor[/]{v_dupe}",
+                )
+
+            # 4. Rollup higher offers with true max ceiling
+            if len(viable_alfa) > 4:
+                rem_viable = len(viable_alfa) - 4
+                min_rem = viable_alfa[4].price
+                max_rem = viable_alfa[-1].price
+                tbl.add_row(
+                    "[bold #2c4699]AlfaMall[/]",
+                    f"[dim]... +{rem_viable} more sellers[/]",
+                    f"[dim]Rs. {min_rem:,.0f}+[/]",
+                    f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
+                )
+        else:
+            # All scraped competitors are selling below floor
+            for o in dropped_alfa[:3]:
+                dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                tbl.add_row(
+                    "[bold #2c4699]AlfaMall[/]",
+                    o.vendor_name[:17],
+                    f"Rs. {o.price:,.0f}",
+                    f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
+                )
+            if len(dropped_alfa) > 3:
+                rem_dropped = len(dropped_alfa) - 3
+                min_rem = dropped_alfa[3].price
+                max_rem = dropped_alfa[-1].price
+                tbl.add_row(
+                    "[bold #2c4699]AlfaMall[/]",
+                    f"[dim]... +{rem_dropped} more loss-makers[/]",
+                    f"[dim]Rs. {min_rem:,.0f}+[/]",
+                    f"[dim red]All sub-floor (up to Rs. {max_rem:,.0f})[/]",
+                )
 
         for s in sold_out_alfa[:2]:
             tbl.add_row(
@@ -408,33 +464,89 @@ def build_scraped_sellers_table(
         sorted_digi = sorted(active_digi, key=lambda x: x.price)
         sold_out_digi = [o for o in digi_offers if o.is_sold_out]
 
-        lowest_viable_digi = min(
-            (o for o in sorted_digi if o.price > hard_digi_floor),
-            key=lambda x: x.price,
-            default=None,
-        )
-        for o in sorted_digi[:8]:
-            if o.price <= hard_digi_floor:
-                status = f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]"
-            elif lowest_viable_digi and o == lowest_viable_digi:
-                comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
-                status = f"[bold green]Target Undercut ({comm_note})[/]"
-            else:
-                status = "[dim]Viable Competitor[/]"
-            tbl.add_row(
-                "[bold #229693]DigiMall[/]", o.vendor_name[:17], f"Rs. {o.price:,.0f}", status
-            )
+        dropped_digi = [o for o in sorted_digi if o.price <= hard_digi_floor]
+        viable_digi = [o for o in sorted_digi if o.price > hard_digi_floor]
 
-        if len(sorted_digi) > 8:
-            rem = len(sorted_digi) - 8
-            min_rem = sorted_digi[8].price
-            max_rem = sorted_digi[-1].price
+        if viable_digi:
+            # 1. Dropped sub-floor offers (top 3 if > 3, else all)
+            if len(dropped_digi) > 3:
+                for o in dropped_digi[:3]:
+                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    tbl.add_row(
+                        "[bold #229693]DigiMall[/]",
+                        o.vendor_name[:17],
+                        f"Rs. {o.price:,.0f}",
+                        f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
+                    )
+                rem_dropped = len(dropped_digi) - 3
+                tbl.add_row(
+                    "[bold #229693]DigiMall[/]",
+                    f"[dim]... +{rem_dropped} more sub-floor[/]",
+                    f"[dim]Rs. {dropped_digi[3].price:,.0f}+[/]",
+                    f"[dim red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]",
+                )
+            else:
+                for o in dropped_digi:
+                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    tbl.add_row(
+                        "[bold #229693]DigiMall[/]",
+                        o.vendor_name[:17],
+                        f"Rs. {o.price:,.0f}",
+                        f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
+                    )
+
+            # 2. Target Undercut - ALWAYS explicitly rendered
+            lowest_viable = viable_digi[0]
+            comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
+            lv_dupe = f" [dim][{lowest_viable.duplicate_count - 1} dupes dropped][/]" if lowest_viable.duplicate_count > 1 else ""
             tbl.add_row(
                 "[bold #229693]DigiMall[/]",
-                f"[dim]... +{rem} more sellers[/]",
-                f"[dim]Rs. {min_rem:,.0f}+[/]",
-                f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
+                lowest_viable.vendor_name[:17],
+                f"Rs. {lowest_viable.price:,.0f}",
+                f"[bold green]Target Undercut ({comm_note})[/]{lv_dupe}",
             )
+
+            # 3. Next 2-3 viable competitors
+            for o in viable_digi[1:4]:
+                v_dupe = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                tbl.add_row(
+                    "[bold #229693]DigiMall[/]",
+                    o.vendor_name[:17],
+                    f"Rs. {o.price:,.0f}",
+                    f"[dim]Viable Competitor[/]{v_dupe}",
+                )
+
+            # 4. Rollup higher offers with true max ceiling
+            if len(viable_digi) > 4:
+                rem_viable = len(viable_digi) - 4
+                min_rem = viable_digi[4].price
+                max_rem = viable_digi[-1].price
+                tbl.add_row(
+                    "[bold #229693]DigiMall[/]",
+                    f"[dim]... +{rem_viable} more sellers[/]",
+                    f"[dim]Rs. {min_rem:,.0f}+[/]",
+                    f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
+                )
+        else:
+            # All scraped competitors are selling below floor
+            for o in dropped_digi[:3]:
+                dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                tbl.add_row(
+                    "[bold #229693]DigiMall[/]",
+                    o.vendor_name[:17],
+                    f"Rs. {o.price:,.0f}",
+                    f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
+                )
+            if len(dropped_digi) > 3:
+                rem_dropped = len(dropped_digi) - 3
+                min_rem = dropped_digi[3].price
+                max_rem = dropped_digi[-1].price
+                tbl.add_row(
+                    "[bold #229693]DigiMall[/]",
+                    f"[dim]... +{rem_dropped} more loss-makers[/]",
+                    f"[dim]Rs. {min_rem:,.0f}+[/]",
+                    f"[dim red]All sub-floor (up to Rs. {max_rem:,.0f})[/]",
+                )
 
         for s in sold_out_digi[:2]:
             tbl.add_row(
@@ -644,11 +756,6 @@ async def process_item_async(
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
-    async with semaphore:
-        alfa_task = scrape_alfamall(session, patterns, target_model)
-        digi_task = scrape_digimall(session, patterns, target_model)
-        alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
-
     csv_shipping = product.raw_row.get("Shipping Estimate")
     if pd.notna(csv_shipping) and _safe_float(csv_shipping) > 0:
         shipping = round(_safe_float(csv_shipping), 2)
@@ -661,6 +768,15 @@ async def process_item_async(
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(cost_base, min_profit=500.0)
     baseline_calc = calculate_baseline(cost_base, target_profit=product.profit)
+
+    async with semaphore:
+        alfa_task = scrape_alfamall(
+            session, patterns, target_model, floor_price=floors.floor_alfa
+        )
+        digi_task = scrape_digimall(
+            session, patterns, target_model, floor_price=floors.floor_digi_8
+        )
+        alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
 
     alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
     digi_res = evaluate_digi_pricing(floors, digi_offers)
