@@ -1208,3 +1208,75 @@ def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
     assert "86,702" in full_table_text
 
 
+def test_build_scraped_sellers_table_target_predecessor_visibility() -> None:
+    """Verify that with many sub-floor sellers, the seller right above target undercut is always visible."""
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.pipeline import build_scraped_sellers_table
+
+    floors = CostFloors(
+        floor_alfa=33964.0,
+        floor_digi_10=33964.0,
+        floor_digi_8=33226.0,
+        cost_base=30000.0,
+        zero_margin_10=33333.0,
+        zero_margin_8=32608.0,
+    )
+
+    # 9 dropped sellers (Allure Beauty, Tech House, etc.) + MZ Electronics as target undercut
+    alfa_offers = [
+        ScrapedOffer(vendor_name="Allure Beauty", price=16498.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Tech House", price=27999.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Tech House", price=28289.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Other Seller 1", price=30435.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Other Seller 2", price=31000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Other Seller 3", price=31500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Other Seller 4", price=32000.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Other Seller 5", price=32500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="Nearest Predecessor", price=33500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(vendor_name="MZ Electonics", price=34400.0, is_sold_out=False, raw_title=""),
+    ]
+
+    alfa_res = PlatformPricingResult(
+        final_price=34299.0,
+        min_price=34400.0,
+        max_price=34400.0,
+        real_profit=869.0,
+        reason="Undercut lowest viable",
+        status="Won",
+        effective_comm="10.00%",
+    )
+    digi_res = PlatformPricingResult(
+        final_price=34299.0,
+        min_price=34400.0,
+        max_price=34400.0,
+        real_profit=1557.0,
+        reason="Won",
+        status="Won",
+        effective_comm="10.00%",
+    )
+
+    tbl = build_scraped_sellers_table(floors, alfa_offers, [], alfa_res, digi_res)
+    rows_text = []
+    for col in tbl.columns:
+        for cell in col._cells:
+            rows_text.append(str(cell))
+    full_table_text = " ".join(rows_text)
+
+    # 1. First 2 dropped sellers must be visible
+    assert "Allure Beauty" in full_table_text
+    assert "16,498" in full_table_text
+    assert "Tech House" in full_table_text
+
+    # 2. Middle rollup must be visible (+6 dropped)
+    assert "+6 dropped" in full_table_text
+
+    # 3. CRITICAL: The closest seller right before target undercut MUST be visible
+    assert "Nearest Predecessor" in full_table_text
+    assert "33,500" in full_table_text
+
+    # 4. Target undercut must follow immediately
+    assert "MZ Electonics" in full_table_text
+    assert "Target Undercut (Lowest Viable)" in full_table_text
+
+
+

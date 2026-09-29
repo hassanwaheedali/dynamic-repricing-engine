@@ -358,9 +358,9 @@ def _render_platform_offers_to_table(
     viable = [o for o in sorted_offers if o.price > floor_price]
 
     if viable:
-        # 1. Dropped sub-floor offers (top 3 if > 3, else all)
+        # 1. Dropped sub-floor offers (first 2 + rollup + immediate predecessor before target)
         if len(dropped) > 3:
-            for o in dropped[:3]:
+            for o in dropped[:2]:
                 dupe_tag = _format_dupe_tag(o.duplicate_count)
                 tbl.add_row(
                     platform_tag,
@@ -372,8 +372,17 @@ def _render_platform_offers_to_table(
             tbl.add_row(
                 platform_tag,
                 f"[dim]... +{rem_dropped} dropped[/]",
-                f"[dim]Rs. {dropped[3].price:,.0f}+[/]",
+                f"[dim]Rs. {dropped[2].price:,.0f}+[/]",
                 f"[dim red]Sub-floor offers (up to Rs. {floor_price - 1:,.0f})[/]",
+            )
+            # Explicitly render the closest sub-floor seller right before target undercut
+            closest_dropped = dropped[-1]
+            c_dupe = _format_dupe_tag(closest_dropped.duplicate_count)
+            tbl.add_row(
+                platform_tag,
+                closest_dropped.vendor_name[:21],
+                f"Rs. {closest_dropped.price:,.0f}",
+                f"[red]Dropped (< {floor_label})[/]{c_dupe}",
             )
         else:
             for o in dropped:
