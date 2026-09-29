@@ -818,8 +818,8 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
     norm_target = re.sub(r"[^A-Z0-9]", "", clean_target.upper())
     norm_title = re.sub(r"[^A-Z0-9]", "", expanded_title.upper())
 
-    # Auxiliary tag stripping (T3, AAA, AA, PRO, ULTRA) for core base comparison
-    tag_pattern = re.compile(r"(?:T3|AAA|AA\+|AA|PRO|ULTRA)+$", re.IGNORECASE)
+    # Auxiliary tag stripping (T3, AAA, AA, PRO, ULTRA, GC, GT, JT) for core base comparison
+    tag_pattern = re.compile(r"(?:T3|AAA|AA\+|AA|PRO|ULTRA|GC|GT|JT)+$", re.IGNORECASE)
     base_target = tag_pattern.sub("", norm_target)
 
     # 1. Structural numeric prefix collision check (e.g. 18 vs 24 vs 12, or 100 vs 120):
@@ -835,8 +835,14 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
                     return False
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
+    # Feature/cosmetic tags (GC, GT, JT) are optional descriptors (Glass Color, Glass Top, Jet Top)
+    # frequently omitted by marketplace sellers and should not block a match if absent.
+    optional_feature_tags = {"GC", "GT", "JT"}
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
-    if len(target_tokens) > 1 and all(t in norm_title for t in target_tokens):
+    core_tokens = [t for t in target_tokens if t not in optional_feature_tags]
+    if len(core_tokens) > 1 and all(t in norm_title for t in core_tokens):
+        return True
+    if len(core_tokens) == 1 and core_tokens[0] in norm_title and len(core_tokens[0]) >= 4:
         return True
 
     # 3. Exact base target containment
