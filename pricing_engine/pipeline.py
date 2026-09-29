@@ -45,11 +45,20 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-console = Console(legacy_windows=False)
+console = Console(legacy_windows=False, width=max(105, Console().width or 105))
 logger = logging.getLogger(__name__)
 
 ZONE_PRICE: float = 70.0
 DIVISOR: float = 5000.0
+
+
+def _format_dupe_tag(count: int) -> str:
+    """Format compact dupe tag only when duplicate listings were collapsed."""
+    dupes = count - 1
+    if dupes <= 0:
+        return ""
+    word = "dupe" if dupes == 1 else "dupes"
+    return f" [dim][{dupes} {word}][/]"
 
 
 def format_export_price(val: Any) -> str:
@@ -319,9 +328,9 @@ def build_scraped_sellers_table(
         expand=True,
     )
     tbl.add_column("Platform", width=9)
-    tbl.add_column("Seller / Vendor", style="bold white", width=17)
+    tbl.add_column("Seller / Vendor", style="bold white", width=21)
     tbl.add_column("Scraped Price", justify="right", style="bold yellow", width=13)
-    tbl.add_column("Engine Evaluation / Status", ratio=1)
+    tbl.add_column("Status", ratio=1)
 
     # 1. AlfaMall Scraped Competitors
     is_alfa_down = alfa_res.status == "Server Down / Unreachable" or (
@@ -354,46 +363,46 @@ def build_scraped_sellers_table(
             # 1. Dropped sub-floor offers (top 3 if > 3, else all)
             if len(dropped_alfa) > 3:
                 for o in dropped_alfa[:3]:
-                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    dupe_tag = _format_dupe_tag(o.duplicate_count)
                     tbl.add_row(
                         "[bold #2c4699]AlfaMall[/]",
-                        o.vendor_name[:17],
+                        o.vendor_name[:21],
                         f"Rs. {o.price:,.0f}",
                         f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
                     )
                 rem_dropped = len(dropped_alfa) - 3
                 tbl.add_row(
                     "[bold #2c4699]AlfaMall[/]",
-                    f"[dim]... +{rem_dropped} more sub-floor[/]",
+                    f"[dim]... +{rem_dropped} dropped[/]",
                     f"[dim]Rs. {dropped_alfa[3].price:,.0f}+[/]",
-                    f"[dim red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]",
+                    f"[dim red]Sub-floor offers (up to Rs. {floors.floor_alfa - 1:,.0f})[/]",
                 )
             else:
                 for o in dropped_alfa:
-                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    dupe_tag = _format_dupe_tag(o.duplicate_count)
                     tbl.add_row(
                         "[bold #2c4699]AlfaMall[/]",
-                        o.vendor_name[:17],
+                        o.vendor_name[:21],
                         f"Rs. {o.price:,.0f}",
                         f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
                     )
 
             # 2. Target Undercut (Lowest Viable) - ALWAYS explicitly rendered
             lowest_viable = viable_alfa[0]
-            lv_dupe = f" [dim][{lowest_viable.duplicate_count - 1} dupes dropped][/]" if lowest_viable.duplicate_count > 1 else ""
+            lv_dupe = _format_dupe_tag(lowest_viable.duplicate_count)
             tbl.add_row(
                 "[bold #2c4699]AlfaMall[/]",
-                lowest_viable.vendor_name[:17],
+                lowest_viable.vendor_name[:21],
                 f"Rs. {lowest_viable.price:,.0f}",
                 f"[bold green]Target Undercut (Lowest Viable)[/]{lv_dupe}",
             )
 
             # 3. Next 2-3 viable competitors
             for o in viable_alfa[1:4]:
-                v_dupe = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                v_dupe = _format_dupe_tag(o.duplicate_count)
                 tbl.add_row(
                     "[bold #2c4699]AlfaMall[/]",
-                    o.vendor_name[:17],
+                    o.vendor_name[:21],
                     f"Rs. {o.price:,.0f}",
                     f"[dim]Viable Competitor[/]{v_dupe}",
                 )
@@ -405,17 +414,17 @@ def build_scraped_sellers_table(
                 max_rem = viable_alfa[-1].price
                 tbl.add_row(
                     "[bold #2c4699]AlfaMall[/]",
-                    f"[dim]... +{rem_viable} more sellers[/]",
+                    f"[dim]... +{rem_viable} more[/]",
                     f"[dim]Rs. {min_rem:,.0f}+[/]",
                     f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
                 )
         else:
             # All scraped competitors are selling below floor
             for o in dropped_alfa[:3]:
-                dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                dupe_tag = _format_dupe_tag(o.duplicate_count)
                 tbl.add_row(
                     "[bold #2c4699]AlfaMall[/]",
-                    o.vendor_name[:17],
+                    o.vendor_name[:21],
                     f"Rs. {o.price:,.0f}",
                     f"[red]Dropped (< Floor Rs. {floors.floor_alfa:,.0f})[/]{dupe_tag}",
                 )
@@ -425,7 +434,7 @@ def build_scraped_sellers_table(
                 max_rem = dropped_alfa[-1].price
                 tbl.add_row(
                     "[bold #2c4699]AlfaMall[/]",
-                    f"[dim]... +{rem_dropped} more loss-makers[/]",
+                    f"[dim]... +{rem_dropped} dropped[/]",
                     f"[dim]Rs. {min_rem:,.0f}+[/]",
                     f"[dim red]All sub-floor (up to Rs. {max_rem:,.0f})[/]",
                 )
@@ -433,7 +442,7 @@ def build_scraped_sellers_table(
         for s in sold_out_alfa[:2]:
             tbl.add_row(
                 "[bold #2c4699]AlfaMall[/]",
-                s.vendor_name[:17],
+                s.vendor_name[:21],
                 f"Rs. {s.price:,.0f}",
                 "[dim red]Out of Stock (Ignored)[/]",
             )
@@ -471,26 +480,26 @@ def build_scraped_sellers_table(
             # 1. Dropped sub-floor offers (top 3 if > 3, else all)
             if len(dropped_digi) > 3:
                 for o in dropped_digi[:3]:
-                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    dupe_tag = _format_dupe_tag(o.duplicate_count)
                     tbl.add_row(
                         "[bold #229693]DigiMall[/]",
-                        o.vendor_name[:17],
+                        o.vendor_name[:21],
                         f"Rs. {o.price:,.0f}",
                         f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
                     )
                 rem_dropped = len(dropped_digi) - 3
                 tbl.add_row(
                     "[bold #229693]DigiMall[/]",
-                    f"[dim]... +{rem_dropped} more sub-floor[/]",
+                    f"[dim]... +{rem_dropped} dropped[/]",
                     f"[dim]Rs. {dropped_digi[3].price:,.0f}+[/]",
-                    f"[dim red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]",
+                    f"[dim red]Sub-floor offers (up to Rs. {hard_digi_floor - 1:,.0f})[/]",
                 )
             else:
                 for o in dropped_digi:
-                    dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                    dupe_tag = _format_dupe_tag(o.duplicate_count)
                     tbl.add_row(
                         "[bold #229693]DigiMall[/]",
-                        o.vendor_name[:17],
+                        o.vendor_name[:21],
                         f"Rs. {o.price:,.0f}",
                         f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
                     )
@@ -498,20 +507,20 @@ def build_scraped_sellers_table(
             # 2. Target Undercut - ALWAYS explicitly rendered
             lowest_viable = viable_digi[0]
             comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
-            lv_dupe = f" [dim][{lowest_viable.duplicate_count - 1} dupes dropped][/]" if lowest_viable.duplicate_count > 1 else ""
+            lv_dupe = _format_dupe_tag(lowest_viable.duplicate_count)
             tbl.add_row(
                 "[bold #229693]DigiMall[/]",
-                lowest_viable.vendor_name[:17],
+                lowest_viable.vendor_name[:21],
                 f"Rs. {lowest_viable.price:,.0f}",
                 f"[bold green]Target Undercut ({comm_note})[/]{lv_dupe}",
             )
 
             # 3. Next 2-3 viable competitors
             for o in viable_digi[1:4]:
-                v_dupe = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                v_dupe = _format_dupe_tag(o.duplicate_count)
                 tbl.add_row(
                     "[bold #229693]DigiMall[/]",
-                    o.vendor_name[:17],
+                    o.vendor_name[:21],
                     f"Rs. {o.price:,.0f}",
                     f"[dim]Viable Competitor[/]{v_dupe}",
                 )
@@ -523,17 +532,17 @@ def build_scraped_sellers_table(
                 max_rem = viable_digi[-1].price
                 tbl.add_row(
                     "[bold #229693]DigiMall[/]",
-                    f"[dim]... +{rem_viable} more sellers[/]",
+                    f"[dim]... +{rem_viable} more[/]",
                     f"[dim]Rs. {min_rem:,.0f}+[/]",
                     f"[dim]Higher offers (up to Rs. {max_rem:,.0f})[/]",
                 )
         else:
             # All scraped competitors are selling below floor
             for o in dropped_digi[:3]:
-                dupe_tag = f" [dim][{o.duplicate_count - 1} dupes dropped][/]" if o.duplicate_count > 1 else ""
+                dupe_tag = _format_dupe_tag(o.duplicate_count)
                 tbl.add_row(
                     "[bold #229693]DigiMall[/]",
-                    o.vendor_name[:17],
+                    o.vendor_name[:21],
                     f"Rs. {o.price:,.0f}",
                     f"[red]Dropped (< 8% Floor Rs. {hard_digi_floor:,.0f})[/]{dupe_tag}",
                 )
@@ -543,7 +552,7 @@ def build_scraped_sellers_table(
                 max_rem = dropped_digi[-1].price
                 tbl.add_row(
                     "[bold #229693]DigiMall[/]",
-                    f"[dim]... +{rem_dropped} more loss-makers[/]",
+                    f"[dim]... +{rem_dropped} dropped[/]",
                     f"[dim]Rs. {min_rem:,.0f}+[/]",
                     f"[dim red]All sub-floor (up to Rs. {max_rem:,.0f})[/]",
                 )
@@ -551,7 +560,7 @@ def build_scraped_sellers_table(
         for s in sold_out_digi[:2]:
             tbl.add_row(
                 "[bold #229693]DigiMall[/]",
-                s.vendor_name[:17],
+                s.vendor_name[:21],
                 f"Rs. {s.price:,.0f}",
                 "[dim red]Out of Stock (Ignored)[/]",
             )

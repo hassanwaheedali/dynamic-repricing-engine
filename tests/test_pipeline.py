@@ -1097,7 +1097,7 @@ def test_build_scraped_sellers_table_smart_formatting() -> None:
     assert "88,599" in full_table_text
 
     # 2. Sub-floor rollup must be present because there are 5 dropped sellers (> 3)
-    assert "more sub-floor" in full_table_text or "more sellers" in full_table_text
+    assert "dropped" in full_table_text or "more sub-floor" in full_table_text or "Sub-floor offers" in full_table_text
     assert "Sub Seller 1" in full_table_text
     assert "Sub Seller 2" in full_table_text
 
@@ -1152,7 +1152,7 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
 
     # When all are sub-floor, should render dropped status and loss-makers rollup
     assert "All sub-floor" in full_table_text
-    assert "more loss-makers" in full_table_text
+    assert "dropped" in full_table_text or "more loss-makers" in full_table_text
     assert "Loss Seller 0" in full_table_text
 
 
