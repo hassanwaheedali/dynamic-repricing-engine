@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any
 
 from curl_cffi.requests import AsyncSession
@@ -29,6 +30,51 @@ COMMON_HEADERS: dict[str, str] = {
     "sec-fetch-site": "same-site",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformConfig:
+    """Configuration descriptor for a specific storefront search API."""
+
+    platform_name: str
+    display_name: str
+    search_url: str
+    base_params: dict[str, str]
+    headers: dict[str, str]
+
+
+ALFAMALL_CONFIG = PlatformConfig(
+    platform_name="alfamall",
+    display_name="AlfaMall",
+    search_url=ALFA_SEARCH_URL,
+    base_params={
+        "page": "1",
+        "limit": "100",
+        "storefront": "23",
+        "storefront_domain": "alfamall.com",
+    },
+    headers={
+        **COMMON_HEADERS,
+        "origin": "https://alfamall.com",
+        "referer": "https://alfamall.com/",
+    },
+)
+
+DIGIMALL_CONFIG = PlatformConfig(
+    platform_name="digimall",
+    display_name="DigiMall",
+    search_url=DIGI_SEARCH_URL,
+    base_params={
+        "storefront": "23",
+        "page": "1",
+        "limit": "100",
+    },
+    headers={
+        **COMMON_HEADERS,
+        "origin": "https://digimall.faysalbank.com",
+        "referer": "https://digimall.faysalbank.com/",
+    },
+)
 
 # Run-scoped on-demand cache: (platform, query) -> ScrapeResult
 _query_cache: dict[tuple[str, str], ScrapeResult] = {}
@@ -136,7 +182,43 @@ async def _execute_waterfall(
     )
 
 
-async def _scrape_alfamall_single_query(
+def _parse_offers_from_raw_items(
+    raw_items: list[dict[str, Any]], target_model: str
+) -> list[ScrapedOffer]:
+    """Extract and validate offers from raw API items array."""
+    parsed: list[ScrapedOffer] = []
+    for item in raw_items:
+        title = str(item.get("title", ""))
+        if not is_strict_model_match(title, target_model):
+            continue
+
+        sold_out = bool(item.get("sold_out", False))
+        variant = item.get("variant_detail", {})
+        price_str = (
+            variant.get("discounted_price") or variant.get("original_price") or "0"
+        )
+        try:
+            price = float(str(price_str).replace(",", "").strip())
+        except ValueError:
+            continue
+
+        vendor_obj = item.get("vendor") or {}
+        vendor = vendor_obj.get("name") or "Unknown Vendor"
+
+        if price > 0:
+            parsed.append(
+                ScrapedOffer(
+                    vendor_name=str(vendor),
+                    price=price,
+                    is_sold_out=sold_out,
+                    raw_title=title,
+                )
+            )
+    return parsed
+
+
+async def _scrape_platform_single_query(
+    config: PlatformConfig,
     session: AsyncSession,
     query: str,
     target_model: str,
@@ -144,8 +226,17 @@ async def _scrape_alfamall_single_query(
     max_retries: int = 3,
     floor_price: float | None = None,
 ) -> ScrapeResult:
-    """Internal single-query scraper for AlfaMall storefront search API."""
-    cache_key = ("alfamall", query.strip().upper())
+    """Generic single-query scraper for e-commerce storefront search APIs.
+
+    Features:
+    - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
+    - Modern Chrome 120 headers.
+    - Soft 200 OK WAF challenge detection & schema validation for both 'results' and 'data' keys.
+    - Fast timeout with jittered exponential backoff.
+    - Live terminal telemetry badges on retries/stalls.
+    - Conditional sub-floor page 2 probing.
+    """
+    cache_key = (config.platform_name, query.strip().upper())
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         return ScrapeResult(
@@ -164,18 +255,8 @@ async def _scrape_alfamall_single_query(
             error_detail=cached.error_detail,
         )
 
-    params = {
-        "page": "1",
-        "q": query,
-        "limit": "100",
-        "storefront": "23",
-        "storefront_domain": "alfamall.com",
-    }
-    headers = {
-        **COMMON_HEADERS,
-        "origin": "https://alfamall.com",
-        "referer": "https://alfamall.com/",
-    }
+    params = {**config.base_params, "q": query}
+    headers = config.headers
 
     offers: list[ScrapedOffer] = []
     last_status: int | None = None
@@ -184,7 +265,7 @@ async def _scrape_alfamall_single_query(
     for attempt in range(max_retries):
         try:
             resp = await session.get(
-                ALFA_SEARCH_URL, params=params, headers=headers, timeout=timeout
+                config.search_url, params=params, headers=headers, timeout=timeout
             )
             last_status = resp.status_code
 
@@ -194,7 +275,9 @@ async def _scrape_alfamall_single_query(
                 except Exception as exc:
                     last_error = f"Invalid JSON / WAF challenge: {exc}"
                     logger.warning(
-                        "AlfaMall returned non-JSON body on 200 OK for query '%s'", query
+                        "%s returned non-JSON body on 200 OK for query '%s'",
+                        config.display_name,
+                        query,
                     )
                     continue
 
@@ -211,33 +294,7 @@ async def _scrape_alfamall_single_query(
                     last_error = "Missing results/data array in payload"
                     continue
 
-                for item in raw_items:
-                    title = str(item.get("title", ""))
-                    if not is_strict_model_match(title, target_model):
-                        continue
-
-                    sold_out = bool(item.get("sold_out", False))
-                    variant = item.get("variant_detail", {})
-                    price_str = (
-                        variant.get("discounted_price") or variant.get("original_price") or "0"
-                    )
-                    try:
-                        price = float(str(price_str).replace(",", "").strip())
-                    except ValueError:
-                        continue
-
-                    vendor_obj = item.get("vendor") or {}
-                    vendor = vendor_obj.get("name") or "Unknown Vendor"
-
-                    if price > 0:
-                        offers.append(
-                            ScrapedOffer(
-                                vendor_name=str(vendor),
-                                price=price,
-                                is_sold_out=sold_out,
-                                raw_title=title,
-                            )
-                        )
+                offers.extend(_parse_offers_from_raw_items(raw_items, target_model))
 
                 # Conditional page 2 probe if all page 1 offers are sub-floor
                 total_count = data.get("count") or data.get("total")
@@ -251,40 +308,15 @@ async def _scrape_alfamall_single_query(
                     params_p2 = {**params, "page": "2"}
                     try:
                         resp_p2 = await session.get(
-                            ALFA_SEARCH_URL, params=params_p2, headers=headers, timeout=timeout
+                            config.search_url, params=params_p2, headers=headers, timeout=timeout
                         )
                         if resp_p2.status_code == 200:
                             data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
                             raw_p2 = data_p2.get("results") or data_p2.get("data") or []
                             if isinstance(raw_p2, list):
-                                for item_p2 in raw_p2:
-                                    t2 = str(item_p2.get("title", ""))
-                                    if not is_strict_model_match(t2, target_model):
-                                        continue
-                                    so2 = bool(item_p2.get("sold_out", False))
-                                    var2 = item_p2.get("variant_detail", {})
-                                    pr_str2 = (
-                                        var2.get("discounted_price")
-                                        or var2.get("original_price")
-                                        or "0"
-                                    )
-                                    try:
-                                        pr2 = float(str(pr_str2).replace(",", "").strip())
-                                    except ValueError:
-                                        continue
-                                    v_obj2 = item_p2.get("vendor") or {}
-                                    v2 = v_obj2.get("name") or "Unknown Vendor"
-                                    if pr2 > 0:
-                                        offers.append(
-                                            ScrapedOffer(
-                                                vendor_name=str(v2),
-                                                price=pr2,
-                                                is_sold_out=so2,
-                                                raw_title=t2,
-                                            )
-                                        )
+                                offers.extend(_parse_offers_from_raw_items(raw_p2, target_model))
                     except Exception as exc_p2:
-                        logger.debug("AlfaMall page 2 probe exception: %s", exc_p2)
+                        logger.debug("%s page 2 probe exception: %s", config.display_name, exc_p2)
 
                 offers = deduplicate_offers(offers)
 
@@ -300,25 +332,27 @@ async def _scrape_alfamall_single_query(
 
                 return result
 
-
             elif resp.status_code in (429, 500, 502, 503, 504):
                 last_error = f"HTTP {resp.status_code} Server/Gateway Error"
                 backoff = (0.6 * (2**attempt)) + random.uniform(0.1, 0.3)
                 if resp.status_code == 429:
                     console.print(
-                        f"  [bold red]⛔ [AlfaMall][/] [dim]{query}[/] "
+                        f"  [bold red]⛔ [{config.display_name}][/] [dim]{query}[/] "
                         f"WAF Rate-limit (429) hit (Attempt {attempt + 1}/{max_retries}) — Cooling down {backoff:.1f}s..."
                     )
                 else:
                     console.print(
-                        f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
+                        f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
                         f"Server error {resp.status_code} (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
                     )
                 await asyncio.sleep(backoff)
             else:
                 last_error = f"HTTP {resp.status_code} Unexpected Status"
                 logger.warning(
-                    "AlfaMall search API returned status %s for query %s", resp.status_code, query
+                    "%s search API returned status %s for query %s",
+                    config.display_name,
+                    resp.status_code,
+                    query,
                 )
                 break
         except Exception as exc:
@@ -332,19 +366,19 @@ async def _scrape_alfamall_single_query(
             if is_timeout:
                 backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)
                 console.print(
-                    f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
+                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
                     f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Backoff cool-down in {backoff:.1f}s..."
                 )
             elif is_socket_drop:
                 backoff = (0.8 * (2**attempt)) + random.uniform(0.2, 0.5)
                 console.print(
-                    f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
+                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
                     f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) — Auto-recovering in {backoff:.1f}s..."
                 )
             else:
                 backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
                 console.print(
-                    f"  [bold yellow]⚠️  [AlfaMall][/] [dim]{query}[/] "
+                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
                     f"Network error (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
                 )
 
@@ -352,7 +386,8 @@ async def _scrape_alfamall_single_query(
                 await asyncio.sleep(backoff)
             else:
                 logger.error(
-                    "AlfaMall failed after %d attempts for query '%s': %s",
+                    "%s failed after %d attempts for query '%s': %s",
+                    config.display_name,
                     max_retries,
                     query,
                     exc,
@@ -363,6 +398,26 @@ async def _scrape_alfamall_single_query(
         is_success=False,
         status_code=last_status,
         error_detail=last_error or "Exhausted all retries without successful response",
+    )
+
+
+async def _scrape_alfamall_single_query(
+    session: AsyncSession,
+    query: str,
+    target_model: str,
+    timeout: float = 10.0,
+    max_retries: int = 3,
+    floor_price: float | None = None,
+) -> ScrapeResult:
+    """Internal single-query scraper for AlfaMall storefront search API."""
+    return await _scrape_platform_single_query(
+        config=ALFAMALL_CONFIG,
+        session=session,
+        query=query,
+        target_model=target_model,
+        timeout=timeout,
+        max_retries=max_retries,
+        floor_price=floor_price,
     )
 
 
@@ -417,242 +472,15 @@ async def _scrape_digimall_single_query(
     max_retries: int = 3,
     floor_price: float | None = None,
 ) -> ScrapeResult:
-    """Internal single-query scraper for DigiMall storefront search API.
-
-    Features:
-    - On-demand in-memory caching with strict poisoning guard (only 200 OK + non-empty offers).
-    - Modern Chrome 120 headers.
-    - Soft 200 OK WAF challenge detection & schema validation for both 'results' and 'data' keys.
-    - Fast 10.0s timeout with jittered exponential backoff.
-    - Live terminal telemetry badges on retries/stalls.
-
-    Args:
-        session: Active curl_cffi AsyncSession with Chrome impersonation.
-        query: Search keyword extracted from product catalog name.
-        target_model: Target model string for strict variant validation.
-        timeout: HTTP request timeout in seconds (default: 10.0s).
-        max_retries: Number of retry attempts on network/timeout failure (default: 3).
-        floor_price: Optional price floor for conditional sub-floor page 2 probing.
-
-    Returns:
-        ScrapeResult containing verified offers and explicit success/failure flags.
-    """
-    cache_key = ("digimall", query.strip().upper())
-    if cache_key in _query_cache:
-        cached = _query_cache[cache_key]
-        return ScrapeResult(
-            offers=[
-                ScrapedOffer(
-                    vendor_name=o.vendor_name,
-                    price=o.price,
-                    is_sold_out=o.is_sold_out,
-                    raw_title=o.raw_title,
-                    duplicate_count=o.duplicate_count,
-                )
-                for o in cached.offers
-            ],
-            is_success=cached.is_success,
-            status_code=cached.status_code,
-            error_detail=cached.error_detail,
-        )
-
-    params = {
-        "storefront": "23",
-        "q": query,
-        "page": "1",
-        "limit": "100",
-    }
-    headers = {
-        **COMMON_HEADERS,
-        "origin": "https://digimall.faysalbank.com",
-        "referer": "https://digimall.faysalbank.com/",
-    }
-
-    offers: list[ScrapedOffer] = []
-    last_status: int | None = None
-    last_error: str | None = None
-
-    for attempt in range(max_retries):
-        try:
-            resp = await session.get(
-                DIGI_SEARCH_URL, params=params, headers=headers, timeout=timeout
-            )
-            last_status = resp.status_code
-
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                except Exception as exc:
-                    last_error = f"Invalid JSON / WAF challenge: {exc}"
-                    logger.warning(
-                        "DigiMall returned non-JSON body on 200 OK for query '%s'", query
-                    )
-                    continue
-
-                if not isinstance(data, dict):
-                    last_error = "Invalid response schema (expected JSON object)"
-                    continue
-
-                # Support both 'results' and 'data' keys
-                raw_items = data.get("results")
-                if raw_items is None:
-                    raw_items = data.get("data")
-
-                if not isinstance(raw_items, list):
-                    last_error = "Missing results/data array in payload"
-                    continue
-
-                for item in raw_items:
-                    title = str(item.get("title", ""))
-                    if not is_strict_model_match(title, target_model):
-                        continue
-
-                    sold_out = bool(item.get("sold_out", False))
-                    variant = item.get("variant_detail", {})
-                    price_str = (
-                        variant.get("discounted_price") or variant.get("original_price") or "0"
-                    )
-                    try:
-                        price = float(str(price_str).replace(",", "").strip())
-                    except ValueError:
-                        continue
-
-                    vendor_obj = item.get("vendor") or {}
-                    vendor = vendor_obj.get("name") or "Unknown Vendor"
-
-                    if price > 0:
-                        offers.append(
-                            ScrapedOffer(
-                                vendor_name=str(vendor),
-                                price=price,
-                                is_sold_out=sold_out,
-                                raw_title=title,
-                            )
-                        )
-
-                # Conditional page 2 probe if all page 1 offers are sub-floor
-                total_count = data.get("count") or data.get("total")
-                if (
-                    floor_price is not None
-                    and isinstance(total_count, int)
-                    and total_count > len(raw_items)
-                    and offers
-                    and all(o.price <= floor_price for o in offers)
-                ):
-                    params_p2 = {**params, "page": "2"}
-                    try:
-                        resp_p2 = await session.get(
-                            DIGI_SEARCH_URL, params=params_p2, headers=headers, timeout=timeout
-                        )
-                        if resp_p2.status_code == 200:
-                            data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
-                            raw_p2 = data_p2.get("results") or data_p2.get("data") or []
-                            if isinstance(raw_p2, list):
-                                for item_p2 in raw_p2:
-                                    t2 = str(item_p2.get("title", ""))
-                                    if not is_strict_model_match(t2, target_model):
-                                        continue
-                                    so2 = bool(item_p2.get("sold_out", False))
-                                    var2 = item_p2.get("variant_detail", {})
-                                    pr_str2 = (
-                                        var2.get("discounted_price")
-                                        or var2.get("original_price")
-                                        or "0"
-                                    )
-                                    try:
-                                        pr2 = float(str(pr_str2).replace(",", "").strip())
-                                    except ValueError:
-                                        continue
-                                    v_obj2 = item_p2.get("vendor") or {}
-                                    v2 = v_obj2.get("name") or "Unknown Vendor"
-                                    if pr2 > 0:
-                                        offers.append(
-                                            ScrapedOffer(
-                                                vendor_name=str(v2),
-                                                price=pr2,
-                                                is_sold_out=so2,
-                                                raw_title=t2,
-                                            )
-                                        )
-                    except Exception as exc_p2:
-                        logger.debug("DigiMall page 2 probe exception: %s", exc_p2)
-
-                offers = deduplicate_offers(offers)
-
-                # Strict Cache Guard: Only cache when response is valid and offers exist
-                result = ScrapeResult(
-                    offers=offers,
-                    is_success=True,
-                    status_code=200,
-                    error_detail=None,
-                )
-                if offers:
-                    _query_cache[cache_key] = result
-
-                return result
-
-            elif resp.status_code in (429, 500, 502, 503, 504):
-                last_error = f"HTTP {resp.status_code} Server/Gateway Error"
-                backoff = (0.6 * (2**attempt)) + random.uniform(0.1, 0.3)
-                if resp.status_code == 429:
-                    console.print(
-                        f"  [bold red]⛔ [DigiMall][/] [dim]{query}[/] "
-                        f"WAF Rate-limit (429) hit (Attempt {attempt + 1}/{max_retries}) — Cooling down {backoff:.1f}s..."
-                    )
-                else:
-                    console.print(
-                        f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
-                        f"Server error {resp.status_code} (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
-                    )
-                await asyncio.sleep(backoff)
-            else:
-                last_error = f"HTTP {resp.status_code} Unexpected Status"
-                logger.warning(
-                    "DigiMall search API returned status %s for query %s", resp.status_code, query
-                )
-                break
-        except Exception as exc:
-            last_error = str(exc) or "Network Connection/Timeout Error"
-            err_str = str(exc).lower()
-            is_socket_drop = any(
-                k in err_str for k in ("wsarecv", "connection was aborted", "reset", "closed")
-            )
-            is_timeout = any(k in err_str for k in ("28", "timed out", "timeout"))
-
-            if is_timeout:
-                backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)
-                console.print(
-                    f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
-                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Backoff cool-down in {backoff:.1f}s..."
-                )
-            elif is_socket_drop:
-                backoff = (0.8 * (2**attempt)) + random.uniform(0.2, 0.5)
-                console.print(
-                    f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
-                    f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) — Auto-recovering in {backoff:.1f}s..."
-                )
-            else:
-                backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
-                console.print(
-                    f"  [bold yellow]⚠️  [DigiMall][/] [dim]{query}[/] "
-                    f"Network error (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
-                )
-
-            if attempt < max_retries - 1:
-                await asyncio.sleep(backoff)
-            else:
-                logger.error(
-                    "DigiMall failed after %d attempts for query '%s': %s",
-                    max_retries,
-                    query,
-                    exc,
-                )
-
-    return ScrapeResult(
-        offers=[],
-        is_success=False,
-        status_code=last_status,
-        error_detail=last_error or "Exhausted all retries without successful response",
+    """Internal single-query scraper for DigiMall storefront search API."""
+    return await _scrape_platform_single_query(
+        config=DIGIMALL_CONFIG,
+        session=session,
+        query=query,
+        target_model=target_model,
+        timeout=timeout,
+        max_retries=max_retries,
+        floor_price=floor_price,
     )
 
 
