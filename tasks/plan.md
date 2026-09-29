@@ -115,6 +115,31 @@ graph TD
   - 100% green test suite: `pytest -v`.
   - Git save-point commit discipline.
 
+### Phase 6: High-Performance Duplicate Spam Elimination & Market Depth Discovery
+**Goal**: Eliminate duplicate seller spam (e.g. 15 identical Tech House listings), expand search market depth from 18 to 50 items with zero latency penalty, and render clean viable-first terminal cards showing true maximum market ceiling prices.
+
+- **Task 6.1**: Seller Duplicate Spam Elimination (`pricing_engine/scraper.py`):
+  - Normalize vendor names (strip trailing vendor sub-IDs like `Tech House314`, `Tech House306` -> `Tech House`).
+  - Deduplicate by `(normalized_vendor, round(price, 2))` in `seen_offers`.
+  - Discard duplicate listings from the same seller at the identical price point.
+  - Preserve distinct sellers at identical prices and same seller with genuinely different price variants.
+- **Task 6.2**: High-Performance Single-Call Market Depth Expansion (`pricing_engine/scraper.py`):
+  - Increase default API query `limit` from 18 to 50 across AlfaMall and DigiMall.
+  - Capture up to 50 products in a single ~570ms HTTP request (benchmark verified: only 12ms difference vs limit 18).
+  - Eliminates false "all competitors selling at loss" fallback pricing on high-volume models (like Item #13).
+- **Task 6.3**: Intelligent Sub-Floor Probe (Zero-Latency Conditional Next Page) (`pricing_engine/scraper.py`):
+  - If 100% of page 1 items are below floor AND API metadata indicates `count > 50`, execute a targeted probe to `page=2` to locate the first viable seller and market ceiling.
+  - Skip probe if viable sellers are already found on page 1 (95%+ of catalog items).
+- **Task 6.4**: Smart Terminal Card Formatting (`pricing_engine/pipeline.py`):
+  - Render top 2-3 sub-floor dropped sellers for audit trail.
+  - Prominently render **Target Undercut (Lowest Viable Competitor)**.
+  - Render next 2-3 viable competitors.
+  - Aggregate higher offers into: `... +N more sellers | Rs. X+ | Higher offers (up to Rs. {true_max_price:,})`.
+- **Task 6.5**: Verification & End-to-End Simulation:
+  - Verify Item #13 undercuts Kia Chahiye (Rs. 88,599) to Rs. 88,499 instead of false fallback Rs. 89,999.
+  - Verify Tech House spam collapses to 1 row.
+  - Ensure 100% test pass rate across the full suite.
+
 ---
 
 ## Git Workflow & Save-Point Strategy

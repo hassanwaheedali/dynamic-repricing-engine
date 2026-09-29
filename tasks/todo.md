@@ -172,3 +172,43 @@
   - Create release save-point commit following `git-workflow-and-versioning`.
   - *Acceptance Criteria:* Complete project is production-ready, clean, and tested.
   - *Verification:* `git status` clean, all tests green.
+
+---
+
+### Phase 6: High-Performance Duplicate Spam Elimination & Market Depth Discovery
+
+- [ ] **Task 6.1: Seller Duplicate Spam Elimination (`pricing_engine/scraper.py`)**
+  - Clean and normalize vendor names (strip trailing numerical sub-IDs like `Tech House314`, `Tech House306` -> `Tech House`).
+  - Update `seen_offers` to track `(normalized_vendor, round(price, 2))`.
+  - Discard duplicate listings from the same vendor at the exact same price.
+  - Retain distinct vendors at identical prices, and same vendor with different valid price points.
+  - *Acceptance Criteria:* Tech House's 15 identical offers at Rs. 81,500 collapse into exactly 1 clean offer.
+  - *Verification:* `pytest tests/test_scraper.py -k test_deduplicate -v`
+
+- [ ] **Task 6.2: High-Performance Single-Call Market Depth Expansion (`pricing_engine/scraper.py`)**
+  - Update default search query `limit` from 18 to 50 for AlfaMall and DigiMall.
+  - Retrieve up to 50 items in a single HTTP request (benchmark verified: ~570ms, only 12ms difference vs limit 18).
+  - *Acceptance Criteria:* Single-call response retrieves lowest viable competitor (Kia Chahiye @ Rs. 88,599) without multiple round-trips.
+  - *Verification:* Live benchmark test showing < 600ms latency.
+
+- [ ] **Task 6.3: Intelligent Sub-Floor Probe (Zero-Latency Conditional Next Page)**
+  - If 100% of page 1 offers are sub-floor loss-makers AND API metadata indicates `count > 50`, execute a targeted probe to `page=2` to discover viable sellers and ceiling price.
+  - Skip probe completely if viable sellers were already captured on page 1 (95%+ of catalog).
+  - *Acceptance Criteria:* Zero extra requests for normal products; automatic fallback recovery for heavy sub-floor spam catalogs.
+  - *Verification:* `pytest tests/test_scraper.py -k test_subfloor_probe -v`
+
+- [ ] **Task 6.4: Smart Terminal Card Formatting (`pricing_engine/pipeline.py`)**
+  - Display top 2-3 dropped sub-floor loss-makers for pricing audit.
+  - Highlight **Target Undercut (Lowest Viable Competitor)** prominently.
+  - Display next 2-3 viable competitors.
+  - Aggregate remaining higher offers into: `... +N more sellers | Rs. X+ | Higher offers (up to Rs. {true_max_price:,})`.
+  - *Acceptance Criteria:* Card remains compact (<18 lines) with true highest price visible in the summary line.
+  - *Verification:* Audit card rendering verification in simulation.
+
+- [ ] **Task 6.5: End-to-End Catalog Verification & Quality Gates**
+  - Verify Item #13 undercuts Kia Chahiye (Rs. 88,599) to Rs. 88,499 with positive net profit.
+  - Verify Tech House duplicate rows collapse to 1 row.
+  - Ensure all 127+ unit tests pass (`pytest -v`) and `ruff check .` passes with 0 warnings.
+  - *Acceptance Criteria:* 100% green test suite, zero regressions.
+  - *Verification:* `pytest -v` and `ruff check .`
+
