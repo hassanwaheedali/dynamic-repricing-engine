@@ -893,3 +893,46 @@ def test_referee_match_gd_inox_collision() -> None:
     decision2 = referee_match("DSS9055 INOX", "Dawlance DSS-9055 GD Refrigerator", brand="Dawlance")
     assert not decision2.is_match
     assert "Hardware finish collision" in decision2.reason
+
+
+def test_numeric_stem_color_variant_extraction() -> None:
+    """Verify that pure numeric model stems preserve color variant descriptors."""
+    q_w, m_w = extract_search_query_and_model("9101 white", brand="Dawlance")
+    assert q_w == "9101"
+    assert m_w == "9101 white"
+
+    q_s, m_s = extract_search_query_and_model("9101 silver", brand="Dawlance")
+    assert q_s == "9101"
+    assert m_s == "9101 silver"
+
+    q_6w, m_6w = extract_search_query_and_model("9106 white", brand="Dawlance")
+    assert q_6w == "9106"
+    assert m_6w == "9106 white"
+
+    q_6s, m_6s = extract_search_query_and_model("9106 Silver", brand="Dawlance")
+    assert q_6s == "9106"
+    assert m_6s == "9106 Silver"
+
+
+def test_strict_model_match_color_isolation_refrigerator() -> None:
+    """Verify that 9101 white strictly rejects Ezze Trader Silver And Black while 9101 silver accepts it."""
+    ezze_listing = "Dawlance Single Door Refrigerator 4 Cubic 9101 SD Silver And Black"
+    white_listing = "Dawlance 9101 White Single Door Refrigerator"
+
+    # 1. Target is 9101 white: must strictly reject Silver And Black
+    assert not is_strict_model_match(ezze_listing, "9101 white", brand="Dawlance")
+    # 2. Target is 9101 white: must match pure White listing
+    assert is_strict_model_match(white_listing, "9101 white", brand="Dawlance")
+
+    # 3. Target is 9101 silver: must match Silver And Black listing
+    assert is_strict_model_match(ezze_listing, "9101 silver", brand="Dawlance")
+    # 4. Target is 9101 silver: must strictly reject White listing
+    assert not is_strict_model_match(white_listing, "9101 silver", brand="Dawlance")
+
+
+def test_search_patterns_numeric_stem_color() -> None:
+    """Verify that search patterns for numeric stem color variants query exact variant first."""
+    patterns = generate_search_patterns("9101 white", brand="Dawlance")
+    assert "Dawlance 9101 white" in patterns["tier_1"]
+    assert "Dawlance 9101" in patterns["tier_1"]
+

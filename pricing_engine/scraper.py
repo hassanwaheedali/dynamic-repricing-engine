@@ -311,7 +311,7 @@ async def _scrape_platform_single_query(
                     last_error = "Missing results/data array in payload"
                     continue
 
-                offers.extend(_parse_offers_from_raw_items(raw_items, target_model))
+                offers.extend(_parse_offers_from_raw_items(raw_items, target_model, brand=brand))
 
                 # Conditional page 2 probe if all page 1 offers are sub-floor
                 total_count = data.get("count") or data.get("total")
@@ -331,7 +331,7 @@ async def _scrape_platform_single_query(
                             data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
                             raw_p2 = data_p2.get("results") or data_p2.get("data") or []
                             if isinstance(raw_p2, list):
-                                offers.extend(_parse_offers_from_raw_items(raw_p2, target_model))
+                                offers.extend(_parse_offers_from_raw_items(raw_p2, target_model, brand=brand))
                     except Exception as exc_p2:
                         logger.debug("%s page 2 probe exception: %s", config.display_name, exc_p2)
 

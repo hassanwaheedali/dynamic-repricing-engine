@@ -109,6 +109,42 @@ def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | Non
     return None, None
 
 
+# Normalized standalone and compound color words derived dynamically from COLOR_FAMILIES
+ALL_COLOR_WORDS: set[str] = {
+    word.upper()
+    for aliases in COLOR_FAMILIES.values()
+    for alias in aliases
+    for word in alias.split()
+    if word.upper() not in {"CLASSIC", "STEEL", "WOOD", "S.S"}
+}
+
+
+def is_color_token(token: str) -> bool:
+    """Check if token matches any normalized color word."""
+    clean = token.strip("-_., \"'").upper()
+    return clean in ALL_COLOR_WORDS
+
+
+def get_all_color_families(text: str) -> set[str]:
+    """Extract all canonical color families present in a model code or title."""
+    fams: set[str] = set()
+    for fam, aliases in COLOR_FAMILIES.items():
+        for alias in aliases:
+            if re.search(rf"\b{re.escape(alias)}\b", text, re.IGNORECASE):
+                fams.add(fam)
+                break
+    for token in text.split():
+        clean_tok = token.strip("-_., \"'")
+        # Check single-letter color code on model anchor (e.g. 12AITH21W -> W -> White)
+        m_suf = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRP])$", clean_tok, re.IGNORECASE)
+        if m_suf:
+            letter = m_suf.group(1).upper()
+            fam = COLOR_SUFFIX_MAP.get(letter)
+            if fam:
+                fams.add(fam)
+    return fams
+
+
 # Category acronyms and fractions to safeguard from expansion
 SAFEGUARD_PATTERN = re.compile(
     r"\b(?:W/M|W/D|D/F|A/C|H/C|H&C|W/O)\b"
@@ -355,7 +391,9 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
             ):
                 model_tokens.append(t_clean)
         else:
-            if is_sku_variant_tag(t_clean):
+            if is_sku_variant_tag(t_clean) or (
+                model_tokens and model_tokens[0].isdigit() and is_color_token(t_clean)
+            ):
                 model_tokens.append(t_clean)
             else:
                 break
@@ -836,6 +874,14 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
     if target_has_inox and cand_has_gd:
         return False
 
+    # Zero-Tolerance Color Collision Guard:
+    # If target specifies a color family, candidate MUST NOT specify an opposing/conflicting color family.
+    target_colors = get_all_color_families(clean_target)
+    if target_colors:
+        cand_colors = get_all_color_families(expanded_title)
+        if cand_colors and not target_colors.intersection(cand_colors):
+            return False
+
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
     # 100% Dynamic Structural Partitioning (Zero Hardcoded Tag Sets):
@@ -1065,8 +1111,8 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
                 tier_1.append(_with_prefix(pfx, bare_stem, " "))
                 tier_2.append(_with_prefix(pfx, bare_stem, "-"))
 
-            tier_1.append(_with_brand(detected_brand, bare_stem))
             tier_1.append(_with_brand(detected_brand, raw_model))
+            tier_1.append(_with_brand(detected_brand, bare_stem))
             tier_2.append(_with_brand(detected_brand, bare_stem))
 
         # Only allow unbranded queries if stem is complex alphanumeric (e.g. 12AITH21W, 120-826S6)
