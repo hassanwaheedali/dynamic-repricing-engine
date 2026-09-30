@@ -428,21 +428,23 @@ def _render_platform_offers_to_table(
         # 2. Target Undercut - ALWAYS explicitly rendered
         lowest_viable = viable[0]
         lv_dupe = _format_dupe_tag(lowest_viable.duplicate_count)
+        lv_title = f"\n[dim white]-> {lowest_viable.raw_title[:65]}[/]" if lowest_viable.raw_title else ""
         tbl.add_row(
             platform_tag,
             lowest_viable.vendor_name[:21],
             f"Rs. {lowest_viable.price:,.0f}",
-            f"{target_undercut_label}{lv_dupe}",
+            f"{target_undercut_label}{lv_dupe}{lv_title}",
         )
 
         # 3. Next 2-3 viable competitors
         for o in viable[1:4]:
             v_dupe = _format_dupe_tag(o.duplicate_count)
+            v_title = f"\n[dim white]-> {o.raw_title[:65]}[/]" if o.raw_title else ""
             tbl.add_row(
                 platform_tag,
                 o.vendor_name[:21],
                 f"Rs. {o.price:,.0f}",
-                f"[dim]Viable Competitor[/]{v_dupe}",
+                f"[dim]Viable Competitor[/]{v_dupe}{v_title}",
             )
 
         # 4. Rollup higher offers with true max ceiling
@@ -701,8 +703,60 @@ def render_audit_card(
     plat_tbl.add_row("Real Net Profit", alfa_prof_str, digi_prof_str)
     plat_tbl.add_row("Strategy Reason", alfa_res.reason, digi_res.reason)
 
+    # 1b. Search Query & Waterfall Fallback Telemetry
+    def _format_search_telemetry(
+        p_name: str, p_color: str, offers_res: list[ScrapedOffer] | ScrapeResult
+    ) -> str:
+        if isinstance(offers_res, ScrapeResult) and offers_res.executed_queries:
+            q_list = offers_res.executed_queries
+            t_sum = offers_res.tier_summary
+            if t_sum.get("tier_1", 0) > 0:
+                q_disp = q_list[0] if q_list else target_model
+                count = t_sum["tier_1"]
+                return (
+                    f"[{p_color}]{p_name}:[/] [bold white]'{q_disp}'[/] "
+                    f"[green](Exact Query -> {count} verified offer{'s' if count > 1 else ''})[/]"
+                )
+            elif t_sum.get("tier_2", 0) > 0:
+                t1_q = q_list[0] if q_list else ""
+                t2_q = q_list[1] if len(q_list) > 1 else (q_list[0] if q_list else target_model)
+                count = t_sum["tier_2"]
+                return (
+                    f"[{p_color}]{p_name}:[/] [dim]'{t1_q}' (0 found)[/] -> "
+                    f"[bold yellow]Fallback Stem:[/] [bold white]'{t2_q}'[/] "
+                    f"[green]({count} offer{'s' if count > 1 else ''} strictly verified)[/]"
+                )
+            elif t_sum.get("tier_3", 0) > 0:
+                t3_q = q_list[-1] if q_list else target_model
+                count = t_sum["tier_3"]
+                return (
+                    f"[{p_color}]{p_name}:[/] [dim]Tiers 1 & 2 (0 found)[/] -> "
+                    f"[bold yellow]Permutation Fallback:[/] [bold white]'{t3_q}'[/] "
+                    f"[green]({count} offer{'s' if count > 1 else ''} verified)[/]"
+                )
+            else:
+                tried_str = ", ".join(f"'{q}'" for q in q_list[:2])
+                return (
+                    f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str} (0 offers found in market)[/] -> "
+                    f"[bold cyan]Monopoly Price Applied[/]"
+                )
+        return f"[{p_color}]{p_name}:[/] [dim]Target: '{target_model}'[/]"
+
+    query_grid = Table.grid(padding=(0, 2), expand=True)
+    query_grid.add_column(style="bold cyan", width=16)
+    query_grid.add_column(style="white", ratio=1)
+    query_grid.add_row(
+        "Search Audit:",
+        _format_search_telemetry("AlfaMall", "#2c4699", alfa_offers),
+    )
+    query_grid.add_row(
+        "",
+        _format_search_telemetry("DigiMall", "#229693", digi_offers),
+    )
+
     content = Table.grid(padding=(1, 0), expand=True)
     content.add_row(specs)
+    content.add_row(query_grid)
     content.add_row(sellers_tbl)
     content.add_row(plat_tbl)
 

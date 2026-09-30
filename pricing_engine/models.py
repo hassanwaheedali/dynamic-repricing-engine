@@ -37,6 +37,9 @@ class ScrapeResult:
     is_success: bool = True
     status_code: int | None = 200
     error_detail: str | None = None
+    executed_queries: list[str] = field(default_factory=list)
+    matched_tier: str | None = None
+    tier_summary: dict[str, int] = field(default_factory=dict)
 
     def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)

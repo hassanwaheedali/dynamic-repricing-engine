@@ -139,6 +139,9 @@ async def _execute_waterfall(
     any_success = False
     last_status: int | None = None
     last_error: str | None = None
+    executed_queries: list[str] = []
+    tier_summary: dict[str, int] = {}
+    matched_tier: str | None = None
 
     tier_order = ["tier_1", "tier_2", "tier_3"]
     all_tiers = [t for t in tier_order if t in patterns] + [
@@ -147,10 +150,13 @@ async def _execute_waterfall(
 
     for tier_name in all_tiers:
         tier_queries = patterns[tier_name]
+        tier_offers_count = 0
         for q in tier_queries:
             q_str = str(q).strip()
             if not q_str:
                 continue
+            if q_str not in executed_queries:
+                executed_queries.append(q_str)
             sub_res = await single_scraper_fn(
                 session=session,
                 query=q_str,
@@ -171,6 +177,11 @@ async def _execute_waterfall(
                 if dedupe_key not in seen_offers:
                     seen_offers.add(dedupe_key)
                     collected_offers.append(off)
+                    tier_offers_count += 1
+
+        tier_summary[tier_name] = tier_offers_count
+        if tier_offers_count > 0 and matched_tier is None:
+            matched_tier = tier_name
 
         # Early-exit condition: if >= 2 valid candidate offers collected after completing this tier, stop!
         if len(collected_offers) >= 2:
@@ -181,6 +192,9 @@ async def _execute_waterfall(
         is_success=any_success if (any_success or not collected_offers) else True,
         status_code=last_status if last_status is not None else (200 if any_success else None),
         error_detail=None if any_success else last_error,
+        executed_queries=executed_queries,
+        matched_tier=matched_tier,
+        tier_summary=tier_summary,
     )
 
 
