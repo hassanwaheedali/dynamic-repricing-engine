@@ -71,13 +71,22 @@
 - [x] Test `python index.py` with CSVs in data/inputs/
 - [x] Run `ruff check .` — no lint errors
 
+### Task 1.5: Deep Resilience & Edge-Case Verification
+- [x] Create `tests/test_pipeline_resilience.py` with multi-angle S.NO permutations
+- [x] S.NO explicit integer preservation (e.g. 101, 102)
+- [x] S.No casing normalization (`S.No`, `S. No`, `SNO`, `sno`, `Serial No`) to standard `S.NO`
+- [x] Prevent float drift (`1.0` -> `1`, `"2.0"` -> `2`) in ingestion, pipeline, and exporter
+- [x] Alphanumeric / string serial number support (`"SKU-001"`, `"GREE-01"`)
+- [x] Blank / NaN cell fallback to 1-indexed row position
+- [x] Guarantee `S.NO` is ordered as the 1st column in generated CSVs
+- [x] Isolate test fixtures to `tests/fixtures/` and clean root directory
+
 ### Phase 1 Checkpoint
-- [x] All existing 138 tests + new tests pass (158 passed)
-- [x] `python index.py` with CSVs in data/inputs/ works
-- [x] Legacy -i / -o flags work identically
-- [x] Output in data/outputs/ with timestamp + latest
-- [x] No lint errors
-- [x] Inform User to start Phase 2
+- [x] All 168 unit, simulation, and integration tests pass (100% green)
+- [x] Zero lint or formatting warnings (`ruff check .` clean)
+- [x] `python index.py` with CSVs in `data/inputs/` tested and verified end-to-end
+- [x] Structured output in `data/outputs/` with timestamp + latest copy verified
+- [x] Ready to proceed to Phase 2: Supabase Price History & Terminal Search
 
 ---
 
