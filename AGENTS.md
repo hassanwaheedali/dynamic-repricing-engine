@@ -63,9 +63,12 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
 
 ## 4. Input & Output Schemas
 
-- **Input File**: `Gree_Uploading_on_DigiMall_and_Price.csv`
-  - Columns: `S.NO`, `Brand`, `Name `, `Length`, `Width`, `Height`, `Net Price`, `Profit`
-- **Output File**: `final_repriced_uploaded_products.csv`
+- **Input Catalogs**: `data/inputs/` (e.g. `data/inputs/Gree_AC.csv`, `data/inputs/template.csv`)
+  - Columns: `Brand`, `Name`, `Net Price`, `Length`, `Width`, `Height`, `Profit` (optional, default 500)
+- **Output Catalogs**: `data/outputs/`
+  - Formats: `{stem}_repriced_{timestamp}.csv` (audit history) and `{stem}_repriced_latest.csv` (latest upload ready)
   - Columns: `Shipping Estimate`, `Commision`, `Digi Effective Commision`, `Total Without Profit`, `Calculation`, `Minimum Price Alfa`, `Maximum Price Alfa`, `Minimum Price Digi`, `Maximum Price Digi`, `Final Price Alfa`, `Final Price Digi`, `Alfa Real Profit`, `Digi Real Profit`, `Alfa Reason`, `Digi Reason`
+- **Test Fixtures**: `tests/fixtures/` (contains legacy benchmark datasets for automated testing)
 - **Active Script**:
   - `index.py` (Main repricing engine script)
+

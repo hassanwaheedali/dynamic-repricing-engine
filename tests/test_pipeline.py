@@ -242,8 +242,8 @@ def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
     )
 
     # Test start and finish banners
-    in_p = Path("Gree_Uploading_on_DigiMall_and_Price.csv")
-    out_p = Path("final_repriced_uploaded_products.csv")
+    in_p = Path("tests/fixtures/Gree_Uploading_on_DigiMall_and_Price.csv")
+    out_p = Path("data/outputs/Gree_AC_repriced_latest.csv")
     render_start_banner(in_p, out_p, 25, 3)
     render_finish_banner(out_p, 25, 5.23)
 

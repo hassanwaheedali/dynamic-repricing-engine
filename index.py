@@ -151,17 +151,11 @@ async def main() -> int:
         # No input provided: scan data/inputs/
         catalogs = find_input_catalogs()
         if not catalogs:
-            # Check if legacy root Gree file exists as fallback hint
-            legacy_hint = (
-                " Found root Gree CSV, use: python index.py -i Gree_Uploading_on_DigiMall_and_Price.csv"
-                if Path("Gree_Uploading_on_DigiMall_and_Price.csv").is_file()
-                else ""
-            )
             console.print(
                 "[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]"
             )
             console.print(
-                f"Please place your catalog CSV in 'data/inputs/' or specify with -i/--input.{legacy_hint}"
+                "Please place your catalog CSV in 'data/inputs/' or specify with -i/--input."
             )
             return 1
 

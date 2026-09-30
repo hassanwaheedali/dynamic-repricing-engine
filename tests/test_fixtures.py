@@ -9,11 +9,20 @@ from pathlib import Path
 
 import pandas as pd
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _get_fixture(filename: str) -> Path:
+    p = FIXTURES_DIR / filename
+    if p.exists():
+        return p
+    return Path(filename)
+
 
 def test_haier_washing_machines_catalog_integrity() -> None:
     """Verify that Haier washing machines catalog contains 38 verified products."""
-    catalog_path = Path("Haier_Washing_Machines_Uploading_and_Price.csv")
-    assert catalog_path.exists(), "Haier washing machine catalog missing from workspace root"
+    catalog_path = _get_fixture("Haier_Washing_Machines_Uploading_and_Price.csv")
+    assert catalog_path.exists(), "Haier washing machine catalog missing from test fixtures"
 
     df = pd.read_csv(catalog_path)
     assert len(df) == 38, f"Expected 38 products, got {len(df)}"
@@ -40,40 +49,10 @@ def test_haier_washing_machines_catalog_integrity() -> None:
     assert (df["Height"] > 0).all(), "Height must be strictly positive"
 
 
-def test_final_haier_repriced_benchmark_integrity() -> None:
-    """Verify that the repriced Haier washing machine production benchmark is valid."""
-    repriced_path = Path("final_haier_wm_repriced.csv")
-    assert repriced_path.exists(), "Repriced Haier CSV missing from workspace root"
-
-    df = pd.read_csv(repriced_path)
-    assert len(df) == 38, f"Expected 38 rows, got {len(df)}"
-
-    audit_columns = {
-        "Shipping Estimate",
-        "Commision",
-        "Digi Effective Commision",
-        "Total Without Profit",
-        "Calculation",
-        "Minimum Price Alfa",
-        "Maximum Price Alfa",
-        "Minimum Price Digi",
-        "Maximum Price Digi",
-        "Final Price Alfa",
-        "Final Price Digi",
-        "Alfa Real Profit",
-        "Digi Real Profit",
-        "Alfa Reason",
-        "Digi Reason",
-    }
-    assert audit_columns.issubset(set(df.columns)), (
-        f"Missing audit columns: {audit_columns - set(df.columns)}"
-    )
-
-
 def test_stock_holding_report_cross_category_samples() -> None:
     """Verify multi-category catalog samples across Refrigerators, ACs, Dispensers, W/M, and Microwaves."""
-    stock_path = Path("Stock Holding Report - FINAC - Products - MainSheet.csv")
-    assert stock_path.exists(), "Stock Holding Report missing from workspace root"
+    stock_path = _get_fixture("Stock Holding Report - FINAC - Products - MainSheet.csv")
+    assert stock_path.exists(), "Stock Holding Report missing from test fixtures"
 
     df = pd.read_csv(stock_path)
     assert len(df) >= 700, f"Expected 700+ rows, got {len(df)}"

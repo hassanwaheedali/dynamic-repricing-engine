@@ -8,10 +8,19 @@ import pandas as pd
 from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import run_pipeline
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _get_fixture(filename: str) -> Path:
+    p = FIXTURES_DIR / filename
+    if p.exists():
+        return p
+    return Path(filename)
+
 
 def test_simulation_haier_washing_machine_pipeline() -> None:
     """Run full E2E pipeline simulation on real Haier Washing Machine catalog."""
-    input_csv = Path("Haier_Washing_Machines_Uploading_and_Price.csv")
+    input_csv = _get_fixture("Haier_Washing_Machines_Uploading_and_Price.csv")
     assert input_csv.exists()
 
     df_full = pd.read_csv(input_csv)
@@ -101,7 +110,7 @@ def test_simulation_haier_washing_machine_pipeline() -> None:
 
 def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
     """Run E2E pipeline simulation on Gree AC catalog validating two-tier 10% -> 8% switch."""
-    input_csv = Path("Gree_Uploading_on_DigiMall_and_Price.csv")
+    input_csv = _get_fixture("Gree_Uploading_on_DigiMall_and_Price.csv")
     assert input_csv.exists()
 
     df_full = pd.read_csv(input_csv)

@@ -132,10 +132,20 @@ def test_ingest_catalog_empty_csv_headers_only(tmp_path: Path) -> None:
     assert report.valid_rows == 0
 
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _get_fixture(filename: str) -> Path:
+    p = FIXTURES_DIR / filename
+    if p.exists():
+        return p
+    return Path(filename)
+
+
 def test_ingest_catalog_legacy_gree_csv() -> None:
-    legacy_path = Path("Gree_Uploading_on_DigiMall_and_Price.csv")
+    legacy_path = _get_fixture("Gree_Uploading_on_DigiMall_and_Price.csv")
     if not legacy_path.is_file():
-        pytest.skip("Root Gree CSV not found in workspace")
+        pytest.skip("Gree CSV fixture not found")
 
     products, report = ingest_catalog(legacy_path, render_banner=False)
 
@@ -146,12 +156,13 @@ def test_ingest_catalog_legacy_gree_csv() -> None:
 
 
 def test_ingest_catalog_legacy_haier_csv() -> None:
-    legacy_path = Path("Haier_Washing_Machines_Uploading_and_Price.csv")
+    legacy_path = _get_fixture("Haier_Washing_Machines_Uploading_and_Price.csv")
     if not legacy_path.is_file():
-        pytest.skip("Root Haier CSV not found in workspace")
+        pytest.skip("Haier CSV fixture not found")
 
     products, report = ingest_catalog(legacy_path, render_banner=False)
 
     assert len(products) > 0
     assert report.total_rows == len(products)
     assert products[0].brand == "Haier"
+
