@@ -915,6 +915,8 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
                     cand_words.append(w_clean)
 
         for acr in target_acronyms:
+            if acr in cand_words or acr in norm_title:
+                continue
             a1, a2 = acr[0], acr[1]
             # 1. Collision with standalone 2-letter acronym in title (e.g. DD vs SD, TL vs FL)
             for w in cand_words:

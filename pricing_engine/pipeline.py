@@ -196,6 +196,58 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     )
 
 
+def determine_platform_status(
+    price_val: Any,
+    min_comp_price: Any = None,
+    reason: str = "",
+    alert: str = "",
+) -> str:
+    """Determine outcome status badge string: e.g. 'WIN (-500)', 'SOLO', 'FALLBACK', 'CAPPED', 'SERVER_DOWN'.
+
+    Strict Market-Wide Winning Rule:
+    A price is marked as WIN if and only if:
+    1. diff = (min_comp_price - price_val) > 0 (our price beats the absolute lowest competitor in the entire mall).
+    2. No sub-floor competitors were dropped who are selling below our floor (i.e. 'sub-floor' not in reason).
+    """
+    reason_lower = str(reason).lower()
+    alert_str = str(alert)
+
+    if (
+        "server is down" in reason_lower
+        or "unreachable" in reason_lower
+        or alert_str == "SERVER_DOWN"
+    ):
+        return "SERVER_DOWN"
+
+    if alert_str == "SAFE_FALLBACK" or "safe fallback" in reason_lower:
+        return "FALLBACK"
+
+    if pd.notna(price_val) and price_val is not None and str(price_val).strip() != "":
+        if (
+            min_comp_price is not None
+            and pd.notna(min_comp_price)
+            and str(min_comp_price).strip() != ""
+        ):
+            try:
+                min_p = float(min_comp_price)
+                f_p = float(price_val)
+                diff = int(round(min_p - f_p))
+                if diff > 0 and "sub-floor" not in reason_lower:
+                    if "capped" in reason_lower:
+                        return f"CAPPED (-{diff:,})"
+                    return f"WIN (-{diff:,})"
+            except (ValueError, TypeError):
+                pass
+
+        if "monopoly" in reason_lower or "no competitors" in reason_lower:
+            return "SOLO"
+        if "capped" in reason_lower:
+            return "CAPPED"
+        return ""
+
+    return ""
+
+
 def build_output_record(
     product: ProductInput,
     shipping: float,
@@ -244,14 +296,23 @@ def build_output_record(
     out_record["Minimum Price Digi"] = digi_res.min_price
     out_record["Maximum Price Digi"] = digi_res.max_price
 
+    alfa_alert = determine_risk_alert(alfa_res)
+    digi_alert = determine_risk_alert(digi_res)
+
     out_record["Final Price Alfa"] = alfa_res.final_price
+    out_record["Alfa Status"] = determine_platform_status(
+        alfa_res.final_price, alfa_res.min_price, alfa_res.reason, alfa_alert
+    )
     out_record["Final Price Digi"] = digi_res.final_price
+    out_record["Digi Status"] = determine_platform_status(
+        digi_res.final_price, digi_res.min_price, digi_res.reason, digi_alert
+    )
     out_record["Alfa Real Profit"] = alfa_res.real_profit
     out_record["Digi Real Profit"] = digi_res.real_profit
     out_record["Alfa Reason"] = alfa_res.reason
     out_record["Digi Reason"] = digi_res.reason
-    out_record["Alfa Risk Alert"] = determine_risk_alert(alfa_res)
-    out_record["Digi Risk Alert"] = determine_risk_alert(digi_res)
+    out_record["Alfa Risk Alert"] = alfa_alert
+    out_record["Digi Risk Alert"] = digi_alert
 
     return out_record
 
@@ -904,41 +965,24 @@ def _format_summary_price(
     brand_color: str = "white",
 ) -> str:
     """Format product price string with inline market winning badges for terminal executive summary table."""
-    reason_lower = reason.lower()
-    if (
-        "server is down" in reason_lower
-        or "unreachable" in reason_lower
-        or alert == "SERVER_DOWN"
-    ):
+    status = determine_platform_status(price_val, min_comp_price, reason, alert)
+    if status == "SERVER_DOWN":
         return "[bold red]DOWN[/]"
-    if pd.notna(price_val) and price_val is not None and str(price_val).strip() != "":
-        raw_p = f"{int(float(price_val)):,}"
-        price_str = f"[{brand_color}]{raw_p}[/]"
-        if alert == "SAFE_FALLBACK" or "safe fallback" in reason_lower:
-            return f"[bold red]{raw_p}[/] [red]FALLBACK[/]"
+    if pd.isna(price_val) or price_val is None or str(price_val).strip() == "":
+        return "SKIP"
 
-        if (
-            min_comp_price is not None
-            and pd.notna(min_comp_price)
-            and str(min_comp_price).strip() != ""
-        ):
-            try:
-                min_p = float(min_comp_price)
-                f_p = float(price_val)
-                diff = int(round(min_p - f_p))
-                if diff > 0:
-                    if "capped" in reason_lower:
-                        return f"{price_str} [bold yellow]WIN (-{diff:,})[/]"
-                    return f"{price_str} [bold green]WIN (-{diff:,})[/]"
-            except (ValueError, TypeError):
-                pass
+    raw_p = f"{int(float(price_val)):,}"
+    price_str = f"[{brand_color}]{raw_p}[/]"
 
-        if "monopoly" in reason_lower:
-            return f"{price_str} [dim]SOLO[/]"
-        if "capped" in reason_lower:
-            return f"[bold yellow]{raw_p}[/]"
-        return price_str
-    return "SKIP"
+    if status == "FALLBACK":
+        return f"[bold red]{raw_p}[/] [red]FALLBACK[/]"
+    if status.startswith("WIN"):
+        return f"{price_str} [bold green]{status}[/]"
+    if status == "SOLO":
+        return f"{price_str} [dim]SOLO[/]"
+    if status.startswith("CAPPED"):
+        return f"{price_str} [bold yellow]{status}[/]"
+    return price_str
 
 
 def _format_summary_profit(

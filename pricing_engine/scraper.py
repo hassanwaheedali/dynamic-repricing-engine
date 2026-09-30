@@ -78,11 +78,13 @@ DIGIMALL_CONFIG = PlatformConfig(
 
 # Run-scoped on-demand cache: (platform, query) -> ScrapeResult
 _query_cache: dict[tuple[str, str], ScrapeResult] = {}
+_raw_items_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
 
 def clear_scraper_cache() -> None:
     """Clear all in-memory query search cache entries."""
     _query_cache.clear()
+    _raw_items_cache.clear()
 
 
 def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
@@ -254,6 +256,16 @@ async def _scrape_platform_single_query(
     - Conditional sub-floor page 2 probing.
     """
     cache_key = (config.platform_name, query.strip().upper())
+    if cache_key in _raw_items_cache:
+        raw_cached = _raw_items_cache[cache_key]
+        re_filtered = _parse_offers_from_raw_items(raw_cached, target_model, brand=brand)
+        re_filtered = deduplicate_offers(re_filtered)
+        return ScrapeResult(
+            offers=re_filtered,
+            is_success=True,
+            status_code=200,
+            error_detail=None,
+        )
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         return ScrapeResult(
@@ -346,6 +358,8 @@ async def _scrape_platform_single_query(
                 )
                 if offers:
                     _query_cache[cache_key] = result
+                    if raw_items:
+                        _raw_items_cache[cache_key] = list(raw_items)
 
                 return result
 

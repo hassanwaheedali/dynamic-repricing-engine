@@ -172,9 +172,14 @@ class SupabaseClient:
             resp = await session.post(
                 endpoint, json=observations, headers=headers, timeout=self.timeout
             )
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                return len(data) if isinstance(data, list) else len(observations)
+            if resp.status_code in (200, 201, 204):
+                if resp.text and resp.text.strip():
+                    try:
+                        data = resp.json()
+                        return len(data) if isinstance(data, list) else len(observations)
+                    except Exception:
+                        pass
+                return len(observations)
             if resp.status_code == 409:
                 # 409 Conflict: Existing market observations safely ignored via database constraint
                 logger.debug("Supabase batch observations already present (409 duplicates ignored)")
