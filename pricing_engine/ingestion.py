@@ -40,6 +40,21 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _extract_sno(row: pd.Series | dict[str, Any], default: int) -> int | str:
+    """Extract serial number from row checking various casing or fallback to 1-based index."""
+    for key in ("S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"):
+        val = row.get(key)
+        if val is not None and not pd.isna(val) and str(val).strip() != "":
+            try:
+                f = float(val)
+                if f.is_integer():
+                    return int(f)
+            except (ValueError, TypeError):
+                pass
+            return str(val).strip()
+    return default
+
+
 @dataclass(frozen=True, slots=True)
 class IngestionReport:
     """Pre-flight audit report generated upon ingesting a catalog CSV."""
@@ -109,9 +124,7 @@ def ingest_catalog(
 
     products: list[ProductInput] = []
     for idx, (_, row) in enumerate(df.iterrows()):
-        sno = row.get("S.NO")
-        if sno is None or pd.isna(sno):
-            sno = idx + 1
+        sno = _extract_sno(row, idx + 1)
 
         brand = str(row.get("Brand", "")).strip()
         name = str(row.get("Name", "")).strip()

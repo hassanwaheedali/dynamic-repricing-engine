@@ -53,6 +53,26 @@ def format_export_price(val: Any) -> str:
         return ""
 
 
+def format_export_sno(val: Any) -> str:
+    """Format S.NO value without float drift (.0) while preserving string identifiers.
+
+    Args:
+        val: Numeric, string, None, or NaN serial number.
+
+    Returns:
+        Clean string representation without decimal point if integer-equivalent.
+    """
+    if val is None or pd.isna(val):
+        return ""
+    try:
+        f = float(val)
+        if f.is_integer():
+            return str(int(f))
+    except (ValueError, TypeError):
+        pass
+    return str(val).strip()
+
+
 @dataclass(frozen=True, slots=True)
 class ExportManifest:
     """Manifest describing exported catalog artifacts."""
@@ -121,6 +141,9 @@ def export_results(
     latest_path = out_dir / latest_filename
 
     export_df = df.copy()
+    if "S.NO" in export_df.columns:
+        export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
+
     for col in PRICE_INT_COLUMNS:
         if col in export_df.columns:
             export_df[col] = export_df[col].apply(format_export_price)

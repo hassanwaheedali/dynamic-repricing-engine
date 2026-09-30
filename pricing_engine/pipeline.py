@@ -137,6 +137,21 @@ def resolve_shipping_estimate(product: ProductInput) -> float:
 
 
 
+def _extract_sno(row: pd.Series | dict[str, Any], default: int) -> int | str:
+    """Extract serial number from row checking various casing or fallback to 1-based index."""
+    for key in ("S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"):
+        val = row.get(key)
+        if val is not None and not pd.isna(val) and str(val).strip() != "":
+            try:
+                f = float(val)
+                if f.is_integer():
+                    return int(f)
+            except (ValueError, TypeError):
+                pass
+            return str(val).strip()
+    return default
+
+
 def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     """Parse and sanitize a raw CSV row into a strongly typed ProductInput.
 
@@ -147,7 +162,7 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     Returns:
         Structured ProductInput instance.
     """
-    sno = row.get("S.NO", idx + 1)
+    sno = _extract_sno(row, idx + 1)
     brand = str(row.get("Brand", "Brand")).strip()
 
     raw_name = row.get("Name ")
@@ -195,7 +210,15 @@ def build_output_record(
     Returns:
         Dictionary adhering to the target CSV schema.
     """
-    out_record: dict[str, Any] = dict(product.raw_row)
+    # Guarantee S.NO is the first column in output
+    out_record: dict[str, Any] = {"S.NO": product.sno}
+
+    # Copy remaining raw_row fields, excluding any S.NO aliases
+    sno_aliases = {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
+    for k, v in product.raw_row.items():
+        if k not in sno_aliases:
+            out_record[k] = v
+
     out_record["Shipping Estimate"] = shipping
     out_record["Commision"] = "10.00%"
     out_record["Digi Effective Commision"] = digi_res.effective_comm
