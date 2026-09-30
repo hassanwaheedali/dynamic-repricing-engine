@@ -22,6 +22,7 @@ from pricing_engine.calculator import (
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
 from pricing_engine.exporter import export_results
+from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
     extract_product_slots,
@@ -163,12 +164,18 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
         Structured ProductInput instance.
     """
     sno = _extract_sno(row, idx + 1)
-    brand = str(row.get("Brand", "Brand")).strip()
-
+    raw_brand = row.get("Brand")
+    brand = str(raw_brand).strip() if (raw_brand is not None and not pd.isna(raw_brand)) else ""
     raw_name = row.get("Name ")
     if raw_name is None or pd.isna(raw_name):
         raw_name = row.get("Name", "Product")
     name = str(raw_name).strip()
+
+    if not brand or brand.lower() in INVALID_BRAND_VALUES:
+        raise ValueError(
+            f"Row {idx + 1} ('{name}'): 'Brand' column is empty or invalid ('{brand or raw_brand}'). "
+            "Please enter a valid brand name in the 'Brand' column for this product."
+        )
 
     length = _safe_float(row.get("Length"), 0.0)
     width = _safe_float(row.get("Width"), 0.0)

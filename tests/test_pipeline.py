@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from pricing_engine.matcher import extract_search_query_and_model, is_strict_model_match
 from pricing_engine.models import ScrapedOffer, ScrapeResult
@@ -1313,5 +1314,15 @@ def test_run_pipeline_structured_export_mode(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-
-
+def test_parse_product_input_invalid_brand_raises_error() -> None:
+    for bad_brand in ["", "-", "--", "n/a", "none", "null", "?"]:
+        row = pd.Series(
+            {
+                "S.NO": 1,
+                "Brand": bad_brand,
+                "Name": "Dawlance Inverter AC",
+                "Net Price": 50000,
+            }
+        )
+        with pytest.raises(ValueError, match="Brand.*empty or invalid"):
+            parse_product_input(0, row)
