@@ -127,8 +127,10 @@ TAG_PATTERN = re.compile(r"[-_\s]*(?:T3|AAA|AA\+|AA|PRO|ULTRA|PLUS)+$", re.IGNOR
 
 # Standard category and capacity phrases to strip from search queries
 CATEGORY_PATTERNS = re.compile(
-    r"\b(?:AUTO\s+W/M|FRONT\s+LOAD\s+W/M|W/M|M/OVEN|M/O|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|CASSETTE|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER)\b"
+    r"\b(?:AUTO\s+W/M|FRONT\s+LOAD\s+W/M|W/M|WASHING\s+MACHINE|AIR\s+CONDITIONER|M/OVEN|M/O|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|CASSETTE|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER)\b"
     r"|\b(?:AIR\s+CURTAIN|AIR\s+COOLER|AIR\s+FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
+    r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE)\b"
+    r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE)\b"
     r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|SMART|4K|FHD|HD|GAS\+ELECTRIC|BUILT-IN)\b"
     r"|\b(?:\d+(?:\.\d+)?\s*(?:TON|ΤΟN|KG|GM|LTR|LITRE|SETS|SETS?|FEET|FT|INCH|MM|CM|\"|\'))\b",
     re.IGNORECASE,
@@ -168,6 +170,11 @@ NON_SKU_TOKENS = {
     "SMART",
     "W/O",
     "REF",
+    "FRIDGE",
+    "REFRIGERATOR",
+    "MINIBAR",
+    "MINI",
+    "BAR",
 }
 
 
@@ -212,6 +219,94 @@ def is_sku_variant_tag(token: str) -> bool:
     return len(clean) <= 3 and clean.isupper()
 
 
+# Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
+# Follows industry-standard BTU coding (BTU / 1,000):
+# 09 / 9 = 0.75 Ton (approx. 9,000 BTU)
+# 12     = 1.0 Ton  (approx. 12,000 BTU)
+# 18     = 1.5 Ton  (approx. 18,000 - 19,000 BTU)
+# 24     = 2.0 Ton  (approx. 24,000 BTU)
+# 28, 30 = 2.5 Ton  (approx. 28,000 - 30,000 BTU)
+# 36     = 3.0 Ton  (approx. 36,000 BTU)
+# 48     = 4.0 Ton  (approx. 48,000 BTU)
+UNIVERSAL_CAPACITY_TO_TONNAGE: dict[str, str] = {
+    "09": "0.75",
+    "9": "0.75",
+    "12": "1",
+    "18": "1.5",
+    "24": "2",
+    "28": "2.5",
+    "30": "2.5",
+    "36": "3",
+    "48": "4",
+}
+
+# Dawlance proprietary AC capacity code → tonnage mapping
+# Dawlance uses custom cooling codes:
+# 10 = 0.75 Ton (9,000 - 10,000 BTU)
+# 15 = 1.0 Ton  (12,000 BTU)
+# 20 = 1.25 Ton (14,000 - 15,000 BTU)
+# 30 = 1.5 Ton  (18,000 BTU)
+# 45 = 2.0 Ton  (24,000 BTU)
+DAWLANCE_CAPACITY_TO_TONNAGE: dict[str, str] = {
+    "10": "0.75",
+    "15": "1",
+    "20": "1.25",
+    "30": "1.5",
+    "45": "2",
+}
+
+# Backward compatibility alias
+_CAPACITY_TO_TONNAGE: dict[str, str] = DAWLANCE_CAPACITY_TO_TONNAGE
+
+
+def _invert_capacity_map(cap_map: dict[str, str]) -> dict[str, set[str]]:
+    """Invert capacity-to-tonnage map and generate equivalent tonnage representations."""
+    inv: dict[str, set[str]] = {}
+    for code, ton in cap_map.items():
+        inv.setdefault(ton, set()).add(code)
+        if "." not in ton:
+            inv.setdefault(f"{ton}.0", set()).add(code)
+    return inv
+
+
+UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(
+    UNIVERSAL_CAPACITY_TO_TONNAGE
+)
+DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(DAWLANCE_CAPACITY_TO_TONNAGE)
+
+# Dynamic Brand-to-Capacity System Registry
+BRAND_CAPACITY_SYSTEMS: dict[str, dict[str, str]] = {
+    "DAW": DAWLANCE_CAPACITY_TO_TONNAGE,
+}
+
+
+def get_capacity_map(brand: str = "") -> dict[str, str]:
+    """Dynamically resolve capacity mapping for a given brand from registry, defaulting to Universal."""
+    b_upper = brand.strip().upper()
+    for prefix, cap_map in BRAND_CAPACITY_SYSTEMS.items():
+        if b_upper.startswith(prefix):
+            return cap_map
+    return UNIVERSAL_CAPACITY_TO_TONNAGE
+
+
+def get_tonnage_map(brand: str = "") -> dict[str, set[str]]:
+    """Dynamically get tonnage-to-codes mapping for a given brand."""
+    return _invert_capacity_map(get_capacity_map(brand))
+
+
+def get_capacity_tonnage(code: str, brand: str = "") -> str | None:
+    """Get the tonnage string for an AC capacity code, brand-aware."""
+    clean_code = code.strip().upper()
+    if brand:
+        return get_capacity_map(brand).get(clean_code)
+
+    # Brand unknown: determine by code exclusivity across systems
+    for cap_map in BRAND_CAPACITY_SYSTEMS.values():
+        if clean_code in cap_map and clean_code not in UNIVERSAL_CAPACITY_TO_TONNAGE:
+            return cap_map.get(clean_code)
+    return UNIVERSAL_CAPACITY_TO_TONNAGE.get(clean_code)
+
+
 def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str, str]:
     """Extract search token and full model identifier from a catalog product name.
 
@@ -228,13 +323,11 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     clean = full_name.strip()
 
     # 1. Dynamically strip Brand name and brand abbreviation using catalog brand metadata
-    detected_brand = brand or (clean.split()[0] if clean else "")
+    detected_brand = (brand or (clean.split()[0] if clean else "")).strip()
     if detected_brand:
-        clean = re.sub(rf"^\b{re.escape(detected_brand)}\b\s*", "", clean, flags=re.IGNORECASE)
-        if len(detected_brand) >= 4:
-            clean = re.sub(
-                rf"^\b{re.escape(detected_brand[:3])}\b\s*", "", clean, flags=re.IGNORECASE
-            )
+        b_prefix_re = rf"^(?:{re.escape(detected_brand)}|{re.escape(detected_brand[:3]) if len(detected_brand) >= 4 else '---'})[\s\-_,:]*"
+        while re.match(b_prefix_re, clean, flags=re.IGNORECASE):
+            clean = re.sub(b_prefix_re, "", clean, count=1, flags=re.IGNORECASE).strip()
 
     # 2. Strip standard category and capacity phrases
     clean = CATEGORY_PATTERNS.sub(" ", clean).strip()
@@ -296,29 +389,10 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         "[",
         "]",
     }
-    # Brand-aware AC capacity codes:
-    # Dawlance: 10 (0.75T), 15 (1T), 20 (1.25T), 30 (1.5T), 45 (2T)
-    # Universal (Gree, Haier, Orient, PEL, Kenwood, etc.): 09/9 (0.75T), 12 (1T), 18 (1.5T), 24 (2T), 28/30 (2.5T), 36 (3T), 48 (4T)
-    if detected_brand and detected_brand.upper().startswith("DAW"):
-        _CAPACITY_CODES = {"10", "15", "20", "30", "45"}
-    elif detected_brand:
-        _CAPACITY_CODES = {"09", "9", "12", "18", "24", "28", "30", "36", "48"}
-    else:
-        _CAPACITY_CODES = {
-            "09",
-            "9",
-            "10",
-            "12",
-            "15",
-            "18",
-            "20",
-            "24",
-            "28",
-            "30",
-            "36",
-            "45",
-            "48",
-        }
+    # Brand-aware AC capacity codes derived dynamically from single source of truth:
+    _CAPACITY_CODES = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(
+        *(m.keys() for m in BRAND_CAPACITY_SYSTEMS.values())
+    )
 
     remaining = CATEGORY_PATTERNS.sub(" ", clean).strip()
     remaining = re.sub(r"[()]", " ", remaining)  # Strip parentheses
@@ -342,8 +416,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         m_ton = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:TON|ΤΟN)\b", full_name, re.IGNORECASE)
         if m_ton:
             ton_val = m_ton.group(1)
-            is_daw = bool(detected_brand and detected_brand.upper().startswith("DAW"))
-            ton_map = DAWLANCE_TONNAGE_TO_CODES if is_daw else UNIVERSAL_TONNAGE_TO_CODES
+            ton_map = get_tonnage_map(detected_brand)
             ton_codes = ton_map.get(ton_val)
             if ton_codes:
                 capacity = sorted(ton_codes)[0]
@@ -611,80 +684,6 @@ def expand_multivariant_titles(title: str) -> str:
     return result
 
 
-# Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
-# Follows industry-standard BTU coding (BTU / 1,000):
-# 09 / 9 = 0.75 Ton (approx. 9,000 BTU)
-# 12     = 1.0 Ton  (approx. 12,000 BTU)
-# 18     = 1.5 Ton  (approx. 18,000 - 19,000 BTU)
-# 24     = 2.0 Ton  (approx. 24,000 BTU)
-# 28, 30 = 2.5 Ton  (approx. 28,000 - 30,000 BTU)
-# 36     = 3.0 Ton  (approx. 36,000 BTU)
-# 48     = 4.0 Ton  (approx. 48,000 BTU)
-UNIVERSAL_CAPACITY_TO_TONNAGE: dict[str, str] = {
-    "09": "0.75",
-    "9": "0.75",
-    "12": "1",
-    "18": "1.5",
-    "24": "2",
-    "28": "2.5",
-    "30": "2.5",
-    "36": "3",
-    "48": "4",
-}
-
-# Dawlance proprietary AC capacity code → tonnage mapping
-# Dawlance uses custom cooling codes:
-# 10 = 0.75 Ton (9,000 - 10,000 BTU)
-# 15 = 1.0 Ton  (12,000 BTU)
-# 20 = 1.25 Ton (14,000 - 15,000 BTU)
-# 30 = 1.5 Ton  (18,000 BTU)
-# 45 = 2.0 Ton  (24,000 BTU)
-DAWLANCE_CAPACITY_TO_TONNAGE: dict[str, str] = {
-    "10": "0.75",
-    "15": "1",
-    "20": "1.25",
-    "30": "1.5",
-    "45": "2",
-}
-
-# Backward compatibility alias
-_CAPACITY_TO_TONNAGE: dict[str, str] = DAWLANCE_CAPACITY_TO_TONNAGE
-
-
-def _invert_capacity_map(cap_map: dict[str, str]) -> dict[str, set[str]]:
-    """Invert capacity-to-tonnage map and generate equivalent tonnage representations."""
-    inv: dict[str, set[str]] = {}
-    for code, ton in cap_map.items():
-        inv.setdefault(ton, set()).add(code)
-        if "." not in ton:
-            inv.setdefault(f"{ton}.0", set()).add(code)
-    return inv
-
-
-UNIVERSAL_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(
-    UNIVERSAL_CAPACITY_TO_TONNAGE
-)
-DAWLANCE_TONNAGE_TO_CODES: dict[str, set[str]] = _invert_capacity_map(DAWLANCE_CAPACITY_TO_TONNAGE)
-
-
-def get_capacity_tonnage(code: str, brand: str = "") -> str | None:
-    """Get the tonnage string for an AC capacity code, brand-aware."""
-    clean_code = code.strip().upper()
-    b_upper = brand.strip().upper()
-    is_dawlance = b_upper.startswith("DAW") or b_upper == "DAWLANCE"
-
-    if is_dawlance:
-        return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
-
-    if b_upper and not is_dawlance:
-        return UNIVERSAL_CAPACITY_TO_TONNAGE.get(clean_code)
-
-    # Brand unknown: determine by code exclusivity
-    if clean_code in ("10", "15", "20", "45"):
-        return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
-    if clean_code in ("09", "9", "12", "18", "24", "28", "36", "48"):
-        return UNIVERSAL_CAPACITY_TO_TONNAGE.get(clean_code)
-    return DAWLANCE_CAPACITY_TO_TONNAGE.get(clean_code)
 
 
 def tonnage_matches_title(tonnage: str, title_upper: str) -> bool:
@@ -701,9 +700,7 @@ def tonnage_matches_title(tonnage: str, title_upper: str) -> bool:
 
 def reverse_tonnage_matches(kw: str, title_words: set[str], brand: str = "") -> bool:
     """If kw is a tonnage (e.g. '1.5', '1', '2'), check if title contains equivalent capacity code."""
-    b_upper = brand.strip().upper()
-    is_daw = b_upper.startswith("DAW") or b_upper == "DAWLANCE"
-    tonnage_map = DAWLANCE_TONNAGE_TO_CODES if is_daw else UNIVERSAL_TONNAGE_TO_CODES
+    tonnage_map = get_tonnage_map(brand)
     equiv_codes = tonnage_map.get(kw)
     if equiv_codes:
         return bool(equiv_codes.intersection(title_words))
@@ -732,28 +729,12 @@ def _keyword_match(expanded_title: str, target_keywords: str, brand: str = "") -
     target_tokens = [t for t in target_tokens if t]
     target_set = set(target_tokens)
 
-    # Detect brand
     target_brand = brand.strip()
     if not target_brand:
-        for b in [
-            "DAWLANCE",
-            "DAW",
-            "GREE",
-            "HAIER",
-            "KENWOOD",
-            "HOMAGE",
-            "ORIENT",
-            "PEL",
-            "TCL",
-            "CHANGHONG",
-            "ECOSTAR",
-            "MIDEA",
-            "DAIKIN",
-        ]:
-            if re.search(rf"\b{b}\b", target_keywords, re.IGNORECASE) or re.search(
-                rf"\b{b}\b", expanded_title, re.IGNORECASE
-            ):
-                target_brand = "DAWLANCE" if b in ("DAWLANCE", "DAW") else b
+        words = set(re.findall(r"[A-Za-z]+", f"{expanded_title} {target_keywords}".upper()))
+        for pfx in BRAND_CAPACITY_SYSTEMS:
+            if any(w.startswith(pfx) for w in words):
+                target_brand = pfx
                 break
 
     # T3 isolation: if target does NOT contain T3, reject sellers that DO have T3
@@ -835,14 +816,70 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
                     return False
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
-    # Feature/cosmetic tags (GC, GT, JT) are optional descriptors (Glass Color, Glass Top, Jet Top)
-    # frequently omitted by marketplace sellers and should not block a match if absent.
-    optional_feature_tags = {"GC", "GT", "JT"}
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
-    core_tokens = [t for t in target_tokens if t not in optional_feature_tags]
+    # 100% Dynamic Structural Partitioning (Zero Hardcoded Tag Sets):
+    # Core SKU tokens MUST contain digits or be substantial series words (>= 4 chars).
+    # Secondary modifier/cosmetic tags (<= 3 letters without digits, e.g. SD, PL, GC, WB, BT)
+    # are automatically treated as optional descriptors often omitted by marketplace sellers.
+    core_tokens = [t for t in target_tokens if any(c.isdigit() for c in t) or len(t) >= 4]
+
+    # 100% Dynamic Initialism / Acronym Collision Protection (Zero Hardcoded Acronyms):
+    # For any 2-letter modifier acronym in target (e.g. SD, DD, FL, TL):
+    # Detects if candidate title contains an opposing initialism on the same noun
+    # (e.g. target has 'SD', candidate has 'DD' or 'Double Door' where first letter differs).
+    target_acronyms = [t for t in target_tokens if len(t) == 2 and t.isalpha()]
+    if target_acronyms:
+        clean_cand_title = expanded_title
+        if brand:
+            clean_cand_title = re.sub(rf"\b{re.escape(brand)}\b", "", clean_cand_title, flags=re.IGNORECASE)
+
+        # Split into tokens; tokens containing digits (e.g. 4467, DMB-4467) serve as word boundaries
+        raw_tokens = clean_cand_title.split()
+        cand_words: list[str | None] = []
+        for t in raw_tokens:
+            if re.search(r"\d", t):
+                cand_words.append(None)
+            else:
+                w_clean = re.sub(r"[^A-Za-z]", "", t).upper()
+                if w_clean:
+                    cand_words.append(w_clean)
+
+        for acr in target_acronyms:
+            a1, a2 = acr[0], acr[1]
+            # 1. Collision with standalone 2-letter acronym in title (e.g. DD vs SD, TL vs FL)
+            for w in cand_words:
+                if w and len(w) == 2 and w[1] == a2 and w[0] != a1:
+                    return False
+            # 2. Collision with consecutive word phrases (e.g. 'Double Door' vs 'SD', 'Top Load' vs 'FL')
+            for i in range(len(cand_words) - 1):
+                w1, w2 = cand_words[i], cand_words[i + 1]
+                if (
+                    w1
+                    and w2
+                    and len(w1) >= 3
+                    and len(w2) >= 3
+                    and w2[0] == a2
+                    and w1[0] != a1
+                    and w1[0] not in ("A", "AN", "THE")
+                ):
+                    return False
+
+    # Dynamic Brand Verification for pure numeric model stems (e.g. 4467, 105, 538):
+    # Pure numbers must match the target brand name OR a brand-initial SKU prefix (e.g. HRF-538, HWM-120, DMB-4467, DWT-1165, GS-12)
+    if brand and core_tokens and core_tokens[0].isdigit():
+        b_clean = brand.strip().lower()
+        title_lower = expanded_title.lower()
+        # 1. Full brand name in title (e.g. "haier" or "dawlance")
+        has_brand_name = b_clean in title_lower
+        # 2. Dynamic brand-initial prefix: Brand initial + 1-3 letters + model number (e.g. HRF-538, HWM-120, DMB-4467, DWT-1165, GS-12)
+        brand_sku_pattern = rf"\b{re.escape(b_clean[0])}[a-z]{{1,3}}[- ]?{re.escape(core_tokens[0])}\b"
+        has_brand_sku = bool(re.search(brand_sku_pattern, title_lower))
+        if not (has_brand_name or has_brand_sku):
+            return False
+
     if len(core_tokens) > 1 and all(t in norm_title for t in core_tokens):
         return True
-    if len(core_tokens) == 1 and core_tokens[0] in norm_title and len(core_tokens[0]) >= 4:
+    if len(core_tokens) == 1 and core_tokens[0] in norm_title and len(core_tokens[0]) >= 3:
         return True
 
     # 3. Exact base target containment
@@ -916,9 +953,38 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
     tier_2: list[str] = []
     tier_3: list[str] = []
 
-    # Detect prefixes like HWM, DWT, GS, GW, GF, GN, WF in the raw catalog name
-    pfx_match = re.search(r"\b(HWM|DWT|DW|WM|WF|GN|GS|GW|GF)\b", clean_name, re.IGNORECASE)
-    pfx = pfx_match.group(1).upper() if pfx_match else ""
+    def _with_brand(b: str, text: str) -> str:
+        b_clean = b.strip()
+        t_clean = text.strip()
+        if not b_clean:
+            return t_clean
+        if not t_clean:
+            return b_clean
+        if t_clean.lower().startswith(b_clean.lower()):
+            return t_clean
+        return f"{b_clean} {t_clean}"
+
+    def _with_prefix(p: str, text: str, sep: str = " ") -> str:
+        p_clean = p.strip().upper()
+        t_clean = text.strip()
+        if not p_clean or not t_clean:
+            return t_clean
+        if t_clean.upper().startswith(p_clean):
+            return t_clean
+        return f"{p_clean}{sep}{t_clean}"
+
+    # Dynamic SKU Prefix Extraction (100% Generic & Brand-Agnostic):
+    # Detects any 2-4 letter brand/form-factor acronym directly preceding or hyphenated with the model
+    # (e.g. DMB-4467, HRF-538, HWM-120, DWT-1165, GS-12)
+    pfx = ""
+    num_match = re.search(r"\d+", clean_name)
+    if num_match:
+        stem_num = num_match.group(0)
+        m_pfx = re.search(rf"\b([A-Za-z]{{2,4}})[- ]?{re.escape(stem_num)}", clean_name)
+        if m_pfx:
+            candidate_pfx = m_pfx.group(1).upper()
+            if candidate_pfx.lower() != detected_brand.lower() and candidate_pfx not in NON_SKU_TOKENS:
+                pfx = candidate_pfx
 
     tokens = raw_model.split()
     first_token = tokens[0] if tokens else raw_model
@@ -940,18 +1006,18 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
         tv_series = tv_match.group(2)
         tier_1.append(first_token)
         if detected_brand:
-            tier_1.append(f"{detected_brand} {first_token}")
+            tier_1.append(_with_brand(detected_brand, first_token))
         tier_2.append(tv_series)
         tier_3.append(f"{screen_size} {tv_series}")
         if detected_brand:
-            tier_3.append(f"{detected_brand} {tv_series}")
+            tier_3.append(_with_brand(detected_brand, tv_series))
 
     elif is_series_capacity:
         series_name = " ".join(tokens[:-1])
         cap_code = tokens[-1]
         tier_1.append(raw_model)
         if detected_brand:
-            tier_1.append(f"{detected_brand} {raw_model}")
+            tier_1.append(_with_brand(detected_brand, raw_model))
         tier_2.append(series_name)
 
         # Map capacity code to tonnage (Dawlance vs Universal)
@@ -960,18 +1026,35 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
             tier_3.append(f"{series_name} {tonnage} TON")
             tier_3.append(f"{series_name} {tonnage}TON")
             if detected_brand:
-                tier_3.append(f"{detected_brand} {series_name} {tonnage} TON")
+                tier_3.append(_with_brand(detected_brand, f"{series_name} {tonnage} TON"))
         tier_3.append(f"{series_name} {cap_code}")
 
     else:
         # Standard model codes: washing machines, ACs, refrigerators
-        tier_1.append(raw_model)
-        if aux_tag and core_stem not in tier_1:
-            tier_1.append(core_stem)
-
-        # Tier 2: Bare alphanumeric stem without cosmetic tags
         bare_stem = core_stem
-        tier_2.append(bare_stem)
+        is_numeric_stem = bare_stem.isdigit()
+
+        if detected_brand:
+            if pfx:
+                # Top priority: Full brand + prefix + model (e.g. Dawlance DMB 4467, Haier HRF 538)
+                tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, bare_stem, " ")))
+                tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, bare_stem, "-")))
+                tier_1.append(_with_brand(detected_brand, raw_model))
+                # Standalone prefix for sellers who omit brand name (e.g. DMB 4467, HRF 538)
+                tier_1.append(_with_prefix(pfx, bare_stem, " "))
+                tier_2.append(_with_prefix(pfx, bare_stem, "-"))
+
+            tier_1.append(_with_brand(detected_brand, bare_stem))
+            tier_1.append(_with_brand(detected_brand, raw_model))
+            tier_2.append(_with_brand(detected_brand, bare_stem))
+
+        # Only allow unbranded queries if stem is complex alphanumeric (e.g. 12AITH21W, 120-826S6)
+        # Pure numeric stems (e.g. 4467, 105) must NEVER be queried bare to prevent matching random shoes, clothes, etc.
+        if not is_numeric_stem:
+            tier_1.append(raw_model)
+            if aux_tag and core_stem not in tier_1:
+                tier_1.append(core_stem)
+            tier_2.append(bare_stem)
 
         # Tier 3: Spaced, glued, and prefixed permutations
         if "-" in bare_stem:
@@ -979,7 +1062,7 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
             glued = bare_stem.replace("-", "")
             tier_3.append(spaced)
             tier_3.append(glued)
-            if pfx:
+            if pfx and not bare_stem.upper().startswith(pfx):
                 tier_3.append(f"{pfx}-{bare_stem}")
                 tier_3.append(f"{pfx} {bare_stem}")
                 tier_3.append(f"{pfx} {spaced}")
@@ -989,9 +1072,9 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
             tier_3.append(f"{digits} {letters}")
             tier_3.append(f"{digits}-{letters}")
             if detected_brand:
-                tier_3.append(f"{detected_brand} {bare_stem}")
+                tier_3.append(_with_brand(detected_brand, bare_stem))
 
-        if pfx and "-" not in bare_stem:
+        if pfx and "-" not in bare_stem and not bare_stem.upper().startswith(pfx):
             tier_3.append(f"{pfx}-{bare_stem}")
             tier_3.append(f"{pfx} {bare_stem}")
 
@@ -999,6 +1082,9 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
         m_color_suffix = re.match(r"^(\d+[A-Za-z]+?\d+)[WBSG]$", bare_stem, re.IGNORECASE)
         if m_color_suffix:
             tier_3.append(m_color_suffix.group(1))
+
+        if detected_brand:
+            tier_3.append(_with_brand(detected_brand, raw_model))
 
     # Helper to deduplicate while preserving order
     def _dedupe(items: list[str]) -> list[str]:
@@ -1136,18 +1222,12 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     if detected_brand:
         sub = re.sub(rf"\b{re.escape(detected_brand)}\b", " ", sub, flags=re.IGNORECASE)
     sub = CATEGORY_PATTERNS.sub(" ", sub)
-    sub = re.sub(
-        r"\b(?:WASHING\s+MACHINE|REFRIGERATOR|MICROWAVE(?:\s+OVEN)?|WATER\s+DISPENSER|AIR\s+CONDITIONER)\b",
-        " ",
-        sub,
-        flags=re.IGNORECASE,
-    )
-    sub = re.sub(
-        r"\b(?:HWM|DWT|DW|WM|WF|GN|GF|GW|GS|LED|TV)\b",
-        " ",
-        sub,
-        flags=re.IGNORECASE,
-    )
+    # Dynamically strip any 2-4 letter brand/form-factor SKU prefix attached to anchor
+    if anchor:
+        sub = re.sub(rf"\b[A-Za-z]{{2,4}}[- ]?{re.escape(anchor)}\b", " ", sub, flags=re.IGNORECASE)
+        sub = re.sub(rf"\b{re.escape(anchor)}\b", " ", sub, flags=re.IGNORECASE)
+    # Strip any hyphenated prefix-number codes (e.g. HWM-120, DWT-1165, GS-12)
+    sub = re.sub(r"\b[A-Za-z]{2,4}-\d+", " ", sub)
     sub = re.sub(
         r"\b(?:T3|INVERTER|INV|4K|SMART|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD)\b",
         " ",
@@ -1166,7 +1246,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         if cap_num:
             sub = re.sub(rf"\b{re.escape(cap_num)}\b", " ", sub)
     all_known_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(
-        DAWLANCE_CAPACITY_TO_TONNAGE.keys()
+        *(m.keys() for m in BRAND_CAPACITY_SYSTEMS.values())
     )
     for code in all_known_cap_codes:
         sub = re.sub(rf"\b{code}\b", " ", sub)

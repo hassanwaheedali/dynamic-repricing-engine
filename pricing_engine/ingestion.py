@@ -28,6 +28,10 @@ REQUIRED_COLUMNS: list[str] = [
     "Height",
 ]
 
+INVALID_BRAND_VALUES: frozenset[str] = frozenset(
+    {"", "-", "--", "---", "_", ".", "/", "\\", "n/a", "na", "nan", "none", "null", "?"}
+)
+
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Safely convert arbitrary values to float, handling strings with commas or NaNs."""
@@ -126,8 +130,23 @@ def ingest_catalog(
     for idx, (_, row) in enumerate(df.iterrows()):
         sno = _extract_sno(row, idx + 1)
 
-        brand = str(row.get("Brand", "")).strip()
-        name = str(row.get("Name", "")).strip()
+        raw_name = row.get("Name")
+        name = str(raw_name).strip() if (raw_name is not None and not pd.isna(raw_name)) else ""
+        if not name or name.lower() in ("nan", "none", "-", "--", "n/a"):
+            raise ValueError(
+                f"Row {idx + 1}: Product 'Name' is empty or missing in CSV. Please enter the product name."
+            )
+
+        raw_brand = row.get("Brand")
+        brand = str(raw_brand).strip() if (raw_brand is not None and not pd.isna(raw_brand)) else ""
+
+        # Strictly enforce non-empty, valid brand value in Brand column
+        if not brand or brand.lower() in INVALID_BRAND_VALUES:
+            raise ValueError(
+                f"Row {idx + 1} ('{name}'): 'Brand' column is empty or invalid ('{brand or raw_brand}'). "
+                "Please enter a valid brand name in the 'Brand' column for this product. "
+                "Products cannot be processed or matched without a brand because without it, the wrong product could be matched."
+            )
 
         length = _safe_float(row.get("Length"), 0.0)
         width = _safe_float(row.get("Width"), 0.0)

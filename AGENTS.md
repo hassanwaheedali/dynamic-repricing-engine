@@ -13,6 +13,13 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
   3. **Guaranteed Profit Floors**: Hard mathematical floor (+Rs. 500 minimum net profit guarantee). Never sell at a loss regardless of competitor price wars.
   4. **Two-Tier Bank Commission Arbitrage**: Leverage DigiMall's special 8% Faysal Bank rate to capture extra profit or win tough competition against competitors paying 10%.
   5. **Deterministic Data Integrity**: Guaranteed Column 1 `S.NO`, pure integer price outputs (zero `.0` float drift), and ANSI-free risk alerts.
+  6. **Strict DRY Concept & Generic Dynamic Algorithms (Zero Category & Brand Hardcoding)**:
+     - **Zero Static Lists**: Never hardcode category conditionals (`if 'MINI BAR'`), static brand lists (`["DAWLANCE", "GREE", ...]`), or static prefix sets (`(HWM|DWT|DW|WM|...)`) in `matcher.py` or anywhere in the engine.
+     - **Dynamic SKU Prefixes**: All SKU prefixes (e.g. `DMB`, `HRF`, `HWM`, `GS`, `PR`, `WF`) must be extracted dynamically via generic regex (`\b([A-Za-z]{2,4})[- ]?{stem_num}`).
+     - **Dynamic Initialism Referee**: 2-letter modifier tags (e.g. `SD` vs `Double Door`, `FL` vs `Top Load`) must be matched and collided dynamically via word boundaries and initialisms without static collision dictionaries.
+     - **Dynamic Brand-Initial Verification**: Numeric stems must be validated against brand initials dynamically (`{brand[0]}[a-z]{1,3}[- ]?{model}`).
+     - **Single Source of Truth**: Data mappings (e.g. AC capacity codes) must be defined once and referenced everywhere.
+     - **Strict Ingestion Validation**: Catalogs must provide valid brands; guessing brands from title strings is strictly forbidden.
 
 ---
 

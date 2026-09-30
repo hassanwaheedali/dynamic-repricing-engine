@@ -777,3 +777,53 @@ def test_referee_match_sub_series_integrity() -> None:
         target_classic, "Dawlance Avante Elegant 1.5 Ton", brand="Dawlance"
     )
     assert decision_diff_series.is_match is False
+
+
+def test_minibar_4467_sd_extraction_and_search_patterns() -> None:
+    _, model = extract_search_query_and_model("DAWLANCE DMB 4467 SD MINI BAR", brand="Dawlance")
+    assert "4467" in model
+
+    patterns = generate_search_patterns("DAWLANCE DMB 4467 SD MINI BAR", brand="Dawlance")
+    assert any("Dawlance 4467" in p for p in patterns["tier_1"])
+    assert any("DMB 4467" in p for p in patterns["tier_1"])
+    assert any("DMB-4467" in p for p in patterns["tier_2"])
+
+
+def test_minibar_4467_sd_dynamic_brand_and_door_type_matching() -> None:
+    target = "4467 SD"
+
+    # Match exact model with DMB prefix
+    assert is_strict_model_match("Dawlance Refrigerator DMB-4467 SD", target, brand="Dawlance")
+
+    # Match with Single Door expansion
+    assert is_strict_model_match(
+        "Dawlance 4467 Single Door Bedroom Refrigerator", target, brand="Dawlance"
+    )
+
+    # Reject foreign brand (Haier) without hardcoded brand list
+    assert not is_strict_model_match("Haier Refrigerator 4467", target, brand="Dawlance")
+
+    # Reject non-appliance item
+    assert not is_strict_model_match("Adidas 4467 Running Shoes", target, brand="Dawlance")
+
+    # Reject door collision: Single Door target must reject Double Door offer
+    assert not is_strict_model_match(
+        "Dawlance Double Door Refrigerator 4467 DD", target, brand="Dawlance"
+    )
+
+
+def test_generate_search_patterns_duplicate_brand_prevention() -> None:
+    # 1. Product Name already starts with Brand (case insensitive)
+    patterns = generate_search_patterns("HAIER 4607 SD", brand="Haier")
+    assert "Haier 4607" in patterns["tier_1"]
+    assert not any("Haier Haier" in p for tier in patterns.values() for p in tier)
+
+    # 2. Product Name has repeated Brand name
+    patterns_double = generate_search_patterns("Haier Haier 4607 SD", brand="Haier")
+    assert "Haier 4607" in patterns_double["tier_1"]
+    assert not any("Haier Haier" in p for tier in patterns_double.values() for p in tier)
+
+    # 3. Product Name has hyphenated brand
+    patterns_hyphen = generate_search_patterns("haier-4607 sd", brand="haier")
+    assert "haier 4607" in patterns_hyphen["tier_1"]
+    assert not any("haier haier" in p.lower() for tier in patterns_hyphen.values() for p in tier)

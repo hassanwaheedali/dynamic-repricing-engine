@@ -166,3 +166,33 @@ def test_ingest_catalog_legacy_haier_csv() -> None:
     assert report.total_rows == len(products)
     assert products[0].brand == "Haier"
 
+
+def test_ingest_catalog_empty_brand_cell_raises(tmp_path: Path) -> None:
+    csv_file = tmp_path / "empty_brand.csv"
+    csv_file.write_text(
+        "Brand,Name,Net Price,Length,Width,Height\n"
+        ",Dawlance 4467 SD MINI BAR,55000,50,50,85\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        ingest_catalog(csv_file, render_banner=False)
+
+    assert "'Brand' column is empty or invalid" in str(exc_info.value)
+    assert "Please enter a valid brand name in the 'Brand' column" in str(exc_info.value)
+
+
+def test_ingest_catalog_placeholder_brand_cell_raises(tmp_path: Path) -> None:
+    for idx, placeholder in enumerate(["-", "--", "N/A", "none", "nan", "?"]):
+        csv_file = tmp_path / f"placeholder_{idx}.csv"
+        csv_file.write_text(
+            f"Brand,Name,Net Price,Length,Width,Height\n"
+            f"{placeholder},Dawlance 4467 SD MINI BAR,55000,50,50,85\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            ingest_catalog(csv_file, render_banner=False)
+
+        assert "'Brand' column is empty or invalid" in str(exc_info.value)
+

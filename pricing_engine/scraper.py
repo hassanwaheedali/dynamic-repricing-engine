@@ -126,6 +126,7 @@ async def _execute_waterfall(
     timeout: float,
     max_retries: int,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Execute tiered early-exit waterfall candidate retrieval across query tiers.
 
@@ -157,6 +158,7 @@ async def _execute_waterfall(
                 timeout=timeout,
                 max_retries=max_retries,
                 floor_price=floor_price,
+                brand=brand,
             )
             if sub_res.is_success:
                 any_success = True
@@ -183,13 +185,13 @@ async def _execute_waterfall(
 
 
 def _parse_offers_from_raw_items(
-    raw_items: list[dict[str, Any]], target_model: str
+    raw_items: list[dict[str, Any]], target_model: str, brand: str = ""
 ) -> list[ScrapedOffer]:
     """Extract and validate offers from raw API items array."""
     parsed: list[ScrapedOffer] = []
     for item in raw_items:
         title = str(item.get("title", ""))
-        if not is_strict_model_match(title, target_model):
+        if not is_strict_model_match(title, target_model, brand=brand):
             continue
 
         sold_out = bool(item.get("sold_out", False))
@@ -225,6 +227,7 @@ async def _scrape_platform_single_query(
     timeout: float = 10.0,
     max_retries: int = 3,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Generic single-query scraper for e-commerce storefront search APIs.
 
@@ -408,6 +411,7 @@ async def _scrape_alfamall_single_query(
     timeout: float = 10.0,
     max_retries: int = 3,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Internal single-query scraper for AlfaMall storefront search API."""
     return await _scrape_platform_single_query(
@@ -418,6 +422,7 @@ async def _scrape_alfamall_single_query(
         timeout=timeout,
         max_retries=max_retries,
         floor_price=floor_price,
+        brand=brand,
     )
 
 
@@ -428,6 +433,7 @@ async def scrape_alfamall(
     timeout: float = 10.0,
     max_retries: int = 3,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Query AlfaMall storefront search API and extract verified product offers with retries.
 
@@ -440,6 +446,7 @@ async def scrape_alfamall(
         timeout: HTTP request timeout in seconds (default: 10.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor to probe page 2 if all page 1 items are sub-floor.
+        brand: Optional brand name for strict matching.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -452,6 +459,7 @@ async def scrape_alfamall(
             timeout=timeout,
             max_retries=max_retries,
             floor_price=floor_price,
+            brand=brand,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_alfamall_single_query,
@@ -461,6 +469,7 @@ async def scrape_alfamall(
         timeout=timeout,
         max_retries=max_retries,
         floor_price=floor_price,
+        brand=brand,
     )
 
 
@@ -471,6 +480,7 @@ async def _scrape_digimall_single_query(
     timeout: float = 10.0,
     max_retries: int = 3,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Internal single-query scraper for DigiMall storefront search API."""
     return await _scrape_platform_single_query(
@@ -481,6 +491,7 @@ async def _scrape_digimall_single_query(
         timeout=timeout,
         max_retries=max_retries,
         floor_price=floor_price,
+        brand=brand,
     )
 
 
@@ -491,6 +502,7 @@ async def scrape_digimall(
     timeout: float = 10.0,
     max_retries: int = 3,
     floor_price: float | None = None,
+    brand: str = "",
 ) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
@@ -503,6 +515,7 @@ async def scrape_digimall(
         timeout: HTTP request timeout in seconds (default: 10.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor for conditional sub-floor page 2 probing.
+        brand: Optional brand name for strict matching.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -515,6 +528,7 @@ async def scrape_digimall(
             timeout=timeout,
             max_retries=max_retries,
             floor_price=floor_price,
+            brand=brand,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_digimall_single_query,
@@ -524,5 +538,6 @@ async def scrape_digimall(
         timeout=timeout,
         max_retries=max_retries,
         floor_price=floor_price,
+        brand=brand,
     )
 
