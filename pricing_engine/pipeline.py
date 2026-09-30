@@ -898,11 +898,12 @@ async def _process_item_worker(
 
 def _format_summary_price(
     price_val: Any,
-    reason: str,
-    alert: str,
-    brand_color: str,
+    min_comp_price: Any = None,
+    reason: str = "",
+    alert: str = "",
+    brand_color: str = "white",
 ) -> str:
-    """Format product price string for terminal executive summary table."""
+    """Format product price string with inline market winning badges for terminal executive summary table."""
     reason_lower = reason.lower()
     if (
         "server is down" in reason_lower
@@ -912,11 +913,31 @@ def _format_summary_price(
         return "[bold red]DOWN[/]"
     if pd.notna(price_val) and price_val is not None and str(price_val).strip() != "":
         raw_p = f"{int(float(price_val)):,}"
+        price_str = f"[{brand_color}]{raw_p}[/]"
         if alert == "SAFE_FALLBACK" or "safe fallback" in reason_lower:
-            return f"[bold red]{raw_p}[/]"
+            return f"[bold red]{raw_p}[/] [red]FALLBACK[/]"
+
+        if (
+            min_comp_price is not None
+            and pd.notna(min_comp_price)
+            and str(min_comp_price).strip() != ""
+        ):
+            try:
+                min_p = float(min_comp_price)
+                f_p = float(price_val)
+                diff = int(round(min_p - f_p))
+                if diff > 0:
+                    if "capped" in reason_lower:
+                        return f"{price_str} [bold yellow]WIN (-{diff:,})[/]"
+                    return f"{price_str} [bold green]WIN (-{diff:,})[/]"
+            except (ValueError, TypeError):
+                pass
+
+        if "monopoly" in reason_lower:
+            return f"{price_str} [dim]SOLO[/]"
         if "capped" in reason_lower:
             return f"[bold yellow]{raw_p}[/]"
-        return f"[{brand_color}]{raw_p}[/]"
+        return price_str
     return "SKIP"
 
 
@@ -955,11 +976,11 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         expand=False,
     )
     table.add_column("S#", justify="right", style="bold yellow")
-    table.add_column("Model / Product", style="bold white")
+    table.add_column("Model / Product", style="bold white", no_wrap=True)
     table.add_column("Cost Base", justify="right", style="dim")
-    table.add_column("Alfa Price", justify="right", style="bold #2c4699")
-    table.add_column("Alfa Net", justify="right", style="bold green")
-    table.add_column("Digi Price", justify="right", style="bold #229693")
+    table.add_column("Alfa Price", justify="right", no_wrap=True)
+    table.add_column("Alfa Net", justify="right")
+    table.add_column("Digi Price", justify="right", no_wrap=True)
     table.add_column("Rate", justify="center", style="blue")
     table.add_column("Digi Net", justify="right", style="bold green")
 
@@ -975,20 +996,30 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         real_cost_str = f"{(net_val + ship_val):,.0f}"
 
         alfa_p_val = rec.get("Final Price Alfa")
+        alfa_min_val = rec.get("Minimum Price Alfa")
         alfa_reason = str(rec.get("Alfa Reason", ""))
         alfa_alert = str(rec.get("Alfa Risk Alert", ""))
         alfa_p = _format_summary_price(
-            alfa_p_val, alfa_reason, alfa_alert, brand_color="bold #2c4699"
+            alfa_p_val,
+            min_comp_price=alfa_min_val,
+            reason=alfa_reason,
+            alert=alfa_alert,
+            brand_color="bold #2c4699",
         )
         alfa_profit = _format_summary_profit(
             alfa_p_val, rec.get("Alfa Real Profit", 0), alfa_reason, alfa_alert
         )
 
         digi_p_val = rec.get("Final Price Digi")
+        digi_min_val = rec.get("Minimum Price Digi")
         digi_reason = str(rec.get("Digi Reason", ""))
         digi_alert = str(rec.get("Digi Risk Alert", ""))
         digi_p = _format_summary_price(
-            digi_p_val, digi_reason, digi_alert, brand_color="bold #229693"
+            digi_p_val,
+            min_comp_price=digi_min_val,
+            reason=digi_reason,
+            alert=digi_alert,
+            brand_color="bold #229693",
         )
         digi_profit = _format_summary_profit(
             digi_p_val, rec.get("Digi Real Profit", 0), digi_reason, digi_alert
