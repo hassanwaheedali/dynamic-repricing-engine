@@ -915,18 +915,26 @@ def test_numeric_stem_color_variant_extraction() -> None:
 
 
 def test_strict_model_match_color_isolation_refrigerator() -> None:
-    """Verify that 9101 white strictly rejects Ezze Trader Silver And Black while 9101 silver accepts it."""
+    """Verify that 9101 white strictly rejects opposing colors while matching uncolored and matching color listings."""
     ezze_listing = "Dawlance Single Door Refrigerator 4 Cubic 9101 SD Silver And Black"
     white_listing = "Dawlance 9101 White Single Door Refrigerator"
+    digimall_no_color = "Dawlance Bedroom Series Refrigerator 4 Cu Ft (9101)"
+    digimall_sd_no_color = "Dawlance Refrigerator 9101 SD"
 
-    # 1. Target is 9101 white: must strictly reject Silver And Black
+    # 1. Target is 9101 white: must strictly reject Silver And Black (opposing color)
     assert not is_strict_model_match(ezze_listing, "9101 white", brand="Dawlance")
     # 2. Target is 9101 white: must match pure White listing
     assert is_strict_model_match(white_listing, "9101 white", brand="Dawlance")
+    # 3. Target is 9101 white: must match generic listings without color
+    assert is_strict_model_match(digimall_no_color, "9101 white", brand="Dawlance")
+    assert is_strict_model_match(digimall_sd_no_color, "9101 white", brand="Dawlance")
 
-    # 3. Target is 9101 silver: must match Silver And Black listing
+    # 4. Target is 9101 silver: must match Silver And Black listing
     assert is_strict_model_match(ezze_listing, "9101 silver", brand="Dawlance")
-    # 4. Target is 9101 silver: must strictly reject White listing
+    # 5. Target is 9101 silver: must match generic listings without color
+    assert is_strict_model_match(digimall_no_color, "9101 silver", brand="Dawlance")
+    assert is_strict_model_match(digimall_sd_no_color, "9101 silver", brand="Dawlance")
+    # 6. Target is 9101 silver: must strictly reject White listing (opposing color)
     assert not is_strict_model_match(white_listing, "9101 silver", brand="Dawlance")
 
 
@@ -935,4 +943,5 @@ def test_search_patterns_numeric_stem_color() -> None:
     patterns = generate_search_patterns("9101 white", brand="Dawlance")
     assert "Dawlance 9101 white" in patterns["tier_1"]
     assert "Dawlance 9101" in patterns["tier_1"]
+
 

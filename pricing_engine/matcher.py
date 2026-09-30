@@ -884,11 +884,14 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
-    # 100% Dynamic Structural Partitioning (Zero Hardcoded Tag Sets):
-    # Core SKU tokens MUST contain digits or be substantial series words (>= 4 chars).
-    # Secondary modifier/cosmetic tags (<= 3 letters without digits, e.g. SD, PL, GC, WB, BT)
-    # are automatically treated as optional descriptors often omitted by marketplace sellers.
-    core_tokens = [t for t in target_tokens if any(c.isdigit() for c in t) or len(t) >= 4]
+    # Core SKU tokens MUST contain digits or be substantial series words (>= 4 chars), excluding standalone color words
+    core_tokens = [
+        t
+        for t in target_tokens
+        if (any(c.isdigit() for c in t) or len(t) >= 4) and not is_color_token(t)
+    ]
+    if not core_tokens:
+        core_tokens = [t for t in target_tokens if any(c.isdigit() for c in t) or len(t) >= 4]
 
     # 100% Dynamic Initialism / Acronym Collision Protection (Zero Hardcoded Acronyms):
     # For any 2-letter modifier acronym in target (e.g. SD, DD, FL, TL):
