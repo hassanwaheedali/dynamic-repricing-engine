@@ -42,6 +42,9 @@ htmlcov/
 *.swo
 *~
 .DS_Store
-Thumbs.db
-
 .agents
+
+# Data Pipeline
+data/outputs/*.csv
+!data/outputs/.gitkeep
+!data/inputs/template.csv

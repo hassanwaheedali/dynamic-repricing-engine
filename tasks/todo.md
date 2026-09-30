@@ -40,14 +40,14 @@
 - [x] Run `pytest` — all tests green
 
 ### Task 1.3: Create Data Directory Structure
-- [ ] Create `data/inputs/.gitkeep`
-- [ ] Create `data/outputs/.gitkeep`
-- [ ] Create `data/inputs/template.csv` (6+1 columns, 2 example rows)
-- [ ] Copy Gree CSV to `data/inputs/Gree_AC.csv`
-- [ ] Copy Haier CSV to `data/inputs/Haier_Washers.csv`
-- [ ] Update `.gitignore` (exclude output CSVs, track template and .gitkeep)
-- [ ] Keep original root CSVs for test compatibility
-- [ ] Remove empty legacy `Prices/` directory
+- [x] Create `data/inputs/.gitkeep`
+- [x] Create `data/outputs/.gitkeep`
+- [x] Create `data/inputs/template.csv` (6+1 columns, 2 example rows)
+- [x] Copy Gree CSV to `data/inputs/Gree_AC.csv`
+- [x] Copy Haier CSV to `data/inputs/Haier_Washers.csv`
+- [x] Update `.gitignore` (exclude output CSVs, track template and .gitkeep)
+- [x] Keep original root CSVs for test compatibility
+- [x] Remove empty legacy `Prices/` directory
 
 ### Task 1.4: Wire Into Pipeline & CLI
 - [ ] Update `run_pipeline()` — add `output_path=None, use_structured_export=False` optional params
@@ -77,6 +77,7 @@
 - [ ] Legacy -i / -o flags work identically
 - [ ] Output in data/outputs/ with timestamp + latest
 - [ ] No lint errors
+- [ ] Inform User to start Phase 2
 
 ---
 
