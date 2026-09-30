@@ -23,21 +23,21 @@
 - [x] Run `pytest` — all 138 existing + new tests green
 
 ### Task 1.2: Create `pricing_engine/exporter.py`
-- [ ] Create `pricing_engine/exporter.py`
-- [ ] Implement `ExportManifest` dataclass (timestamped_path, latest_path, timestamp, total_rows)
-- [ ] Implement `export_results(df, source_filename) -> ExportManifest`
-- [ ] Auto-create `data/outputs/` directory
-- [ ] Save timestamped file: `{stem}_repriced_{YYYYMMDD_HHMMSS}.csv`
-- [ ] Save latest copy: `{stem}_repriced_latest.csv`
-- [ ] Apply `format_export_price()` to price columns
-- [ ] Render Rich finish panel with output paths
-- [ ] Create `tests/test_exporter.py`
-- [ ] Test: both timestamped and latest files created
-- [ ] Test: data/outputs/ directory auto-created
-- [ ] Test: timestamp format correct
-- [ ] Test: latest matches timestamped content
-- [ ] Test: price columns are pure integers
-- [ ] Run `pytest` — all tests green
+- [x] Create `pricing_engine/exporter.py`
+- [x] Implement `ExportManifest` dataclass (timestamped_path, latest_path, timestamp, total_rows)
+- [x] Implement `export_results(df, source_filename) -> ExportManifest`
+- [x] Auto-create `data/outputs/` directory
+- [x] Save timestamped file: `{stem}_repriced_{YYYYMMDD_HHMMSS}.csv`
+- [x] Save latest copy: `{stem}_repriced_latest.csv`
+- [x] Apply `format_export_price()` to price columns
+- [x] Render Rich finish panel with output paths
+- [x] Create `tests/test_exporter.py`
+- [x] Test: both timestamped and latest files created
+- [x] Test: data/outputs/ directory auto-created
+- [x] Test: timestamp format correct
+- [x] Test: latest matches timestamped content
+- [x] Test: price columns are pure integers
+- [x] Run `pytest` — all tests green
 
 ### Task 1.3: Create Data Directory Structure
 - [ ] Create `data/inputs/.gitkeep`
