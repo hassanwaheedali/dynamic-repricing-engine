@@ -5,10 +5,16 @@ Executes concurrent price discovery against direct backend search APIs,
 applies strict variant matching, and computes winning psychological prices.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import sys
 from pathlib import Path
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from pricing_engine.pipeline import run_pipeline
 
@@ -18,8 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-DEFAULT_INPUT_CSV = "Gree_Uploading_on_DigiMall_and_Price.csv"
-DEFAULT_OUTPUT_CSV = "final_repriced_uploaded_products.csv"
+console = Console()
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,15 +36,22 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--input",
         type=Path,
-        default=Path(DEFAULT_INPUT_CSV),
-        help=f"Input catalog CSV file (default: {DEFAULT_INPUT_CSV})",
+        default=None,
+        help="Input catalog CSV file or directory (default: scan data/inputs/)",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=Path(DEFAULT_OUTPUT_CSV),
-        help=f"Output repriced CSV file (default: {DEFAULT_OUTPUT_CSV})",
+        default=None,
+        help="Output repriced CSV file (default: structured export to data/outputs/)",
+    )
+    parser.add_argument(
+        "-b",
+        "-a",
+        "--batch",
+        action="store_true",
+        help="Batch process all catalog CSV files in data/inputs/",
     )
     parser.add_argument(
         "-c",
@@ -57,30 +69,139 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def find_input_catalogs(inputs_dir: Path = Path("data/inputs")) -> list[Path]:
+    """Scan directory for catalog CSV files, excluding templates."""
+    if not inputs_dir.is_dir():
+        return []
+    return sorted(
+        p
+        for p in inputs_dir.glob("*.csv")
+        if not p.name.lower().startswith("template") and not p.name.endswith(".gitkeep")
+    )
+
+
+def interactive_catalog_picker(catalogs: list[Path]) -> list[Path] | None:
+    """Display a Rich interactive catalog picker and return user selection."""
+    table = Table(show_header=True, header_style="bold cyan", box=None)
+    table.add_column("Option", style="bold yellow", width=8)
+    table.add_column("Catalog File", style="green")
+
+    for idx, cat in enumerate(catalogs, start=1):
+        table.add_row(f"[{idx}]", cat.name)
+    table.add_row("[A]", "Run All Catalogs (Batch)")
+    table.add_row("[Q]", "Quit")
+
+    panel = Panel(
+        table,
+        title="[bold cyan]📦 Select Catalog to Reprice[/bold cyan]",
+        border_style="cyan",
+        expand=False,
+    )
+    console.print(panel)
+
+    try:
+        choice = input(f"Select option [1-{len(catalogs)}, A, Q]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[yellow]Operation cancelled.[/yellow]")
+        return None
+
+    if choice.lower() in ("q", "quit", "exit"):
+        return None
+    if choice.lower() in ("a", "all"):
+        return catalogs
+    try:
+        num = int(choice)
+        if 1 <= num <= len(catalogs):
+            return [catalogs[num - 1]]
+    except ValueError:
+        pass
+
+    console.print(f"[bold red]❌ Invalid selection: '{choice}'. Aborting.[/bold red]")
+    return None
+
+
 async def main() -> int:
     """Main asynchronous pipeline entrypoint."""
     args = parse_args()
-    input_path: Path = args.input
-    output_path: Path = args.output
+    input_path: Path | None = args.input
+    output_path: Path | None = args.output
+    target_catalogs: list[Path] = []
 
-    if not input_path.exists():
-        print(f"\n❌ Error: Input catalog file not found: '{input_path}'")
-        print(
-            "Please ensure the input CSV file exists in this directory or specify a valid path with --input."
-        )
-        return 1
+    if args.batch:
+        target_catalogs = find_input_catalogs()
+        if not target_catalogs:
+            console.print(
+                "[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]"
+            )
+            console.print(
+                "Please place your catalog CSVs in 'data/inputs/' or use the -i flag."
+            )
+            return 1
+    elif input_path is not None:
+        if not input_path.exists():
+            console.print(
+                f"\n[bold red]❌ Error: Input catalog file not found: '{input_path}'[/bold red]"
+            )
+            console.print(
+                "Please ensure the CSV file exists or drop it into data/inputs/."
+            )
+            return 1
+        target_catalogs = [input_path]
+    else:
+        # No input provided: scan data/inputs/
+        catalogs = find_input_catalogs()
+        if not catalogs:
+            # Check if legacy root Gree file exists as fallback hint
+            legacy_hint = (
+                " Found root Gree CSV, use: python index.py -i Gree_Uploading_on_DigiMall_and_Price.csv"
+                if Path("Gree_Uploading_on_DigiMall_and_Price.csv").is_file()
+                else ""
+            )
+            console.print(
+                "[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]"
+            )
+            console.print(
+                f"Please place your catalog CSV in 'data/inputs/' or specify with -i/--input.{legacy_hint}"
+            )
+            return 1
 
-    try:
-        await run_pipeline(
-            input_path=input_path,
-            output_path=output_path,
-            concurrency=args.concurrency,
-            verbose=not args.quiet,
-        )
-        return 0
-    except Exception as exc:
-        print(f"\n❌ Pipeline execution error: {exc}", file=sys.stderr)
-        return 1
+        if len(catalogs) == 1:
+            console.print(
+                f"[bold cyan]ℹ️  Found 1 catalog in data/inputs/: [green]{catalogs[0].name}[/green]. Auto-selecting.[/bold cyan]"
+            )
+            target_catalogs = [catalogs[0]]
+        else:
+            # 2+ catalogs found: interactive picker if TTY, else fallback
+            if sys.stdin.isatty():
+                chosen = interactive_catalog_picker(catalogs)
+                if chosen is None:
+                    return 0
+                target_catalogs = chosen
+            else:
+                console.print(
+                    f"[bold yellow]⚠️  Non-interactive terminal detected. Auto-selecting first catalog: {catalogs[0].name}[/bold yellow]"
+                )
+                target_catalogs = [catalogs[0]]
+
+    had_errors = False
+    for cat in target_catalogs:
+        try:
+            effective_out = output_path if len(target_catalogs) == 1 else None
+            await run_pipeline(
+                input_path=cat,
+                output_path=effective_out,
+                concurrency=args.concurrency,
+                verbose=not args.quiet,
+                use_structured_export=(effective_out is None),
+            )
+        except Exception as exc:
+            console.print(
+                f"\n[bold red]❌ Pipeline execution error for '{cat.name}': {exc}[/bold red]",
+                file=sys.stderr,
+            )
+            had_errors = True
+
+    return 1 if had_errors else 0
 
 
 if __name__ == "__main__":

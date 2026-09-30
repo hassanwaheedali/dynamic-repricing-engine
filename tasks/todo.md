@@ -50,34 +50,34 @@
 - [x] Remove empty legacy `Prices/` directory
 
 ### Task 1.4: Wire Into Pipeline & CLI
-- [ ] Update `run_pipeline()` — add `output_path=None, use_structured_export=False` optional params
-- [ ] When output_path provided → legacy behavior (existing tests unchanged)
-- [ ] When output_path=None + use_structured_export=True → use CatalogExporter
-- [ ] Add `df.columns = df.columns.str.strip()` strictly at CSV load level in run_pipeline
-- [ ] Remove `DEFAULT_INPUT_CSV` and `DEFAULT_OUTPUT_CSV` from index.py
-- [ ] Change --input default to None
-- [ ] Change --output default to None
-- [ ] Add --batch / -a flag with per-catalog `try...except` resilient error handling
-- [ ] Implement data/inputs/ scanning when no -i provided
-- [ ] If 0 CSVs → helpful error message
-- [ ] If 1 CSV → auto-select
-- [ ] If 2+ CSVs:
+- [x] Update `run_pipeline()` — add `output_path=None, use_structured_export=False` optional params
+- [x] When output_path provided → legacy behavior (existing tests unchanged)
+- [x] When output_path=None + use_structured_export=True → use CatalogExporter
+- [x] Add `df.columns = df.columns.str.strip()` strictly at CSV load level in run_pipeline
+- [x] Remove `DEFAULT_INPUT_CSV` and `DEFAULT_OUTPUT_CSV` from index.py
+- [x] Change --input default to None
+- [x] Change --output default to None
+- [x] Add --batch / -a flag with per-catalog `try...except` resilient error handling
+- [x] Implement data/inputs/ scanning when no -i provided
+- [x] If 0 CSVs → helpful error message
+- [x] If 1 CSV → auto-select
+- [x] If 2+ CSVs:
   - Check `sys.stdin.isatty()`: interactive Rich picker if True, non-interactive fallback if False
-- [ ] When -o not specified → use_structured_export=True
-- [ ] When -o specified → pass output_path directly
-- [ ] Run `pytest` — all 138+ tests green
-- [ ] Test `python index.py --help`
-- [ ] Test `python index.py -i Gree_Uploading_on_DigiMall_and_Price.csv -o test.csv` (legacy)
-- [ ] Test `python index.py` with CSVs in data/inputs/
-- [ ] Run `ruff check .` — no lint errors
+- [x] When -o not specified → use_structured_export=True
+- [x] When -o specified → pass output_path directly
+- [x] Run `pytest` — all 138+ tests green (158 passed)
+- [x] Test `python index.py --help`
+- [x] Test `python index.py -i Gree_Uploading_on_DigiMall_and_Price.csv -o test.csv` (legacy)
+- [x] Test `python index.py` with CSVs in data/inputs/
+- [x] Run `ruff check .` — no lint errors
 
 ### Phase 1 Checkpoint
-- [ ] All existing 138 tests + new tests pass
-- [ ] `python index.py` with CSVs in data/inputs/ works
-- [ ] Legacy -i / -o flags work identically
-- [ ] Output in data/outputs/ with timestamp + latest
-- [ ] No lint errors
-- [ ] Inform User to start Phase 2
+- [x] All existing 138 tests + new tests pass (158 passed)
+- [x] `python index.py` with CSVs in data/inputs/ works
+- [x] Legacy -i / -o flags work identically
+- [x] Output in data/outputs/ with timestamp + latest
+- [x] No lint errors
+- [x] Inform User to start Phase 2
 
 ---
 

@@ -1279,4 +1279,39 @@ def test_build_scraped_sellers_table_target_predecessor_visibility() -> None:
     assert "Target Undercut (Lowest Viable)" in full_table_text
 
 
+def test_run_pipeline_structured_export_mode(tmp_path: Path) -> None:
+    """Verify run_pipeline with output_path=None saves to structured export directory."""
+    csv_file = tmp_path / "catalog.csv"
+    csv_file.write_text(
+        "Brand,Name,Net Price,Length,Width,Height\n"
+        "Gree,GREE SPLIT AC 12AITH21W-T3,147000,87,35.5,92\n",
+        encoding="utf-8",
+    )
+    export_dir = tmp_path / "data_outputs"
+
+    mock_empty = ScrapeResult(offers=[], is_success=True, status_code=200)
+
+    async def _run() -> None:
+        with (
+            patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_empty),
+            patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_empty),
+        ):
+            out_df = await run_pipeline(
+                input_path=csv_file,
+                output_path=None,
+                concurrency=1,
+                verbose=False,
+                use_structured_export=True,
+                export_dir=export_dir,
+            )
+            assert len(out_df) == 1
+            latest_file = export_dir / "catalog_repriced_latest.csv"
+            assert latest_file.is_file()
+            ts_files = list(export_dir.glob("catalog_repriced_*.csv"))
+            assert len(ts_files) >= 2
+
+    asyncio.run(_run())
+
+
+
 

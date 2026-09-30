@@ -21,6 +21,7 @@ from pricing_engine.calculator import (
 )
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
+from pricing_engine.exporter import export_results
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
     extract_product_slots,
@@ -949,10 +950,12 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
 
 
 async def run_pipeline(
-    input_path: Path,
-    output_path: Path,
+    input_path: str | Path,
+    output_path: str | Path | None = None,
     concurrency: int = 3,
     verbose: bool = True,
+    use_structured_export: bool = False,
+    export_dir: str | Path = "data/outputs",
 ) -> pd.DataFrame:
     """Run dynamic repricing pipeline on an input CSV and export results to output CSV.
 
@@ -961,30 +964,46 @@ async def run_pipeline(
     - True bounded concurrency via asyncio.Semaphore(concurrency).
     - Atomic terminal audit rendering protected by asyncio.Lock.
     - 100% deterministic output row sorting preserving original CSV row sequence.
+    - Optional structured export to data/outputs/ with timestamp and latest copy.
 
     Args:
         input_path: Path to the source CSV file.
-        output_path: Path where repriced CSV should be written.
+        output_path: Optional path where repriced CSV should be written.
         concurrency: Max simultaneous product search requests (default: 3).
         verbose: Print visual terminal audit cards if True.
+        use_structured_export: If True or output_path is None, exports structured files.
+        export_dir: Directory where structured outputs are saved (default: data/outputs).
 
     Returns:
         Processed DataFrame with repriced data.
     """
+    input_path = Path(input_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found at: {input_path}")
 
     df = pd.read_csv(input_path)
+    # Strip whitespace from column headers, preserving legacy 'Name ' key if present
+    has_legacy_name_space = "Name " in df.columns
+    df.columns = [
+        "Name " if c == "Name " and has_legacy_name_space else str(c).strip()
+        for c in df.columns
+    ]
     start_time = time.perf_counter()
 
     supabase_client = SupabaseClient()
     if supabase_client.is_configured:
         await InMemoryRegistry.load_from_db(supabase_client)
 
+    banner_output_path = (
+        Path(output_path)
+        if output_path is not None
+        else Path(export_dir) / f"{input_path.stem}_repriced_latest.csv"
+    )
+
     if verbose:
         render_start_banner(
             input_path=input_path,
-            output_path=output_path,
+            output_path=banner_output_path,
             total_items=len(df),
             concurrency=concurrency,
         )
@@ -1038,7 +1057,21 @@ async def run_pipeline(
         if col in out_df.columns:
             out_df[col] = out_df[col].apply(format_export_price)
 
-    out_df.to_csv(output_path, index=False)
+    effective_finish_path: Path
+    if output_path is not None:
+        target_out = Path(output_path)
+        if target_out.parent and not target_out.parent.exists():
+            target_out.parent.mkdir(parents=True, exist_ok=True)
+        out_df.to_csv(target_out, index=False)
+        effective_finish_path = target_out
+    else:
+        manifest = export_results(
+            df=out_df,
+            source_filename=input_path,
+            output_dir=export_dir,
+            render_panel=False,
+        )
+        effective_finish_path = manifest.timestamped_path
 
     if supabase_client.is_configured and default_learner.buffer_size > 0:
         flushed_count = await default_learner.flush_observations(supabase_client)
@@ -1053,7 +1086,7 @@ async def run_pipeline(
     elapsed = time.perf_counter() - start_time
     if verbose:
         render_finish_banner(
-            output_path=output_path,
+            output_path=effective_finish_path,
             total_processed=len(records),
             elapsed_seconds=elapsed,
         )
