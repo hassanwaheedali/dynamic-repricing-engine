@@ -827,3 +827,69 @@ def test_generate_search_patterns_duplicate_brand_prevention() -> None:
     patterns_hyphen = generate_search_patterns("haier-4607 sd", brand="haier")
     assert "haier 4607" in patterns_hyphen["tier_1"]
     assert not any("haier haier" in p.lower() for tier in patterns_hyphen.values() for p in tier)
+
+
+def test_gd_vs_inox_hardware_finish_isolation() -> None:
+    # 1. DSS-9055 GD vs INOX
+    assert not is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 INOX", "DSS-9055 GD", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 Stainless Steel", "DSS-9055 GD", brand="Dawlance"
+    )
+    assert is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 GD", "DSS-9055 GD", brand="Dawlance"
+    )
+    assert is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 Glass Door", "DSS-9055 GD", brand="Dawlance"
+    )
+
+    # 2. DSS9055 INOX vs GD
+    assert not is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 GD", "DSS9055 INOX", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 Glass Door", "DSS9055 INOX", brand="Dawlance"
+    )
+    assert is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 INOX", "DSS9055 INOX", brand="Dawlance"
+    )
+    assert is_strict_model_match(
+        "Dawlance Refrigerator DSS-9055 Stainless Steel", "DSS9055 INOX", brand="Dawlance"
+    )
+
+    # 3. Other refrigerator catalog pairs
+    assert not is_strict_model_match(
+        "Dawlance 7950 INOX Refrigerator", "7950 GD", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance 7950 GD Refrigerator", "7950 INOX", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance DW7650 INOX Refrigerator", "DW7650 GD IOT", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance 9060 INVERTER INOX", "9060 INVERTER GD", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance DMD 7951 INV INOX", "DMD 7951 INV GD", brand="Dawlance"
+    )
+
+
+def test_inox_sku_tag_extraction_and_search_patterns() -> None:
+    _, model_inox = extract_search_query_and_model("Dawlance DSS9055 INOX", brand="Dawlance")
+    assert model_inox == "DSS9055 INOX"
+
+    patterns = generate_search_patterns("Dawlance DSS9055 INOX", brand="Dawlance")
+    assert any("DSS9055 INOX" in p for p in patterns["tier_1"])
+    assert any("Dawlance DSS9055 INOX" in p for p in patterns["tier_1"])
+
+
+def test_referee_match_gd_inox_collision() -> None:
+    decision1 = referee_match("DSS-9055 GD", "Dawlance DSS-9055 INOX Refrigerator", brand="Dawlance")
+    assert not decision1.is_match
+    assert "Hardware finish collision" in decision1.reason
+
+    decision2 = referee_match("DSS9055 INOX", "Dawlance DSS-9055 GD Refrigerator", brand="Dawlance")
+    assert not decision2.is_match
+    assert "Hardware finish collision" in decision2.reason

@@ -11,6 +11,7 @@ class GuardedFacets:
     tub_series: str | None = None  # e.g. "WB", "GB"
     color_family: str | None = None  # One of the 9 normalized color families
     color_raw: str | None = None  # Original matched color text
+    door_finish: str | None = None  # Hardware finish: 'GD' (Glass Door) vs 'INOX' (Stainless Steel)
 
 
 @dataclass
@@ -42,6 +43,7 @@ COLOR_FAMILIES: dict[str, list[str]] = {
         "DARK METALLIC",
         "METALLIC GRAY",
         "STAINLESS STEEL",
+        "INOX",
         "S.S",
         "GREY",
         "GRAY",
@@ -215,7 +217,9 @@ def is_sku_variant_tag(token: str) -> bool:
     # If contains digits, must also contain letters (e.g. T3, S6, S8, 11S)
     if re.search(r"\d", clean):
         return bool(re.search(r"[A-Za-z]", clean))
-    # If pure letters: short uppercase code of length <= 3
+    # If pure letters: short uppercase code of length <= 3 OR universal variant finish codes (e.g. INOX)
+    if clean.upper() in {"INOX"}:
+        return True
     return len(clean) <= 3 and clean.isupper()
 
 
@@ -654,11 +658,16 @@ def expand_multivariant_titles(title: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    # 2. Normalize spaced slashes: e.g. "14S /11S" -> "14S/11S"
+    # 2. Universal finish / door-type synonym expansion:
+    # Ensures 'Glass Door' provides 'GD' and 'Stainless Steel' provides 'INOX'
+    clean_title = re.sub(r"\bGLASS\s+DOOR\b", "GLASS DOOR GD", clean_title, flags=re.IGNORECASE)
+    clean_title = re.sub(r"\bSTAINLESS\s+STEEL\b", "STAINLESS STEEL INOX", clean_title, flags=re.IGNORECASE)
+
+    # 3. Normalize spaced slashes: e.g. "14S /11S" -> "14S/11S"
     clean_title = re.sub(r"([A-Za-z0-9\-_]+)\s*[/,]\s*([A-Za-z0-9\-_]+)", r"\1/\2", clean_title)
     clean_title = re.sub(r"([A-Za-z0-9]+)\s+-\s+([A-Za-z0-9]+/[A-Za-z0-9]+)", r"\1-\2", clean_title)
 
-    # 3. Process tokens containing '/'
+    # 4. Process tokens containing '/'
     words = clean_title.split()
     expanded_words: list[str] = []
     i = 0
@@ -814,6 +823,18 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
                 found_num = m_found.group(1)
                 if len(found_num) == len(target_num) and found_num != target_num:
                     return False
+
+    # Zero-Tolerance Hardware Door / Finish Collision Guard (GD vs INOX):
+    # GD (Glass Door) and INOX (Stainless Steel) are 100% mutually exclusive appliance finishes.
+    target_has_gd = bool(re.search(r"\b(?:GD|GLASS\s+DOOR)\b", clean_target, re.IGNORECASE))
+    target_has_inox = bool(re.search(r"\b(?:INOX|STAINLESS(?:\s+STEEL)?|S\.S)\b", clean_target, re.IGNORECASE))
+    cand_has_gd = bool(re.search(r"\b(?:GD|GLASS\s+DOOR)\b", expanded_title, re.IGNORECASE))
+    cand_has_inox = bool(re.search(r"\b(?:INOX|STAINLESS(?:\s+STEEL)?|S\.S)\b", expanded_title, re.IGNORECASE))
+
+    if target_has_gd and cand_has_inox:
+        return False
+    if target_has_inox and cand_has_gd:
+        return False
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]
@@ -1196,12 +1217,20 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # 2d. Color Family & Raw
     color_fam, color_raw = normalize_color(clean_title, anchor=anchor)
 
+    # 2e. Hardware Door Finish (GD vs INOX)
+    door_finish = None
+    if re.search(r"\b(?:GD|GLASS\s+DOOR)\b", clean_title, re.IGNORECASE):
+        door_finish = "GD"
+    elif re.search(r"\b(?:INOX|STAINLESS(?:\s+STEEL)?|S\.S)\b", clean_title, re.IGNORECASE):
+        door_finish = "INOX"
+
     guarded = GuardedFacets(
         t3=t3,
         capacity=capacity,
         tub_series=tub_series,
         color_family=color_fam,
         color_raw=color_raw,
+        door_finish=door_finish,
     )
 
     # 3. Soft Residual Modifiers
@@ -1292,6 +1321,22 @@ def referee_match(
             reason=(
                 f"Hardware tub mismatch: {target_slots.guarded_facets.tub_series} "
                 f"vs {cand_slots.guarded_facets.tub_series}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 1b. Zero-Tolerance Hardware Finish / Door Guard (GD vs INOX)
+    if (
+        target_slots.guarded_facets.door_finish
+        and cand_slots.guarded_facets.door_finish
+        and target_slots.guarded_facets.door_finish != cand_slots.guarded_facets.door_finish
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Hardware finish collision: target is {target_slots.guarded_facets.door_finish} "
+                f"vs candidate {cand_slots.guarded_facets.door_finish}"
             ),
             target_slots=target_slots,
             candidate_slots=cand_slots,
