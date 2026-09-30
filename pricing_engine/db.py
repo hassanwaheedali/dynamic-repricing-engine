@@ -161,7 +161,10 @@ class SupabaseClient:
         if not self.is_configured or not observations:
             return 0
 
-        endpoint = f"{self.url}/rest/v1/learning_observations"
+        endpoint = (
+            f"{self.url}/rest/v1/learning_observations"
+            "?on_conflict=brand,category,anchor_model,target_residual,candidate_residual,normalized_merchant"
+        )
         session = self._ensure_session()
         headers = self._headers(prefer="resolution=ignore-duplicates")
 
@@ -172,6 +175,10 @@ class SupabaseClient:
             if resp.status_code in (200, 201):
                 data = resp.json()
                 return len(data) if isinstance(data, list) else len(observations)
+            if resp.status_code == 409:
+                # 409 Conflict: Existing market observations safely ignored via database constraint
+                logger.debug("Supabase batch observations already present (409 duplicates ignored)")
+                return len(observations)
             logger.warning("Supabase batch observation insert returned status %d", resp.status_code)
             return 0
         except Exception as exc:
