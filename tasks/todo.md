@@ -1,215 +1,133 @@
-# Tasks Checklist: Enterprise Autonomous Multi-Pattern Repricing Engine
+# Dynamic Repricing Engine — Implementation Todo
 
-## Previously Completed Sprints
-- [x] **v1 Core Matcher (Tasks 1-5)**: Brand-agnostic SKU extraction, token runs, distributive expansion, strict variant match, zero-hardcoded color isolation. (78 tests green)
-- [x] **v2 Matcher Gap Fixes (Tasks 6-10)**: Technical slash safeguards (`/DC`, `/KB`, `/YY`, `W/O`), Dawlance name-only fallback, T3 isolation, and numeric hyphenated SKU detection. (84 tests green)
-- [x] **Universal Multi-Brand Capacity Mappings (Task 11)**: Universal BTU structure (`09`=0.75T, `12`=1T, `18`=1.5T, `24`=2T, `28`/`30`=2.5T, `36`=3T, `48`=4T) + Dawlance structure (`10`=0.75T, `15`=1T, `20`=1.25T, `30`=1.5T, `45`=2T) + disambiguation. (85 tests green)
+## Phase 1: Fix Input/Output Pipeline
 
----
+### Task 1.1: Create `pricing_engine/ingestion.py`
+- [x] Create `pricing_engine/ingestion.py`
+- [x] Implement `IngestionReport` dataclass (source_file, total_rows, valid_rows, profit_source)
+- [x] Implement `ingest_catalog(csv_path) -> tuple[list[ProductInput], IngestionReport]`
+- [x] Strip whitespace from all column names on CSV load
+- [x] Validate 6 required columns: Brand, Name, Net Price, Length, Width, Height
+- [x] Raise clear `ValueError` if any required column missing (name exactly which)
+- [x] Handle optional Profit column (per-row if exists, else default 500.0)
+- [x] Ignore extra columns silently (legacy 18-column compatibility)
+- [x] Render Rich pre-flight banner (source file, row count, profit source)
+- [x] Create `tests/test_ingestion.py`
+- [x] Test: clean 6-column CSV parses correctly
+- [x] Test: 7-column CSV with Profit uses per-row values
+- [x] Test: legacy 18-column Gree CSV works
+- [x] Test: legacy 18-column Haier CSV works
+- [x] Test: missing Net Price column raises ValueError
+- [x] Test: missing Brand column raises ValueError
+- [x] Test: empty CSV returns empty list
+- [x] Run `pytest` — all 138 existing + new tests green
 
-## Active Roadmap: Enterprise Autonomous Architecture
+### Task 1.2: Create `pricing_engine/exporter.py`
+- [ ] Create `pricing_engine/exporter.py`
+- [ ] Implement `ExportManifest` dataclass (timestamped_path, latest_path, timestamp, total_rows)
+- [ ] Implement `export_results(df, source_filename) -> ExportManifest`
+- [ ] Auto-create `data/outputs/` directory
+- [ ] Save timestamped file: `{stem}_repriced_{YYYYMMDD_HHMMSS}.csv`
+- [ ] Save latest copy: `{stem}_repriced_latest.csv`
+- [ ] Apply `format_export_price()` to price columns
+- [ ] Render Rich finish panel with output paths
+- [ ] Create `tests/test_exporter.py`
+- [ ] Test: both timestamped and latest files created
+- [ ] Test: data/outputs/ directory auto-created
+- [ ] Test: timestamp format correct
+- [ ] Test: latest matches timestamped content
+- [ ] Test: price columns are pure integers
+- [ ] Run `pytest` — all tests green
 
-### Phase 1: Baseline Stabilization & Multi-Catalog Data Integration
+### Task 1.3: Create Data Directory Structure
+- [ ] Create `data/inputs/.gitkeep`
+- [ ] Create `data/outputs/.gitkeep`
+- [ ] Create `data/inputs/template.csv` (6+1 columns, 2 example rows)
+- [ ] Copy Gree CSV to `data/inputs/Gree_AC.csv`
+- [ ] Copy Haier CSV to `data/inputs/Haier_Washers.csv`
+- [ ] Update `.gitignore` (exclude output CSVs, track template and .gitkeep)
+- [ ] Keep original root CSVs for test compatibility
+- [ ] Remove empty legacy `Prices/` directory
 
-- [x] **Task 1.1: Multi-Catalog Dataset Integration**
-  - Bring `Haier_Washing_Machines_Uploading_and_Price.csv` and `final_haier_wm_repriced.csv` into the workspace root.
-  - Sample representative models from `Stock Holding Report - FINAC - Products - MainSheet.csv` (Refrigerators: `276EBS SILVER`, `306IDB BLACK`, `418IFG1U1 IOT GREY`; Microwave Ovens; Water Dispensers; TVs: `50S80EUX`).
-  - *Acceptance Criteria:* Catalog files present and readable by pandas; test fixture verified.
-  - *Verification:* `.venv\Scripts\python -c "import pandas as pd; df = pd.read_csv('Haier_Washing_Machines_Uploading_and_Price.csv'); print(f'Loaded {len(df)} Haier products')"`
+### Task 1.4: Wire Into Pipeline & CLI
+- [ ] Update `run_pipeline()` — add `output_path=None, use_structured_export=False` optional params
+- [ ] When output_path provided → legacy behavior (existing tests unchanged)
+- [ ] When output_path=None + use_structured_export=True → use CatalogExporter
+- [ ] Add `df.columns = df.columns.str.strip()` strictly at CSV load level in run_pipeline
+- [ ] Remove `DEFAULT_INPUT_CSV` and `DEFAULT_OUTPUT_CSV` from index.py
+- [ ] Change --input default to None
+- [ ] Change --output default to None
+- [ ] Add --batch / -a flag with per-catalog `try...except` resilient error handling
+- [ ] Implement data/inputs/ scanning when no -i provided
+- [ ] If 0 CSVs → helpful error message
+- [ ] If 1 CSV → auto-select
+- [ ] If 2+ CSVs:
+  - Check `sys.stdin.isatty()`: interactive Rich picker if True, non-interactive fallback if False
+- [ ] When -o not specified → use_structured_export=True
+- [ ] When -o specified → pass output_path directly
+- [ ] Run `pytest` — all 138+ tests green
+- [ ] Test `python index.py --help`
+- [ ] Test `python index.py -i Gree_Uploading_on_DigiMall_and_Price.csv -o test.csv` (legacy)
+- [ ] Test `python index.py` with CSVs in data/inputs/
+- [ ] Run `ruff check .` — no lint errors
 
-- [x] **Task 1.2: Restore AlfaMall 50% Midpoint Adaptive Pricing**
-  - In `pricing_engine/evaluator.py`:
-    - Remove the `if max_profit_cap is not None else None` bypass on AlfaMall.
-    - Set default `large_cap_alfa = max_profit_cap if max_profit_cap is not None else 10000.0`.
-    - Add explicit audit reason string when Tier 2 50% split midpoint triggers.
-  - In `tests/test_evaluator.py`: update expected price in `test_alfa_competitive_win_undercut` to Tier 2 midpoint (`81499`).
-  - *Acceptance Criteria:* Large gap items on AlfaMall undercut to 50% split midpoint instead of hugging competitor by only Rs. 100.
-  - *Verification:* `.venv\Scripts\pytest tests/test_evaluator.py -v`
-
-- [x] **Task 1.3: Baseline Verification & Test Suite Checkpoint**
-  - Run complete project test suite.
-  - Run strict linter check.
-  - *Acceptance Criteria:* All tests green; 0 linter warnings.
-  - *Verification:* `.venv\Scripts\pytest -v` and `.venv\Scripts\ruff check .`
-
-### Checkpoint: Phase 1 Complete
-- [x] Catalogs integrated.
-- [x] Evaluator 50% adaptive gap bug resolved on AlfaMall.
-- [x] 100% tests green.
-
----
-
-### Phase 2: High-Performance Multi-Pattern Waterfall Scraper
-
-- [x] **Task 2.1: Multi-Pattern Seed Query Generator (`pricing_engine/matcher.py`)**
-  - Implement `generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, list[str]]`:
-    - `tier_1`: Exact clean target SKU (`["120-826S6 GC", "50S80EUX"]`).
-    - `tier_2`: Bare alphanumeric stem without cosmetic tags (`["120-826S6", "S80EUX"]`).
-    - `tier_3`: Spaced, glued, and prefixed permutations (`["120 826S6", "50 S80EUX", "HWM-120-826S6"]`).
-    - Appliance Series queries: `["MAGNA 30", "MAGNA 1.5 TON"]`.
-  - Preserve variant codes strictly (e.g. `WB`, `GB` never stripped from query seeds).
-  - *Acceptance Criteria:* Returns clean, ordered query tiers for TVs, Washing Machines, ACs, and Refrigerators.
-  - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_generate_search_patterns -v`
-
-- [x] **Task 2.2: Tiered Early-Exit Waterfall Scraper (`pricing_engine/scraper.py`)**
-  - Upgrade `scrape_alfamall` and `scrape_digimall` to accept tiered query patterns.
-  - Execute Tier 1 query first; if $\ge 2$ valid candidate offers returned, return immediately without calling Tier 2 or Tier 3.
-  - Fallback to Tier 2 and Tier 3 only if $<2$ candidate offers discovered.
-  - Integrate run-scoped cache `_query_cache[(platform, query)]` and UTF-8 Windows stdout protection.
-  - *Acceptance Criteria:* Early exit stops redundant HTTP requests; deduplicated candidates merged cleanly.
-  - *Verification:* `.venv\Scripts\pytest tests/test_scraper.py -v`
-
-- [x] **Task 2.3: Scraper Unit Tests & Performance Verification**
-  - Add mock tests for early-exit waterfall (verify Tier 2 is not called when Tier 1 succeeds).
-  - Add tests for fallback when Tier 1 returns 0 offers.
-  - *Acceptance Criteria:* Test coverage for waterfall logic exceeds 90%.
-  - *Verification:* `.venv\Scripts\pytest tests/test_scraper.py -v`
-
-### Checkpoint: Phase 2 Complete
-- [x] Multi-pattern query generation verified.
-- [x] Tiered early-exit waterfall reduces network overhead by 80%.
-- [x] All scraper tests green.
-
----
-
-### Phase 3: Token-Based Extraction & Negative-Collision Referee Matcher
-
-- [x] **Task 3.1: 4-Slot Attribute Extractor with Residual Subtraction (`pricing_engine/matcher.py`)**
-  - Implement `extract_product_slots(title: str, brand: str = "") -> ProductSlots`:
-    - `anchor`: Primary numeric or alphanumeric SKU run (`120-826S6`, `276EBS`, `DWT-1165`).
-    - `series`: Extracted dynamically via CSV Metadata Subtraction (Zero Static Noise Dict):
-      $$\text{Series} = \text{Title} - (\text{Brand Metadata} \cup \text{Category Metadata} \cup \text{Specs/Capacities} \cup \text{Colors})$$
-      - Sub-series tokens (`PRO`, `+`, `X`, `CLASSIC`, `ELEGANT`) strictly preserved (`CHROME PRO` strictly requires `PRO`, `AVANTE CLASSIC` rejects `AVANTE ELEGANT`).
-    - `guarded_facets`:
-      - `t3`: True / False / None.
-      - `capacity`: Extracted tonnage (`1.5T`), weight (`12KG`), or screen size (`50"`).
-      - `tub_series`: Hardware variant codes (`WB` vs `GB`).
-      - `color`: 9 normalized color families (White/Milky, Black/Dark, Grey/Silver/Metallic/Steel, Red/Maroon, Gold/Copper/Bronze, Brown/Wood, Blue, Green, Purple/Pink) + Suffix Codes (`W`, `B`, `S`, `G`, `R`, `P`).
-    - `residuals`: Extra marketing/cosmetic tokens (`GC`, `Glass Door`, `Pillow Drum`).
-  - *Acceptance Criteria:* Correctly factors titles into slots without hardcoded series dictionaries.
-  - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_extract_product_slots -v`
-
-- [x] **Task 3.2: Negative-Collision Referee Matcher (`pricing_engine/matcher.py`)**
-  - Implement `referee_match(target_slots: ProductSlots, candidate_title: str) -> MatchDecision`:
-    - Check 1: Anchor Model containment.
-    - Check 2: Zero-Tolerance Collision Guards:
-      - T3 mismatch (Non-T3 vs T3) $\rightarrow$ REJECT.
-      - Capacity mismatch (12KG vs 10KG, 50" vs 43") $\rightarrow$ REJECT.
-      - Color mismatch (White vs Black) $\rightarrow$ REJECT.
-      - Hardware tub mismatch (`WB` vs `GB`) $\rightarrow$ REJECT.
-    - Check 3: If Anchor matches and zero collisions found $\rightarrow$ ACCEPT.
-  - Return human-readable decision reason.
-  - *Acceptance Criteria:* Accurately matches identical units and strictly rejects variant collisions.
-  - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -k test_referee_match -v`
-
-- [x] **Task 3.3: Comprehensive Cross-Category Test Suite (`tests/test_matcher.py`)**
-  - Add test cases covering:
-    - Haier Washing Machines (`120-826S6 GC` matches `120-826S6 Glass Door`; `80-1217WB` rejects `80-1217GB`).
-    - Dawlance ACs (`MAGNA T3 30 MILKY` matches `MAGNA 1.5 TON T3` and rejects non-T3).
-    - TVs (`50S80EUX` matches `50 S80EUX` and rejects `43S80EUX`).
-    - Refrigerators (`276EBS SILVER` matches `276EBS` and rejects `276EPR RED`).
-  - *Acceptance Criteria:* 100% of test cases pass with 0 regressions.
-  - *Verification:* `.venv\Scripts\pytest tests/test_matcher.py -v`
-
-### Checkpoint: Phase 3 Complete
-- [x] Zero series dictionaries required.
-- [x] Residual subtraction reliably extracts series names.
-- [x] Negative-collision referee guarantees variant safety.
+### Phase 1 Checkpoint
+- [ ] All existing 138 tests + new tests pass
+- [ ] `python index.py` with CSVs in data/inputs/ works
+- [ ] Legacy -i / -o flags work identically
+- [ ] Output in data/outputs/ with timestamp + latest
+- [ ] No lint errors
 
 ---
 
-### Phase 4: Autonomous Co-Occurrence Mining & Cloud Memory
+## Phase 2: Supabase Price History & Terminal Search
 
-- [ ] **Task 4.1: Supabase SQL Migration Script (`scripts/setup_supabase.sql`)**
-  - Create idempotent SQL table definitions:
-    - `capacity_registry`: `(brand, code, tonnage, status, occurrences, confidence)`.
-    - `synonym_registry`: `(brand, category, anchor_model, tag, alias, occurrences, status)`.
-    - `learning_observations`: Append-only market audit log.
-    - Row-Level Security (RLS) policies and indexes.
-  - *Acceptance Criteria:* Script runs cleanly in Supabase SQL editor.
-  - *Verification:* Code inspection and test schema validation.
+### Task 2.1: Create Supabase Tables
+- [ ] Add `repricing_runs` table to `scripts/setup_supabase.sql`
+- [ ] Add `repricing_results` table to `scripts/setup_supabase.sql`
+- [ ] Add indexes on run_id, brand, model, created_at
+- [ ] Add RLS policies (service_role full, public read)
+- [ ] Run SQL in Supabase dashboard to create tables
 
-- [ ] **Task 4.2: Supabase Client & In-Memory Registry (`pricing_engine/db.py`, `pricing_engine/registry.py`)**
-  - Implement async `SupabaseClient` with HTTPS REST API.
-  - Implement in-memory cached registry with $<0.01$ms lookups.
-  - Implement safe local fallback when offline or unconfigured.
-  - *Acceptance Criteria:* Client handles online sync and offline graceful degradation.
-  - *Verification:* `.venv\Scripts\pytest tests/test_db.py tests/test_registry.py -v`
+### Task 2.2: Add History Methods to `pricing_engine/db.py`
+- [ ] `create_repricing_run(catalog_name, total_items) -> str | None`
+- [ ] `store_repricing_results(run_id, results) -> int`
+- [ ] `query_runs_by_date(date_str) -> list[dict]`
+- [ ] `query_results_by_model(model_pattern) -> list[dict]`
+- [ ] `query_results_by_run(run_id) -> list[dict]`
+- [ ] `query_latest_run() -> dict | None`
+- [ ] `query_thin_margin_products(max_profit) -> list[dict]`
+- [ ] All methods gracefully return empty if Supabase not configured
+- [ ] Create `tests/test_db_history.py` with mocked Supabase responses
+- [ ] Run `pytest` — all tests green
 
-- [ ] **Task 4.3: Autonomous Pattern Miner (`pricing_engine/learner.py`)**
-  - Ingest residual pairs from accepted matches during scraping sweeps.
-  - Enforce the $\ge 3$ distinct seller promotion gate.
-  - Conflict quarantine for contradictory signals.
-  - *Acceptance Criteria:* Accurately mines co-occurrences without human intervention.
-  - *Verification:* `.venv\Scripts\pytest tests/test_learner.py -v`
+### Task 2.3: Auto-Store Results in Pipeline
+- [ ] After CSV export in `run_pipeline()`, add Supabase history sync
+- [ ] Create run record → get run_id
+- [ ] Build results batch from records with model extraction
+- [ ] Batch insert results
+- [ ] Wrap in try/except — pipeline completes even if Supabase is down
+- [ ] Show "Stored N results in Supabase" in finish banner
+- [ ] Run `pytest` — all tests green
 
-### Checkpoint: Phase 4 Complete
-- [ ] Autonomous knowledge persistence verified.
-- [ ] Offline resilience active.
+### Task 2.4: Add `history` Subcommand to `index.py`
+- [ ] Add `history` subcommand via argparse subparsers
+- [ ] `python index.py history` → Interactive Rich menu (Model / Date / Latest / Profit)
+- [ ] `python index.py history --model <pattern>` → Rich table of model price history
+- [ ] `python index.py history --date <YYYY-MM-DD>` → Rich table of that day's results
+- [ ] `python index.py history --latest` → Rich table of last run
+- [ ] `python index.py history --profit-below <amount>` → Rich table of thin-margin products
+- [ ] Each table: Date, Brand, Model, Final Price Alfa, Final Price Digi, Profit, Risk Alert
+- [ ] Empty results → friendly "No records found" message
+- [ ] Supabase not configured → "Price history requires Supabase. See .env.example"
+- [ ] Run `pytest` — all tests green
+- [ ] Manual test all 4 query modes
 
----
-
-### Phase 5: End-to-End Catalog Stress Testing & CI/CD Quality Gates
-
-- [ ] **Task 5.1: Multi-Catalog E2E Pricing Simulation**
-  - Run full repricing simulation on:
-    - 38 Haier Washing Machines (`Haier_Washing_Machines_Uploading_and_Price.csv`).
-    - 42 Gree ACs (`Gree_Uploading_on_DigiMall_and_Price.csv`).
-    - 50 sample items from `Stock Holding Report`.
-  - Validate output CSVs for integer prices, positive margins, and justified reason strings.
-  - *Acceptance Criteria:* 0 false monopolies, 0 variant collisions.
-  - *Verification:* `.venv\Scripts\python -m pricing_engine.pipeline` simulation run.
-
-- [ ] **Task 5.2: CI/CD Quality Gates Configuration (`.github/workflows/ci.yml`)**
-  - Configure GitHub Actions workflow running:
-    - Static analysis: `ruff check .`
-    - Test suite with coverage: `pytest --cov=pricing_engine`
-  - *Acceptance Criteria:* CI pipeline configured and passing.
-  - *Verification:* `.venv\Scripts\ruff check .` and `.venv\Scripts\pytest -v`
-
-- [ ] **Task 5.3: Production Verification & Release Tagging**
-  - Ensure all documentation, ADRs, and task lists are 100% up to date.
-  - Create release save-point commit following `git-workflow-and-versioning`.
-  - *Acceptance Criteria:* Complete project is production-ready, clean, and tested.
-  - *Verification:* `git status` clean, all tests green.
-
----
-
-### Phase 6: High-Performance Duplicate Spam Elimination & Market Depth Discovery
-
-- [x] **Task 6.1: Seller Duplicate Spam Elimination (`pricing_engine/scraper.py`)**
-  - Clean and normalize vendor names (strip trailing numerical sub-IDs like `Tech House314`, `Tech House306` -> `Tech House`).
-  - Update `seen_offers` to track `(normalized_vendor, round(price, 2))`.
-  - Discard duplicate listings from the same vendor at the exact same price.
-  - Retain distinct vendors at identical prices, and same vendor with different valid price points.
-  - *Acceptance Criteria:* Tech House's 15 identical offers at Rs. 81,500 collapse into exactly 1 clean offer.
-  - *Verification:* `pytest tests/test_scraper.py -k test_deduplicate -v` passed.
-
-- [x] **Task 6.2: High-Performance Single-Call Market Depth Expansion (`pricing_engine/scraper.py`)**
-  - Update default search query `limit` from 18 to 50 for AlfaMall and DigiMall.
-  - Retrieve up to 50 items in a single HTTP request (benchmark verified: ~570ms, only 12ms difference vs limit 18).
-  - *Acceptance Criteria:* Single-call response retrieves lowest viable competitor (Kia Chahiye @ Rs. 88,599) without multiple round-trips.
-  - *Verification:* Live benchmark test showing < 600ms latency passed.
-
-- [x] **Task 6.3: Intelligent Sub-Floor Probe (Zero-Latency Conditional Next Page)**
-  - If 100% of page 1 offers are sub-floor loss-makers AND API metadata indicates `count > 50`, execute a targeted probe to `page=2` to discover viable sellers and ceiling price.
-  - Skip probe completely if viable sellers were already captured on page 1 (95%+ of catalog).
-  - *Acceptance Criteria:* Zero extra requests for normal products; automatic fallback recovery for heavy sub-floor spam catalogs.
-  - *Verification:* `pytest tests/test_scraper.py -k test_subfloor_probe -v` passed.
-
-- [x] **Task 6.4: Smart Terminal Card Formatting (`pricing_engine/pipeline.py`)**
-  - Display top 2-3 dropped sub-floor loss-makers for pricing audit.
-  - Highlight **Target Undercut (Lowest Viable Competitor)** prominently.
-  - Display next 2-3 viable competitors.
-  - Aggregate remaining higher offers into: `... +N more sellers | Rs. X+ | Higher offers (up to Rs. {true_max_price:,})`.
-  - *Acceptance Criteria:* Card remains compact (<18 lines) with true highest price visible in the summary line.
-  - *Verification:* Audit card rendering verification in simulation passed.
-
-- [x] **Task 6.5: End-to-End Catalog Verification & Quality Gates**
-  - Verify Item #13 undercuts Kia Chahiye (Rs. 88,599) to Rs. 88,499 with positive net profit.
-  - Verify Tech House duplicate rows collapse to 1 row.
-  - Ensure all 132+ unit tests pass (`pytest -v`) and `ruff check .` passes with 0 warnings.
-  - *Acceptance Criteria:* 100% green test suite, zero regressions.
-  - *Verification:* `pytest -v` and `ruff check .` passed with 132/132 tests green.
-
-
+### Phase 2 Checkpoint
+- [ ] Pipeline auto-stores results in Supabase
+- [ ] `python index.py history --latest` works
+- [ ] `python index.py history --model 12AITH21W` works
+- [ ] `python index.py history --date 2026-09-30` works
+- [ ] `python index.py history --profit-below 1000` works
+- [ ] Pipeline runs normally when Supabase is down
+- [ ] All tests pass
