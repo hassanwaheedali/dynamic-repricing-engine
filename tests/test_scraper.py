@@ -141,7 +141,7 @@ def test_scraper_supports_data_key_schema() -> None:
         mock_session = AsyncMock()
         mock_session.get.return_value = mock_resp
 
-        result = await scrape_digimall(mock_session, "12AITH21W", "12AITH21W")
+        result = await scrape_digimall(mock_session, "12AITH21W-T3", "12AITH21W-T3")
         assert result.is_success is True
         assert len(result.offers) == 1
         assert result.offers[0].vendor_name == "DataKey Vendor"

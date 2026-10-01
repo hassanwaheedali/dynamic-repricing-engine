@@ -46,5 +46,9 @@ htmlcov/
 
 # Data Pipeline
 data/outputs/*.csv
+data/outputs/*.json
 !data/outputs/.gitkeep
-!data/inputs/template.csv
+!data/inputs/template.csv
+
+# Repomix & Local Dumps
+repomix-output.*

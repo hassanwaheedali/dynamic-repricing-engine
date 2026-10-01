@@ -1,6 +1,8 @@
 import asyncio
+import contextlib
 import logging
 import random
+import sys
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
@@ -8,11 +10,34 @@ from typing import Any
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
-from pricing_engine.matcher import is_strict_model_match, referee_match
+from pricing_engine.matcher import referee_match
 from pricing_engine.models import ScrapedOffer, ScrapeResult
+
+# Configure UTF-8 encoding safely for Windows CLI terminals
+if hasattr(sys.stdout, "reconfigure"):
+    with contextlib.suppress(Exception):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    with contextlib.suppress(Exception):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 logger = logging.getLogger(__name__)
 console = Console(legacy_windows=False)
+
+
+def _safe_console_print(msg: str) -> None:
+    """Print message to console, gracefully falling back to ascii on encoding error."""
+    try:
+        console.print(msg)
+    except UnicodeEncodeError:
+        try:
+            safe_msg = msg.encode("ascii", "replace").decode("ascii")
+            console.print(safe_msg)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 
 ALFA_SEARCH_URL = "https://be.alfamall.com/storefront/search_products"
 DIGI_SEARCH_URL = "https://digimall-be.faysalbank.com/storefront/search_products"
@@ -237,10 +262,7 @@ def _parse_offers_from_raw_items(
         is_base = decision.is_base_match
 
         if not is_exact and not is_base:
-            if is_strict_model_match(title, target_model, brand=brand):
-                is_exact = True
-            else:
-                continue
+            continue
 
         sold_out = bool(item.get("sold_out", False))
         variant = item.get("variant_detail", {})
@@ -463,21 +485,21 @@ async def _scrape_platform_single_query(
 
             if is_timeout:
                 backoff = random.uniform(3.5, 5.0) + (attempt * 1.5)
-                console.print(
-                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
-                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) — Backoff cool-down in {backoff:.1f}s..."
+                _safe_console_print(
+                    f"  [bold yellow][!] [{config.display_name}][/] [dim]{query}[/] "
+                    f"Connection timeout (Attempt {attempt + 1}/{max_retries}) - Backoff cool-down in {backoff:.1f}s..."
                 )
             elif is_socket_drop:
                 backoff = (0.8 * (2**attempt)) + random.uniform(0.2, 0.5)
-                console.print(
-                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
-                    f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) — Auto-recovering in {backoff:.1f}s..."
+                _safe_console_print(
+                    f"  [bold yellow][!] [{config.display_name}][/] [dim]{query}[/] "
+                    f"Socket drop/aborted (Attempt {attempt + 1}/{max_retries}) - Auto-recovering in {backoff:.1f}s..."
                 )
             else:
                 backoff = (0.5 * (2**attempt)) + random.uniform(0.1, 0.4)
-                console.print(
-                    f"  [bold yellow]⚠️  [{config.display_name}][/] [dim]{query}[/] "
-                    f"Network error (Attempt {attempt + 1}/{max_retries}) — Retrying in {backoff:.1f}s..."
+                _safe_console_print(
+                    f"  [bold yellow][!] [{config.display_name}][/] [dim]{query}[/] "
+                    f"Network error (Attempt {attempt + 1}/{max_retries}) - Retrying in {backoff:.1f}s..."
                 )
 
             if attempt < max_retries - 1:

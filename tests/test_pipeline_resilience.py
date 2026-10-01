@@ -804,6 +804,67 @@ def test_dynamic_post_model_arbitrary_codes_category2() -> None:
     assert "Hardware capability mismatch" in dec_hdz_extra_uv.reason
 
 
+def test_referee_multi_segment_series_isolation() -> None:
+    """Verify that multi-segment appliance models (capacity + series) are strictly isolated.
+
+    Cross-series (e.g. 150B-699S8 vs 150-B2578S8) and cross-capacity (e.g. 130B-699S8 vs 150B-699S8)
+    must always be strictly rejected.
+    """
+    from pricing_engine.matcher import referee_match
+
+    # 1. Haier 150B-699S8 (15KG Series 699) vs 150-B2578S8 (15KG Series 2578) -> HARD MISMATCH
+    dec_series_mismatch = referee_match(
+        "150B-699S8",
+        "Haier Top Load (HWM-150-B2578S8)",
+        brand="HAIER",
+    )
+    assert dec_series_mismatch.is_match is False
+    assert "Anchor model mismatch" in dec_series_mismatch.reason
+
+    # 2. Haier 130B-699S8 (13KG) vs 150B-699S8 (15KG) -> HARD MISMATCH (Different Capacities)
+    dec_capacity_mismatch = referee_match(
+        "130B-699S8",
+        "Haier Top Load fully Automatic Washing Machine 15KG HWM 150B-699S8",
+        brand="HAIER",
+    )
+    assert dec_capacity_mismatch.is_match is False
+    assert "Anchor model mismatch" in dec_capacity_mismatch.reason
+
+    # 3. Haier 150B-699S8 vs genuine 150B-699S8 listing -> EXACT MATCH
+    dec_exact = referee_match(
+        "150B-699S8",
+        "Haier Top Load fully Automatic Washing Machine 15KG HWM 150B-699S8",
+        brand="HAIER",
+    )
+    assert dec_exact.is_match is True
+
+    # 4. Haier 120-316S6 vs 100-316S6 -> HARD MISMATCH
+    dec_wash_diff_cap = referee_match(
+        "120-316S6",
+        "Haier HWM 100-316S6 10KG Top Load Automatic Washing Machine",
+        brand="HAIER",
+    )
+    assert dec_wash_diff_cap.is_match is False
+
+    # 5. Haier 120-316S6 vs 120-826S6 -> HARD MISMATCH
+    dec_wash_diff_series = referee_match(
+        "120-316S6",
+        "Haier HWM 120-826S6 12KG Top Load Automatic Washing Machine",
+        brand="HAIER",
+    )
+    assert dec_wash_diff_series.is_match is False
+
+    # 6. Haier 150B-699S8 vs 150B-699S6 -> HARD MISMATCH (Generation collision S8 vs S6)
+    dec_s8_vs_s6 = referee_match(
+        "150B-699S8",
+        "Haier HWM 150B-699S6 Automatic Washing Machine",
+        brand="HAIER",
+    )
+    assert dec_s8_vs_s6.is_match is False
+    assert "Generation series collision" in dec_s8_vs_s6.reason
+
+
+
 
 
 

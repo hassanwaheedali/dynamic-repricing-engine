@@ -622,10 +622,11 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     Returns:
         Tuple of (clean_search_query, raw_model_code).
     """
-    clean = full_name.strip()
+    clean = full_name.replace("—", " ").replace("–", " ").replace("|", " ").strip()
 
     # 1. Dynamically strip Brand name and brand abbreviation using catalog brand metadata
-    detected_brand = (brand or (clean.split()[0] if clean else "")).strip()
+    first_w = clean.split()[0] if clean else ""
+    detected_brand = (brand or (first_w if first_w and not re.search(r"\d", first_w) else "")).strip()
     if detected_brand:
         b_prefix_re = rf"^(?:{re.escape(detected_brand)}|{re.escape(detected_brand[:3]) if len(detected_brand) >= 4 else '---'})[\s\-_,:]*"
         while re.match(b_prefix_re, clean, flags=re.IGNORECASE):
@@ -1602,8 +1603,12 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     Returns:
         Structured ProductSlots instance.
     """
-    clean_title = normalize_technical_slashes(title.strip())
-    detected_brand = brand.strip() or (clean_title.split()[0] if clean_title else "")
+    raw_clean = title.replace("—", " ").replace("–", " ").replace("|", " ").strip()
+    raw_clean = re.sub(r"\s*[-–—|]\s*(?:By\s+|Official\s+)[A-Za-z0-9\s.]{2,}$", "", raw_clean, flags=re.IGNORECASE)
+    raw_clean = re.sub(r"\s*[-–—|]\s*(?:HomeCart|ElectroEase|Telemart|Metro|Hyperstar|AlfaMall|Faysal Bank|QistBazaar)\b.*$", "", raw_clean, flags=re.IGNORECASE)
+    clean_title = normalize_technical_slashes(raw_clean)
+    first_w = clean_title.split()[0] if clean_title else ""
+    detected_brand = brand.strip() or (first_w if first_w and not re.search(r"\d", first_w) else "")
     search_token, raw_model = extract_search_query_and_model(clean_title, brand=detected_brand)
 
     tokens = raw_model.split()
@@ -1614,12 +1619,13 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     all_known_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(
         *(m.keys() for m in BRAND_CAPACITY_SYSTEMS.values())
     )
+    first_token_tag = ""
     if (
         re.search(r"\d", first_token)
         and not is_dimension_or_spec_token(first_token)
         and not (first_token.isdigit() and first_token in all_known_cap_codes)
     ):
-        core_stem, _ = extract_tag(first_token)
+        core_stem, first_token_tag = extract_tag(first_token)
         anchor = core_stem
 
     # Enhanced anchor detection for compound models (e.g. 24 HDZ, 48 EDC, 18 HE-DC, HMO-45200, HAF-50MB, 32 D2)
@@ -1641,7 +1647,12 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             if num.isdigit() and len(num) <= 2 and (not suf or pfx in GENUINE_SUB_SERIES_TOKENS or pfx in {"SPLIT", "AUTO", "AWM"}):
                 pass
             elif suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
-                anchor = f"{pfx}-{num}{suf}"
+                if is_sku_variant_tag(suf) and len(num) >= 3:
+                    anchor = f"{pfx}-{num}"
+                    if not first_token_tag:
+                        first_token_tag = suf
+                else:
+                    anchor = f"{pfx}-{num}{suf}"
             elif not (num.isdigit() and len(num) <= 2):
                 anchor = f"{pfx}-{num}"
         else:
@@ -1776,6 +1787,12 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     # 2. Extract candidate modifier tokens:
     candidate_tokens: list[str] = []
+
+    # A0. Tag extracted from first token:
+    if first_token_tag:
+        clean_tag = first_token_tag.strip("-.,_ \"'/").upper()
+        if is_sku_variant_tag(clean_tag):
+            candidate_tokens.append(clean_tag)
 
     # A. Hyphenated trailing modifier attached directly to the model/anchor (e.g. 18AITH24S-T3 -> T3, DWT-11467-ES -> ES)
     if anchor and "-" in anchor:
@@ -2105,18 +2122,34 @@ def referee_match(
         matched_anchor = False
         if cand_slots.anchor:
             norm_c = re.sub(r"[^A-Z0-9]", "", cand_slots.anchor.upper())
+            t_nums = re.findall(r"\d{2,}", norm_t)
+            c_nums = re.findall(r"\d{2,}", norm_c)
+
             if norm_t == norm_c or norm_t in norm_c or norm_c in norm_t or norm_t in norm_cand_title:
-                matched_anchor = True
-            else:
-                t_stem = re.search(r"\d{3,}", norm_t)
-                c_stem = re.search(r"\d{3,}", norm_c)
-                if t_stem and c_stem and t_stem.group(0) == c_stem.group(0):
+                # Check for conflicting numeric series stems (e.g. 699 vs 2578, 130 vs 150, 316 vs 826)
+                if t_nums and c_nums and len(t_nums) > 1 and len(c_nums) > 1:
+                    # Multi-segment models: ALL significant numbers (capacity + series) must be consistent
+                    matched_anchor = (set(t_nums) == set(c_nums))
+                elif t_nums and c_nums and len(t_nums) == 1 and len(c_nums) == 1:
+                    matched_anchor = (t_nums[0] == c_nums[0])
+                elif t_nums and c_nums and len(t_nums) > 1 and len(c_nums) == 1:
+                    # Target is a specific multi-part series (e.g. 150B-699); candidate with only 1 number cannot match
+                    matched_anchor = False
+                else:
                     matched_anchor = True
+            else:
+                if t_nums and c_nums:
+                    if len(t_nums) > 1 and len(c_nums) > 1:
+                        matched_anchor = (set(t_nums) == set(c_nums))
+                    elif len(t_nums) == 1 and len(c_nums) == 1:
+                        matched_anchor = (t_nums[0] == c_nums[0])
+                    elif len(t_nums) == 1 and t_nums[0] in c_nums:
+                        matched_anchor = True
         elif norm_t in norm_cand_title:
             matched_anchor = True
         else:
-            t_stem = re.search(r"\d{3,}", norm_t)
-            if t_stem and t_stem.group(0) in norm_cand_title:
+            t_nums = re.findall(r"\d{3,}", norm_t)
+            if t_nums and len(t_nums) == 1 and t_nums[0] in norm_cand_title:
                 matched_anchor = True
 
         # Dynamic Brand-Initial Prefix Synthesis check:
@@ -2147,6 +2180,18 @@ def referee_match(
                         target_slots=target_slots,
                         candidate_slots=cand_slots,
                     )
+
+                # Generation / series code collision (e.g. S8 vs S6, G1 vs G2)
+                gen_t = re.search(r"([A-Z]\d)$", norm_t)
+                gen_c = re.search(r"([A-Z]\d)$", norm_c)
+                if gen_t and gen_c and gen_t.group(1) != gen_c.group(1):
+                    return MatchDecision(
+                        is_match=False,
+                        reason=f"Generation series collision: {gen_t.group(1)} vs {gen_c.group(1)} ({norm_t} vs {norm_c})",
+                        target_slots=target_slots,
+                        candidate_slots=cand_slots,
+                    )
+
 
         if not matched_anchor:
             return MatchDecision(
