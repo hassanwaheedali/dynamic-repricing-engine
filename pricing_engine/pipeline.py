@@ -386,14 +386,17 @@ def render_finish_banner(
     output_path: Path,
     total_processed: int,
     elapsed_seconds: float,
+    xlsx_path: Path | None = None,
 ) -> None:
     """Render clean executive completion banner."""
     grid = Table.grid(padding=(0, 2))
-    grid.add_column(style="bold cyan", width=18)
+    grid.add_column(style="bold cyan", width=22)
     grid.add_column(style="white")
     grid.add_row("Execution Status:", "[bold green]Successfully Completed[/]")
     grid.add_row("Total Repriced:", f"{total_processed} catalog items")
-    grid.add_row("Exported File:", f"[bold white]{output_path.resolve()}[/]")
+    grid.add_row("Portal Upload CSV:", f"[bold white]{output_path.resolve()}[/]")
+    if xlsx_path:
+        grid.add_row("Dynamic Excel (.xlsx):", f"[bold green]{xlsx_path.resolve()}[/]")
     grid.add_row("Elapsed Time:", f"{elapsed_seconds:.2f} seconds")
 
     console.print()
@@ -1246,6 +1249,7 @@ async def run_pipeline(
             out_df[col] = out_df[col].apply(format_export_price)
 
     effective_finish_path: Path
+    effective_xlsx_path: Path | None = None
     if output_path is not None:
         target_out = Path(output_path)
         if target_out.parent and not target_out.parent.exists():
@@ -1260,6 +1264,7 @@ async def run_pipeline(
             render_panel=False,
         )
         effective_finish_path = manifest.timestamped_path
+        effective_xlsx_path = manifest.latest_xlsx_path
 
     if supabase_client.is_configured and default_learner.buffer_size > 0:
         flushed_count = await default_learner.flush_observations(supabase_client)
@@ -1277,6 +1282,7 @@ async def run_pipeline(
             output_path=effective_finish_path,
             total_processed=len(records),
             elapsed_seconds=elapsed,
+            xlsx_path=effective_xlsx_path,
         )
 
     return out_df

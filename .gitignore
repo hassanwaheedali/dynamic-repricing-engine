@@ -47,6 +47,8 @@ htmlcov/
 # Data Pipeline
 data/outputs/*.csv
 data/outputs/*.json
+data/outputs/*.xlsx
+data/outputs/~*
 !data/outputs/.gitkeep
 !data/inputs/template.csv
 
