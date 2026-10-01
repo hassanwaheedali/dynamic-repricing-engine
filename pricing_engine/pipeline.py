@@ -768,6 +768,13 @@ def render_audit_card(
     def _format_search_telemetry(
         p_name: str, p_color: str, offers_res: list[ScrapedOffer] | ScrapeResult
     ) -> str:
+        if isinstance(offers_res, ScrapeResult) and offers_res.active_modifier_fallback:
+            mod = offers_res.active_modifier_fallback
+            count = len(offers_res.offers)
+            return (
+                f"[{p_color}]{p_name}:[/] [bold yellow]⚠️ MODIFIER '{mod}' OMITTED BY MARKET[/] -> "
+                f"[bold green]Matched {count} base model offer{'s' if count != 1 else ''} (DO CROSS-CHECK)[/]"
+            )
         if isinstance(offers_res, ScrapeResult) and offers_res.executed_queries:
             q_list = offers_res.executed_queries
             t_sum = offers_res.tier_summary
@@ -820,6 +827,25 @@ def render_audit_card(
     content.add_row(query_grid)
     content.add_row(sellers_tbl)
     content.add_row(plat_tbl)
+
+    active_fallback_mod = (
+        alfa_offers.active_modifier_fallback
+        if isinstance(alfa_offers, ScrapeResult) and alfa_offers.active_modifier_fallback
+        else (
+            digi_offers.active_modifier_fallback
+            if isinstance(digi_offers, ScrapeResult) and digi_offers.active_modifier_fallback
+            else None
+        )
+    )
+    if active_fallback_mod:
+        warning_banner = Panel(
+            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Target specified [bold cyan]'{active_fallback_mod}'[/], but marketplace listings omitted it. "
+            f"Repriced against verified [bold green]base model[/] listings.",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(0, 1),
+        )
+        content.add_row(warning_banner)
 
     card = Panel(
         content,
@@ -973,16 +999,18 @@ def _format_summary_price(
 
     raw_p = f"{int(float(price_val)):,}"
     price_str = f"[{brand_color}]{raw_p}[/]"
+    is_modifier_fallback = "fallback model" in reason.lower()
+    mod_tag = " [bold yellow]CROSS-CHECK[/]" if is_modifier_fallback else ""
 
     if status == "FALLBACK":
-        return f"[bold red]{raw_p}[/] [red]FALLBACK[/]"
+        return f"[bold red]{raw_p}[/] [red]FALLBACK[/]{mod_tag}"
     if status.startswith("WIN"):
-        return f"{price_str} [bold green]{status}[/]"
+        return f"{price_str} [bold green]{status}[/]{mod_tag}"
     if status == "SOLO":
-        return f"{price_str} [dim]SOLO[/]"
+        return f"{price_str} [dim]SOLO[/]{mod_tag}"
     if status.startswith("CAPPED"):
-        return f"{price_str} [bold yellow]{status}[/]"
-    return price_str
+        return f"{price_str} [bold yellow]{status}[/]{mod_tag}"
+    return f"{price_str}{mod_tag}"
 
 
 def _format_summary_profit(
@@ -1103,7 +1131,8 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
         "[dim]LEGEND:[/dim] "
         "[bold red]RED[/]: Safe Fallback (Market Below Floor) / Thin Margin (< Rs. 700) | "
         "[bold yellow]YELLOW[/]: Capped Sweet-Spot / 8% Bank Switch | "
-        "[bold green]GREEN[/]: Optimal Win"
+        "[bold green]GREEN[/]: Optimal Win | "
+        "[bold yellow]CROSS-CHECK[/]: Target modifier omitted in listings (priced against base model)"
     )
     console.print()
 

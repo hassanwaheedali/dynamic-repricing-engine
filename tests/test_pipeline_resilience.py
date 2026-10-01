@@ -317,3 +317,194 @@ def test_full_pipeline_lowercase_sno_first_column(tmp_path: Path) -> None:
 
     asyncio.run(_run())
 
+
+def test_haier_washer_hyphenated_and_spaced_matching() -> None:
+    from pricing_engine.matcher import referee_match
+
+    # 1. Spaced model prefix matching candidate with glued SKU
+    t1 = "Haier HW 90-BP12357S8 Front Load Washing Machine"
+    c1 = "Haier HW90-BP12357S8 9 KG Front Load Inverter Automatic Washing Machine"
+    assert referee_match(t1, c1, brand="Haier").is_match is True
+
+    # 2. Form factor Single Tub with promotional noise trailer
+    t2 = "Haier HWM 130-1217 WB Single Tub Washing Machine"
+    c2 = "Haier HWM 130-1217 13kg Top Load Washing Machine - Manual Control Washer | Big Capacity, Strong Performance, Home Use"
+    assert referee_match(t2, c2, brand="Haier").is_match is True
+
+
+def test_haier_lowercase_variant_tag_matching() -> None:
+    from pricing_engine.matcher import referee_match
+
+    # Lowercase color code 'ow' (Off White) matching HSU-14HFTEX-OW
+    t = "14hft ow"
+    c = "HAIER 1.25 TON HSU-14HFTEX-OW T3 PLUS INVERTER AIR CONDITIONER"
+    assert referee_match(t, c, brand="Haier").is_match is True
+
+
+def test_dawlance_refrigerator_soft_styling_optionality() -> None:
+    from pricing_engine.matcher import referee_match
+
+    # Soft styling trim (Chrome FH) omitted by seller for unique model stems
+    t1 = "9173 WB Chrome FH"
+    c1 = "Dawlance 9173WB 12 Cu Ft Coral Red Refrigerator"
+    assert referee_match(t1, c1, brand="Dawlance").is_match is True
+
+    t2 = "91999 WB Chrome FH"
+    c2 = "Dawlance DW-91999 20 Cu Ft Coral Red Double Door Refrigerator"
+    assert referee_match(t2, c2, brand="Dawlance").is_match is True
+
+    t3 = "9140 WB LVS FH"
+    c3 = "Dawlance REF-9140WB 8 Cu Ft Grey Double Door Refrigerator"
+    assert referee_match(t3, c3, brand="Dawlance").is_match is True
+
+
+def test_dawlance_refrigerator_series_collision_protection() -> None:
+    from pricing_engine.matcher import referee_match
+
+    # Distinct series (Avante, Acce, Graze) must never match Chrome model
+    target = "9173 WB Chrome FH"
+    cand_avante = "Dawlance 9173-WB-Avante+ 12 Cu Ft Cloud White Refrigerator"
+    cand_acce = "Dawlance 9173LF-Acce-Pro 12 Cu Ft Crimson Red Refrigerator"
+    cand_graze = "Dawlance 9173 12 Cu Ft Graze+ Gem Black Glass Refrigerator"
+
+    assert referee_match(target, cand_avante, brand="Dawlance").is_match is False
+    assert referee_match(target, cand_acce, brand="Dawlance").is_match is False
+    assert referee_match(target, cand_graze, brand="Dawlance").is_match is False
+
+
+def test_gree_ac_screen_size_guard_and_energy_rating() -> None:
+    from pricing_engine.matcher import referee_match
+
+    # Floor standing AC with AA+ energy rating must not be treated as screen size or series AA
+    t1 = "GREE FLOOR STANDING 36TFIH AA+"
+    c1 = "GREE 3 TON GF-36TFIH-T3 INVERTER FLOOR STANDING AIR CONDITIONER"
+    assert referee_match(t1, c1, brand="Gree").is_match is True
+
+    # 1.5T Pular with AAA energy badge must not fail on screen size or AAA series
+    t2 = "GREE SPLIT AC 18PITH11G AAA"
+    c2 = "Gree 1.5 Ton Pular Series GS-18PITH11G Inverter Heat and Cool Split Air Conditioner"
+    assert referee_match(t2, c2, brand="Gree").is_match is True
+
+    # 1T Airy Pro GS-12AITH24S-T3 must match without capacity screen size conflict
+    t3 = "GREE SPLIT AC 12AITH24S-T3"
+    c3 = "Gree 1 Ton Airy Pro GS-12AITH24S-T3 Inverter Heat & Cool Split Air Conditioner"
+    assert referee_match(t3, c3, brand="Gree").is_match is True
+
+
+def test_category1_soft_descriptor_sd_and_dd_isolation() -> None:
+    """Category 1: Soft descriptors (SD, GD) match base model and fullforms, but reject opposing finishes (DD, INOX)."""
+    from pricing_engine.matcher import referee_match
+
+    target = "DMB-4467 SD"
+    brand = "Dawlance"
+
+    # Must match with-tag listing
+    assert referee_match(target, "Dawlance Minibar DMB-4467 SD", brand=brand).is_match is True
+    # Must match fullform expansion
+    assert referee_match(target, "Dawlance Minibar DMB-4467 Single Door", brand=brand).is_match is True
+    # Must match base model listing seamlessly (physically identical machine)
+    assert referee_match(target, "Dawlance Minibar DMB-4467", brand=brand).is_match is True
+
+    # Must strictly reject opposing door structure
+    dec_dd = referee_match(target, "Dawlance Minibar DMB-4467 DD", brand=brand)
+    assert dec_dd.is_match is False
+    assert "Door structure collision" in dec_dd.reason
+
+    dec_double = referee_match(target, "Dawlance Minibar DMB-4467 Double Door", brand=brand)
+    assert dec_double.is_match is False
+    assert "Door structure collision" in dec_double.reason
+
+
+def test_category2_hardware_modifier_fallback_and_cross_check_notices() -> None:
+    """Category 2: When target specifies T3, exact is preferred; if omitted, falls back with cross-check notices."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from pricing_engine.calculator import calculate_floors
+    from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
+    from pricing_engine.pipeline import _format_summary_price
+    from pricing_engine.scraper import scrape_alfamall
+
+    # 1. Exact Priority when T3 exists in marketplace
+    async def _test_exact() -> None:
+        base_resp = MagicMock()
+        base_resp.status_code = 200
+        base_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 18AITH24S Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "190,000"},
+                    "vendor": {"name": "Base Store"},
+                }
+            ]
+        }
+        t3_resp = MagicMock()
+        t3_resp.status_code = 200
+        t3_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 18AITH24S-T3 Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "195,000"},
+                    "vendor": {"name": "T3 Store"},
+                }
+            ]
+        }
+        mock_session = AsyncMock()
+        mock_session.get.side_effect = [base_resp, t3_resp]
+
+        res = await scrape_alfamall(
+            mock_session,
+            {"tier_1": ["18AITH24S"], "tier_2": ["18AITH24S-T3"], "tier_3": []},
+            "18AITH24S-T3",
+            brand="Gree",
+        )
+        assert [o.vendor_name for o in res.offers] == ["T3 Store"]
+        assert res.active_modifier_fallback is None
+
+    asyncio.run(_test_exact())
+
+    # 2. Safe Fallback to Base Model when market omitted T3
+    async def _test_fallback() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 18AITH24S Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "190,000"},
+                    "vendor": {"name": "Base Store"},
+                }
+            ]
+        }
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        res = await scrape_alfamall(
+            mock_session,
+            {"tier_1": ["18AITH24S"], "tier_2": [], "tier_3": []},
+            "18AITH24S-T3",
+            brand="Gree",
+        )
+        assert [o.vendor_name for o in res.offers] == ["Base Store"]
+        assert res.active_modifier_fallback == "T3"
+
+        # Evaluator reason annotation
+        floors = calculate_floors(150000.0)
+        alfa_eval = evaluate_alfa_pricing(floors, res)
+        assert alfa_eval.status == "Competitive Win"
+        assert "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]" in alfa_eval.reason
+
+        digi_eval = evaluate_digi_pricing(floors, res)
+        assert "Safe Win" in digi_eval.status
+        assert "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]" in digi_eval.reason
+
+        # Executive summary table badge
+        disp_price = _format_summary_price(alfa_eval.final_price, min_comp_price=190000.0, reason=alfa_eval.reason)
+        assert "CROSS-CHECK" in disp_price
+
+    asyncio.run(_test_fallback())
+
+
+

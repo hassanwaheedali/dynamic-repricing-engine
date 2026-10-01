@@ -197,8 +197,8 @@ def test_waterfall_early_exit_when_tier_1_has_two_or_more_offers() -> None:
 
         assert result.is_success is True
         assert len(result.offers) == 2
-        # Early-exit: Tier 2 and Tier 3 must NOT be called because Tier 1 returned >= 2 offers
-        assert mock_session.get.call_count == 1
+        # Exhaustive 3-Tier Multi-Pattern Search: All 3 tiers are queried to ensure complete candidate pool
+        assert mock_session.get.call_count == 3
 
     asyncio.run(_test())
 
@@ -233,8 +233,13 @@ def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
             ]
         }
 
+        # Third call (Tier 3) returns 0 offers
+        resp_tier3 = MagicMock()
+        resp_tier3.status_code = 200
+        resp_tier3.json.return_value = {"results": []}
+
         mock_session = AsyncMock()
-        mock_session.get.side_effect = [resp_tier1, resp_tier2]
+        mock_session.get.side_effect = [resp_tier1, resp_tier2, resp_tier3]
 
         patterns = {
             "tier_1": ["120-826S6 GC"],
@@ -245,8 +250,8 @@ def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
 
         assert result.is_success is True
         assert len(result.offers) == 2
-        # Cascaded to Tier 2 (total 2 HTTP calls), then stopped before Tier 3 because pool has 2 offers
-        assert mock_session.get.call_count == 2
+        # Exhaustive search queries all tiers (total 3 HTTP calls across Tier 1, 2, 3)
+        assert mock_session.get.call_count == 3
 
     asyncio.run(_test())
 
@@ -303,6 +308,85 @@ def test_waterfall_deduplicates_overlapping_offers_across_tiers() -> None:
         vendors = [o.vendor_name for o in result.offers]
         assert vendors.count("Vendor A") == 1
         assert vendors.count("Vendor B") == 1
+
+    asyncio.run(_test())
+
+
+def test_waterfall_prefers_t3_offers_over_base_offers() -> None:
+    async def _test() -> None:
+        base_response = MagicMock()
+        base_response.status_code = 200
+        base_response.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 12AITH21W Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "150,000"},
+                    "vendor": {"name": "Base Seller"},
+                }
+            ]
+        }
+
+        t3_response = MagicMock()
+        t3_response.status_code = 200
+        t3_response.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 12AITH21W-T3 Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "155,000"},
+                    "vendor": {"name": "T3 Seller"},
+                }
+            ]
+        }
+
+        mock_session = AsyncMock()
+        mock_session.get.side_effect = [base_response, t3_response]
+
+        result = await scrape_alfamall(
+            mock_session,
+            {
+                "tier_1": ["12AITH21W"],
+                "tier_2": ["12AITH21W-T3"],
+                "tier_3": [],
+            },
+            "12AITH21W-T3",
+            brand="Gree",
+        )
+
+        assert [offer.vendor_name for offer in result.offers] == ["T3 Seller"]
+        assert result.active_modifier_fallback is None
+
+    asyncio.run(_test())
+
+
+def test_waterfall_falls_back_to_base_when_no_t3_offer_exists() -> None:
+    async def _test() -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "GREE 12AITH21W Inverter AC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "150,000"},
+                    "vendor": {"name": "Base Seller"},
+                }
+            ]
+        }
+
+        mock_session = AsyncMock()
+        mock_session.get.return_value = mock_resp
+
+        result = await scrape_alfamall(
+            mock_session,
+            {"tier_1": ["12AITH21W"], "tier_2": [], "tier_3": []},
+            "12AITH21W-T3",
+            brand="Gree",
+        )
+
+        assert [offer.vendor_name for offer in result.offers] == ["Base Seller"]
+        assert result.active_modifier_fallback == "T3"
 
     asyncio.run(_test())
 
