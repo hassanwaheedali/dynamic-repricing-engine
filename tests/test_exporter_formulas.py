@@ -104,11 +104,11 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     assert isinstance(calc_val, str) and calc_val.startswith("=ROUND")
     assert f"{col_map['Profit']}2" in calc_val
 
-    # Minimum Price Alfa & Digi formula check
+    # Minimum Price Alfa & Digi check (real scraped market numbers, NOT formulas)
     min_alfa_val = ws[f"{col_map['Minimum Price Alfa']}2"].value
     min_digi_val = ws[f"{col_map['Minimum Price Digi']}2"].value
-    assert isinstance(min_alfa_val, str) and min_alfa_val.startswith("=ROUND")
-    assert isinstance(min_digi_val, str) and min_digi_val.startswith("=ROUND")
+    assert min_alfa_val == 116427
+    assert min_digi_val == 113896
 
     # Real Profit formulas check
     prof_alfa_val = ws[f"{col_map['Alfa Real Profit']}2"].value

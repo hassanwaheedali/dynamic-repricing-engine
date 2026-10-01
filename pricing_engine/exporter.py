@@ -92,8 +92,6 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
       - Shipping Estimate: =ROUNDUP(((Length*Width*Height)/5000)*70, 0)
       - Total Without Profit: =ROUND((Net Price + Shipping) / (1 - Effective Comm), 0)
       - Calculation: =ROUND((Net Price + Shipping + Profit) / 0.90, 0)
-      - Minimum Price Alfa: =ROUND((Net Price + Shipping + 500) / 0.90, 0)
-      - Minimum Price Digi: =ROUND((Net Price + Shipping + 500) / (1 - Effective Comm), 0)
       - Alfa Real Profit: =IF(ISBLANK(Final Price Alfa), "", ROUND((Final Price Alfa * 0.90) - (Net Price + Shipping), 0))
       - Digi Real Profit: =IF(ISBLANK(Final Price Digi), "", ROUND((Final Price Digi * (1 - Effective Comm)) - (Net Price + Shipping), 0))
     """
@@ -177,8 +175,6 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
         comm = col_map.get("Digi Effective Commision")
         twop = col_map.get("Total Without Profit")
         calc = col_map.get("Calculation")
-        min_alfa = col_map.get("Minimum Price Alfa")
-        min_digi = col_map.get("Minimum Price Digi")
         final_alfa = col_map.get("Final Price Alfa")
         final_digi = col_map.get("Final Price Digi")
         prof_alfa = col_map.get("Alfa Real Profit")
@@ -205,21 +201,7 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
             else:
                 ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+500)/0.90, 0)"
 
-        # 4. Minimum Price Alfa
-        if min_alfa and net and ship:
-            ws[f"{min_alfa}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+500)/0.90, 0)"
-
-        # 5. Minimum Price Digi
-        if min_digi and net and ship:
-            if comm:
-                ws[f"{min_digi}{r}"] = (
-                    f'=ROUND(({net}{r}+{ship}{r}+500)/IF(ISNUMBER({comm}{r}), 1-{comm}{r}, '
-                    f'IF(ISNUMBER(FIND("8", {comm}{r})), 0.92, 0.90)), 0)'
-                )
-            else:
-                ws[f"{min_digi}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+500)/0.90, 0)"
-
-        # 6. Alfa Real Profit
+        # 4. Alfa Real Profit
         if prof_alfa and final_alfa and net and ship:
             ws[f"{prof_alfa}{r}"] = (
                 f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
