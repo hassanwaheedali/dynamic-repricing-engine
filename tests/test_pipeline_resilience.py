@@ -337,7 +337,7 @@ def test_haier_lowercase_variant_tag_matching() -> None:
 
     # Lowercase color code 'ow' (Off White) matching HSU-14HFTEX-OW
     t = "14hft ow"
-    c = "HAIER 1.25 TON HSU-14HFTEX-OW T3 PLUS INVERTER AIR CONDITIONER"
+    c = "HAIER 1.25 TON HSU-14HFTEX-OW PLUS INVERTER AIR CONDITIONER"
     assert referee_match(t, c, brand="Haier").is_match is True
 
 
@@ -377,7 +377,7 @@ def test_gree_ac_screen_size_guard_and_energy_rating() -> None:
 
     # Floor standing AC with AA+ energy rating must not be treated as screen size or series AA
     t1 = "GREE FLOOR STANDING 36TFIH AA+"
-    c1 = "GREE 3 TON GF-36TFIH-T3 INVERTER FLOOR STANDING AIR CONDITIONER"
+    c1 = "GREE 3 TON GF-36TFIH INVERTER FLOOR STANDING AIR CONDITIONER"
     assert referee_match(t1, c1, brand="Gree").is_match is True
 
     # 1.5T Pular with AAA energy badge must not fail on screen size or AAA series
@@ -505,6 +505,307 @@ def test_category2_hardware_modifier_fallback_and_cross_check_notices() -> None:
         assert "CROSS-CHECK" in disp_price
 
     asyncio.run(_test_fallback())
+
+
+def test_glass_door_and_inox_category2_fallback_and_collision() -> None:
+    """Category 2: GD and INOX match when present, fall back to base model when omitted, and strictly collide with each other."""
+    from pricing_engine.matcher import referee_match
+
+    brand = "Dawlance"
+
+    # --- Glass Door (GD) ---
+    target_gd = "7950 Glass Door"
+    # Mila toh lelo (Exact match when present)
+    dec_gd_match = referee_match(target_gd, "Dawlance 7950 GD Refrigerator", brand=brand)
+    assert dec_gd_match.is_match is True
+    assert dec_gd_match.is_base_match is False
+
+    # Nahi mila toh fallback (Fallback to base model when omitted)
+    dec_gd_omitted = referee_match(target_gd, "Dawlance 7950 Refrigerator", brand=brand)
+    assert dec_gd_omitted.is_match is False
+    assert dec_gd_omitted.is_base_match is True
+    assert dec_gd_omitted.missing_modifier == "GD"
+
+    # Opposing finish collision
+    dec_gd_inox = referee_match(target_gd, "Dawlance 7950 INOX Refrigerator", brand=brand)
+    assert dec_gd_inox.is_match is False
+    assert dec_gd_inox.is_base_match is False
+    assert "Hardware finish collision" in dec_gd_inox.reason
+
+    # --- INOX ---
+    target_inox = "DMB 7950 Inox"
+    # Mila toh lelo
+    dec_inox_match = referee_match(target_inox, "Dawlance 7950 Inox Refrigerator", brand=brand)
+    assert dec_inox_match.is_match is True
+    assert dec_inox_match.is_base_match is False
+
+    # Nahi mila toh fallback
+    dec_inox_omitted = referee_match(target_inox, "Dawlance 7950 Refrigerator", brand=brand)
+    assert dec_inox_omitted.is_match is False
+    assert dec_inox_omitted.is_base_match is True
+    assert dec_inox_omitted.missing_modifier == "INOX"
+
+    # Opposing finish collision
+    dec_inox_gd = referee_match(target_inox, "Dawlance 7950 GD Refrigerator", brand=brand)
+    assert dec_inox_gd.is_match is False
+    assert dec_inox_gd.is_base_match is False
+    assert "Hardware finish collision" in dec_inox_gd.reason
+
+
+def test_category2_inverter_and_es_generic_fallback() -> None:
+    """Category 2: Inverter strictly rejects Non-Inverter, but safely falls back to base model when omitted."""
+    from pricing_engine.matcher import referee_match
+
+    # Inverter vs Non-Inverter collision
+    dec_col = referee_match("9170 Inverter GD", "Dawlance 9170 Non-Inverter GD", brand="Dawlance")
+    assert dec_col.is_match is False
+    assert "Inverter mode collision" in dec_col.reason
+
+    # Inverter vs Omitted Inverter (Base Match)
+    dec_base = referee_match("9170 Inverter GD", "Dawlance 9170 GD Refrigerator", brand="Dawlance")
+    assert dec_base.is_match is False
+    assert dec_base.is_base_match is True
+    assert dec_base.missing_modifier == "INVERTER"
+
+    # ES8 vs Omitted ES8 (Base Match)
+    dec_es = referee_match("18PITH11G ES8", "Gree GS-18PITH11G Inverter AC", brand="Gree")
+    assert dec_es.is_match is False
+    assert dec_es.is_base_match is True
+    assert dec_es.missing_modifier == "ES8"
+
+
+def test_category1_single_door_and_double_door_isolation() -> None:
+    """Category 1: SD strictly matches baseline and fullform, but strictly collides with DD."""
+    from pricing_engine.matcher import referee_match
+
+    brand = "Dawlance"
+    target = "DMB-4467 SD"
+
+    # Must match full form Single Door
+    assert referee_match(target, "Dawlance DMB-4467 Single Door Refrigerator", brand=brand).is_match is True
+    # Must match baseline listing where seller omitted SD (ZERO fallback warning, direct normal match)
+    dec_base = referee_match(target, "Dawlance DMB-4467 Refrigerator", brand=brand)
+    assert dec_base.is_match is True
+    assert dec_base.is_base_match is False
+
+    # Must strictly reject opposing Double Door structure
+    dec_dd = referee_match(target, "Dawlance DMB-4467 Double Door Refrigerator", brand=brand)
+    assert dec_dd.is_match is False
+    assert "Door structure collision" in dec_dd.reason
+
+
+def test_category2_generic_hardware_capabilities_comprehensive() -> None:
+    """Category 2: Generic hardware capabilities (T3, ES8, ES, INVERTER, WIFI, IOT) with zero hardcoding."""
+    from pricing_engine.matcher import referee_match
+
+    # 1. T3 Target vs Omitted Candidate -> Base Match
+    dec_t3_omitted = referee_match("18AITH24S-T3", "Gree GS-18AITH24S Inverter AC", brand="Gree")
+    assert dec_t3_omitted.is_match is False
+    assert dec_t3_omitted.is_base_match is True
+    assert dec_t3_omitted.missing_modifier == "T3"
+
+    # 2. Non-T3 Target vs Upgraded T3 Candidate -> Hard Rejection (NOT a base match)
+    dec_t3_upgraded = referee_match("18AITH24S", "Gree GS-18AITH24S-T3 Inverter AC", brand="Gree")
+    assert dec_t3_upgraded.is_match is False
+    assert dec_t3_upgraded.is_base_match is False
+    assert "Hardware capability mismatch" in dec_t3_upgraded.reason
+
+    # 3. T3 Target vs T3 Candidate -> Full Match
+    dec_t3_both = referee_match("18AITH24S-T3", "Gree GS-18AITH24S-T3 Inverter AC", brand="Gree")
+    assert dec_t3_both.is_match is True
+    assert dec_t3_both.is_base_match is False
+
+    # 4. Standalone ES Target vs Omitted Candidate -> Base Match
+    dec_es = referee_match("18PITH11G ES", "Gree GS-18PITH11G Inverter AC", brand="Gree")
+    assert dec_es.is_match is False
+    assert dec_es.is_base_match is True
+    assert dec_es.missing_modifier == "ES"
+
+    # 5. Standalone ES Target vs ES Candidate -> Full Match
+    dec_es_match = referee_match("18PITH11G ES", "Gree GS-18PITH11G ES Inverter AC", brand="Gree")
+    assert dec_es_match.is_match is True
+    assert dec_es_match.is_base_match is False
+
+    # 6. WiFi Target vs Omitted Candidate -> Base Match
+    dec_wifi = referee_match("18AITH24S WiFi", "Gree GS-18AITH24S Inverter AC", brand="Gree")
+    assert dec_wifi.is_match is False
+    assert dec_wifi.is_base_match is True
+    assert dec_wifi.missing_modifier == "WIFI"
+
+    # 7. IoT Target vs Smart Candidate -> Full Match
+    dec_iot_smart = referee_match(
+        "HRF-418 TIFG1U1 (IOT)",
+        "Haier HRF-418 TIFG1U1 Glass Door Smart Refrigerator",
+        brand="Haier",
+    )
+    assert dec_iot_smart.is_match is True
+    assert dec_iot_smart.is_base_match is False
+
+
+def test_dynamic_post_model_code_and_finish_rules() -> None:
+    """Validate dynamic post-model code grabbing (ES, ES8, UV) and GD/INOX Category 2 fallback."""
+    from pricing_engine.matcher import (
+        CATEGORY_1_DIRECT_MATCH_MODIFIERS,
+        referee_match,
+    )
+
+    # 1. Category 1 list verification: Strictly contains only SD
+    assert {"SD"} == CATEGORY_1_DIRECT_MATCH_MODIFIERS
+
+    # 2. Washing Machine: Dynamic code right after model (e.g. DWT-11467 ES)
+    # A. Exact match when candidate has ES
+    dec_es_match = referee_match(
+        "DWT-11467 ES",
+        "Dawlance DWT-11467 ES Automatic Washing Machine",
+        brand="Dawlance",
+    )
+    assert dec_es_match.is_match is True
+    assert dec_es_match.is_base_match is False
+
+    # B. Candidate omits ES -> Fallback to base model
+    dec_es_omit = referee_match(
+        "DWT-11467 ES",
+        "Dawlance DWT-11467 Automatic Washing Machine",
+        brand="Dawlance",
+    )
+    assert dec_es_omit.is_match is False
+    assert dec_es_omit.is_base_match is True
+    assert dec_es_omit.missing_modifier == "ES"
+
+    # C. Candidate has different post-model code (ES8) -> Hard mismatch
+    dec_es_diff = referee_match(
+        "DWT-11467 ES",
+        "Dawlance DWT-11467 ES8 Automatic Washing Machine",
+        brand="Dawlance",
+    )
+    assert dec_es_diff.is_match is False
+    assert dec_es_diff.is_base_match is False
+
+    # 3. Hardware Door Finish: GD and INOX (Category 2 fallback rule: mila toh lelon, nahi mila toh fallback)
+    # A. Target GD vs Candidate GD -> Full Match ("mila toh lelon")
+    dec_gd_match = referee_match(
+        "7950 Glass Door",
+        "Dawlance 7950 GD Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_gd_match.is_match is True
+    assert dec_gd_match.is_base_match is False
+
+    # B. Target GD vs Candidate Omitted GD -> Fallback to base model ("nahi mila toh fallback")
+    dec_gd_omit = referee_match(
+        "7950 Glass Door",
+        "Dawlance 7950 Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_gd_omit.is_match is False
+    assert dec_gd_omit.is_base_match is True
+    assert dec_gd_omit.missing_modifier == "GD"
+
+    # C. Target INOX vs Candidate INOX -> Full Match ("mila toh lelon")
+    dec_inox_match = referee_match(
+        "7950 Inox",
+        "Dawlance 7950 Inox Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_inox_match.is_match is True
+    assert dec_inox_match.is_base_match is False
+
+    # D. Target INOX vs Candidate Omitted INOX -> Fallback to base model ("nahi mila toh fallback")
+    dec_inox_omit = referee_match(
+        "7950 Inox",
+        "Dawlance 7950 Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_inox_omit.is_match is False
+    assert dec_inox_omit.is_base_match is True
+    assert dec_inox_omit.missing_modifier == "INOX"
+
+    # E. Target GD vs Candidate INOX -> Opposing finish collision
+    dec_finish_col = referee_match(
+        "7950 Glass Door",
+        "Dawlance 7950 Inox Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_finish_col.is_match is False
+    assert dec_finish_col.is_base_match is False
+    assert "Hardware finish collision" in dec_finish_col.reason
+
+
+def test_dynamic_post_model_arbitrary_codes_category2() -> None:
+    """Validate arbitrary post-model variant codes (e.g. 4907 IFGA vs IPPA vs Base) with zero hardcoding."""
+    from pricing_engine.matcher import referee_match
+
+    # 1. 4907 IFGA vs 4907 IPPA -> Hard Mismatch (Category 2 collision)
+    dec_col = referee_match(
+        "Dawlance 4907 IFGA Refrigerator",
+        "Dawlance 4907 IPPA Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_col.is_match is False
+    assert dec_col.is_base_match is False
+    assert "Hardware capability mismatch" in dec_col.reason
+
+    # 2. 4907 IFGA vs 4907 IFGA -> Full Exact Match
+    dec_match = referee_match(
+        "Dawlance 4907 IFGA Refrigerator",
+        "Dawlance 4907 IFGA Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_match.is_match is True
+    assert dec_match.is_base_match is False
+
+    # 3. 4907 IFGA Target vs 4907 Omitted Candidate -> Fallback to Base Model ("nahi mila toh fallback")
+    dec_fallback = referee_match(
+        "Dawlance 4907 IFGA Refrigerator",
+        "Dawlance 4907 Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_fallback.is_match is False
+    assert dec_fallback.is_base_match is True
+    assert dec_fallback.missing_modifier == "IFGA"
+
+    # 4. 4907 Base Target vs 4907 IFGA Upgraded Candidate -> Hard Mismatch
+    dec_upgraded = referee_match(
+        "Dawlance 4907 Refrigerator",
+        "Dawlance 4907 IFGA Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_upgraded.is_match is False
+    assert dec_upgraded.is_base_match is False
+    assert "Hardware capability mismatch" in dec_upgraded.reason
+
+    # 5. Gree 24 HDZ UV vs Gree 24 HDZ -> Fallback to Base Model with UV warning
+    dec_hdz_uv_base = referee_match(
+        "Gree 24 HDZ UV Inverter Split AC",
+        "Gree 24 HDZ Inverter Split AC",
+        brand="Gree",
+    )
+    assert dec_hdz_uv_base.is_match is False
+    assert dec_hdz_uv_base.is_base_match is True
+    assert dec_hdz_uv_base.missing_modifier == "UV"
+
+    # 6. Gree 24 HDZ UV vs Gree 24 HDZ UV -> Full Exact Match
+    dec_hdz_uv_exact = referee_match(
+        "Gree 24 HDZ UV Inverter Split AC",
+        "Gree 24 HDZ UV Inverter Split AC",
+        brand="Gree",
+    )
+    assert dec_hdz_uv_exact.is_match is True
+    assert dec_hdz_uv_exact.is_base_match is False
+
+    # 7. Gree 24 HDZ (Base) vs Gree 24 HDZ UV (Upgraded) -> Hard Mismatch
+    dec_hdz_extra_uv = referee_match(
+        "Gree 24 HDZ Inverter Split AC",
+        "Gree 24 HDZ UV Inverter Split AC",
+        brand="Gree",
+    )
+    assert dec_hdz_extra_uv.is_match is False
+    assert dec_hdz_extra_uv.is_base_match is False
+    assert "Hardware capability mismatch" in dec_hdz_extra_uv.reason
+
+
+
+
 
 
 

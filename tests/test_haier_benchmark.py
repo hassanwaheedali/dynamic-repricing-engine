@@ -124,13 +124,21 @@ def test_haier_referee_dc_compound_ac_matching() -> None:
     )
     assert dec_48.is_match is True
 
-    # 24 HD/Z W
+    # 24 HD/Z W vs 24 HDZ White (Base Match)
     dec_24hdz = referee_match(
         "24 HD/Z W",
-        "Haier 2 Ton Inverter AC 24 HDZ UV White",
+        "Haier 2 Ton Inverter AC 24 HDZ White",
         brand="Haier",
     )
     assert dec_24hdz.is_match is True
+
+    # 24 HD/Z UV W vs 24 HDZ UV White (UV Category 2 Match)
+    dec_24hdz_uv = referee_match(
+        "24 HD/Z UV W",
+        "Haier 2 Ton Inverter AC 24 HDZ UV White",
+        brand="Haier",
+    )
+    assert dec_24hdz_uv.is_match is True
 
 
 def test_haier_referee_alternative_branches_acceptance() -> None:

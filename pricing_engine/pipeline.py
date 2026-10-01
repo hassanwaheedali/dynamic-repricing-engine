@@ -795,11 +795,11 @@ def render_audit_card(
                     f"[green]({count} offer{'s' if count > 1 else ''} strictly verified)[/]"
                 )
             elif t_sum.get("tier_3", 0) > 0:
-                t3_q = q_list[-1] if q_list else target_model
+                tier3_q = q_list[-1] if q_list else target_model
                 count = t_sum["tier_3"]
                 return (
                     f"[{p_color}]{p_name}:[/] [dim]Tiers 1 & 2 (0 found)[/] -> "
-                    f"[bold yellow]Permutation Fallback:[/] [bold white]'{t3_q}'[/] "
+                    f"[bold yellow]Permutation Fallback:[/] [bold white]'{tier3_q}'[/] "
                     f"[green]({count} offer{'s' if count > 1 else ''} verified)[/]"
                 )
             else:

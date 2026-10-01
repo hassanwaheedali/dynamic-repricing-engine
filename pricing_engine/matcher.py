@@ -16,6 +16,8 @@ class GuardedFacets:
     cool_only: bool | None = None  # True if strictly cooling-only AC model
     heat_and_cool: bool | None = None  # True if Heat & Cool AC model
     door_type: str | None = None  # Hardware door structure: 'SD' (Single Door) vs 'DD' (Double Door)
+    is_inverter: bool | None = None  # True if Inverter, False if Non-Inverter / Fixed Speed
+    capabilities: set[str] = field(default_factory=set)  # Additive hardware capabilities: T3, INVERTER, WIFI, IOT, ES, UV
 
 
 @dataclass
@@ -38,6 +40,20 @@ class MatchDecision:
     candidate_slots: ProductSlots | None = None
     is_base_match: bool = False
     missing_modifier: str | None = None
+
+
+# ==============================================================================
+# CATEGORY 1: DIRECT-MATCH MODIFIERS (Skipped / Soft Structural Descriptors)
+# ==============================================================================
+# Marketplace sellers frequently omit these modifiers (e.g., listing a Single Door
+# refrigerator simply as the base model without writing "SD").
+# RULE:
+# 1. Target has Category 1 modifier & candidate omits it -> ACCEPT DIRECT MATCH (is_match=True, is_base_match=False) with zero warning.
+# 2. Target has Category 1 modifier & candidate has opposing code (e.g. SD vs DD) -> HARD COLLISION.
+# STRICT REQUIREMENT: Only contains 'SD' right now. The user can add more tokens here in the future.
+CATEGORY_1_DIRECT_MATCH_MODIFIERS: set[str] = {
+    "SD",  # Single Door (e.g. Refrigerator / Dispenser Single Door)
+}
 
 
 # 9 Normalized Color Families (ADR-002)
@@ -126,9 +142,9 @@ ALL_COLOR_WORDS: set[str] = {
 
 
 def is_color_token(token: str) -> bool:
-    """Check if token matches any normalized color word."""
+    """Check if token matches any normalized color word or single-letter color code."""
     clean = token.strip("-_., \"'").upper()
-    return clean in ALL_COLOR_WORDS
+    return clean in ALL_COLOR_WORDS or clean in COLOR_SUFFIX_MAP
 
 
 def get_all_color_families(text: str) -> set[str]:
@@ -175,7 +191,7 @@ CATEGORY_PATTERNS = re.compile(
     r"|\b(?:AIR\s*CURTAIN|AIR\s*COOLER|AIR\s*FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
     r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE)\b"
     r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE|SINGLE\s*TUB)\b"
-    r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|TWIN\s*TUB|NO[\s\-]*FROST|CVT|SMART|4K|FHD|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED)\b"
+    r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|TWIN\s*TUB|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|FHD|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED)\b"
     r"|\b(?:\d+(?:\.\d+)?\s*(?:TON|ΤΟN|KG|GM|LTR|LITRE|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH|MM|CM|\"|\'))\b",
     re.IGNORECASE,
 )
@@ -235,6 +251,136 @@ NON_SKU_TOKENS = {
     "CONTROL",
     "MANUAL",
     "SOLUTION",
+    "AAA+",
+    "AA+",
+    "AAA",
+    "AA",
+    "A+",
+    "ON",
+    "IN",
+    "AT",
+    "BY",
+    "OF",
+    "TO",
+    "OR",
+    "AS",
+    "NO",
+    "ALL",
+    "BIG",
+    "USE",
+    "NEW",
+    "HOT",
+    "COLD",
+    "LOW",
+    "FIT",
+    "ONE",
+    "TWO",
+    "SIX",
+    "TEN",
+    "OFF",
+    "OUT",
+    "BAG",
+    "BOX",
+    "HOME",
+    "ROOM",
+    "DRY",
+    "WET",
+    "RUN",
+    "DAY",
+    "BUY",
+    "PAY",
+    "OIL",
+    "GAS",
+    "CAP",
+    "LVS",
+    "WASH",
+    "FAST",
+    "FREE",
+    "SALE",
+    "BEST",
+    "CARD",
+    "PACK",
+    "YEAR",
+    "TONS",
+    "FULL",
+    "LINE",
+    "COOL",
+    "HEAT",
+    "TYPE",
+    "SIZE",
+    "LITE",
+    "GOLD",
+    "PURE",
+    "SLIM",
+    "WIDE",
+    "DEEP",
+    "HIGH",
+    "DROP",
+    "STOP",
+    "TRUE",
+    "TRIP",
+    "QUAD",
+    "CARE",
+    "SAFE",
+    "LOCK",
+    "TIME",
+    "UNIT",
+    "MAKE",
+    "PART",
+    "LOOK",
+    "GOOD",
+    "FINE",
+    "VERY",
+    "WELL",
+    "JUST",
+    "ALSO",
+    "MORE",
+    "LESS",
+    "EASY",
+    "SOFT",
+    "HARD",
+    "DARK",
+    "EVEN",
+    "EVER",
+    "EACH",
+    "FROM",
+    "OVER",
+    "DOWN",
+    "OPEN",
+    "SHUT",
+    "FLAT",
+    "SIDE",
+    "REAR",
+    "WALL",
+    "BASE",
+    "BEAM",
+    "WIRE",
+    "CORD",
+    "PLUG",
+    "PIPE",
+    "HOSE",
+    "TUBE",
+    "BODY",
+    "HEAD",
+    "FOOT",
+    "HAND",
+    "LEAD",
+    "PULL",
+    "PUSH",
+    "TURN",
+    "MOVE",
+    "KEEP",
+    "HOLD",
+    "4K",
+    "8K",
+    "FHD",
+    "UHD",
+    "HD",
+    "LED",
+    "OLED",
+    "QLED",
+    "TV",
+    "DC",
 }
 
 GENUINE_SUB_SERIES_TOKENS = {
@@ -317,7 +463,7 @@ def is_dimension_or_spec_token(token: str) -> bool:
     clean = token.strip("-_., \"'")
     if not clean:
         return True
-    if re.match(r"^T[13]$", clean, re.IGNORECASE):
+    if re.match(r"^T\d+$", clean, re.IGNORECASE):
         return True
     # Units attached to numbers: 3FEET, 3FT, 4FEET, 7KG, 13SETS, 40INCH, 1000W, 3IN1, etc.
     if re.match(
@@ -333,31 +479,46 @@ def is_dimension_or_spec_token(token: str) -> bool:
 
 
 def is_sku_variant_tag(token: str) -> bool:
-    """Dynamically determine if a trailing token is an SKU variant tag (PL, FLT, ES, GC, T3)
+    """Dynamically determine if a trailing token is an SKU variant tag (PL, FLT, ES, T3)
     vs a marketing or color word (WHITE, BLACK, MYSTIC, GREY, CLOUD, EMERALD).
 
     Structural Rule (Zero Hardcoded Color Lists):
     - Pure numbers and decimal floats (e.g. 2.0, 1.5, 12) -> Capacity / Specs, NOT an SKU tag!
     - Genuine sub-series tokens (e.g. PRO, PLUS, MAX, ULTRA) -> Sub-series, NOT an SKU tag!
-    - Contains digits AND letters (e.g. S6, S8, T3, 11S) -> SKU Variant Tag.
-    - Short code <= 3 characters (e.g. PL, FLT, FLP, GC, DG, CP, PB, ES, ow, dg) -> SKU Variant Tag.
+    - Contains digits AND letters (e.g. S6, S8, T3, 11S, ES8) -> SKU Variant Tag.
+    - Short code <= 3 characters (e.g. PL, FLT, FLP, DG, CP, PB, ES, SD, DD, UV) -> SKU Variant Tag.
     - English words, colors, and marketing descriptions have length >= 4 -> Automatically Excluded!
     """
     clean = token.strip("-_., \"'")
-    if not clean or clean.upper() in NON_SKU_TOKENS or is_dimension_or_spec_token(clean):
+    if not clean or clean.upper() in NON_SKU_TOKENS:
+        return False
+    if clean.upper() in {"WB", "GB"}:
+        return False
+    # Universal variant finish codes
+    if clean.upper() in {"INOX"}:
+        return True
+    if is_color_token(clean):
         return False
     if clean.upper() in GENUINE_SUB_SERIES_TOKENS:
         return False
     # Pure numbers or decimal floats (e.g. 2.0, 1.5, 24) are capacities, not SKU variant tags
     if re.match(r"^\d+(?:\.\d+)?$", clean):
         return False
-    # If contains digits, must also contain letters (e.g. T3, S6, S8, 11S)
+    # Units attached to numbers (e.g. 1.5TON, 9KG, 40INCH, 1000W) are specs, not SKU variant tags
+    if re.match(
+        r"^\d+(?:\.\d+)?(?:FEET|FT|INCH|MM|CM|KG|GM|LTR|LITRE|SETS?|TON|WATTS?|W|\"|\')$",
+        clean,
+        re.IGNORECASE,
+    ):
+        return False
+    if re.match(r"^\d+IN\d+$", clean, re.IGNORECASE):  # 3IN1, 2IN1
+        return False
+    # If contains digits, must also contain letters and have at most 2 digits (e.g. T3, T4, ES8, S6, S8, 11S, MXP8)
     if re.search(r"\d", clean):
-        return bool(re.search(r"[A-Za-z]", clean))
-    # If pure letters: short code of length <= 3 OR universal variant finish codes (e.g. INOX)
-    if clean.upper() in {"INOX"}:
-        return True
-    return len(clean) <= 3 and clean.isalpha()
+        digits = re.findall(r"\d", clean)
+        return bool(re.search(r"[A-Za-z]", clean)) and len(digits) <= 2 and len(clean) <= 4
+    # 2 to 4 letter variant codes (e.g. ES, SD, DD, FLT, IFGA, IPPA, CHZP, TIFG, TIFB)
+    return 2 <= len(clean) <= 4 and clean.isalpha()
 
 
 # Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
@@ -622,7 +783,20 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
 
 
 def extract_tag(s: str) -> tuple[str, str]:
-    """Separate trailing auxiliary tag (e.g. -T3, AAA, PRO) from token core."""
+    """Separate trailing auxiliary tag (e.g. -T3, -ES, AAA, PRO) from token core."""
+    if "-" in s:
+        parts = s.split("-")
+        if len(parts) > 1 and any(re.search(r"\d", p) for p in parts[:-1]):
+            trailing = parts[-1].strip()
+            if is_sku_variant_tag(trailing) or trailing.upper() in GENUINE_SUB_SERIES_TOKENS:
+                return "-".join(parts[:-1]), f"-{trailing}"
+    # Glued trailing variant tag on prefix+numeric stem with >= 3 digits (e.g. DWT11467ES -> DWT11467, -ES)
+    m_stem_tag = re.match(r"^([A-Za-z]{2,4}\d{3,})([A-Za-z]{2,4})$", s)
+    if m_stem_tag:
+        stem = m_stem_tag.group(1)
+        tag = m_stem_tag.group(2)
+        if is_sku_variant_tag(tag):
+            return stem, f"-{tag}"
     m = TAG_PATTERN.search(s)
     if m:
         return s[: m.start()], m.group(0)
@@ -1476,7 +1650,11 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
                 anchor = m_alpha.group(1).upper()
             else:
                 m_cap_ser = re.search(r"\b(\d{1,2})\s+([A-Za-z0-9]+(?:-[A-Za-z0-9]+)?)\b", sub_anchor)
-                if m_cap_ser and m_cap_ser.group(2).upper() not in NON_SKU_TOKENS:
+                if (
+                    m_cap_ser
+                    and m_cap_ser.group(2).upper() not in NON_SKU_TOKENS
+                    and not is_sku_variant_tag(m_cap_ser.group(2))
+                ):
                     w = m_cap_ser.group(2)
                     vowels = len(re.findall(r"[AEIOU]", w.upper()))
                     is_series_word = (len(w) >= 4 and vowels >= 2) or w.upper() in GENUINE_SUB_SERIES_TOKENS or w.upper() in {"INVERTER", "SERIES", "NORMAL"}
@@ -1501,7 +1679,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     t3 = t3_match if (t3_match or is_ac) else None
 
     # 2b. IoT / Smart connectivity
-    iot = True if re.search(r"\b(?:IOT|SMART\s+INVERTER|WIFI)\b", clean_title, re.IGNORECASE) else None
+    iot = True if re.search(r"\b(?:IOT|SMART|WIFI)\b", clean_title, re.IGNORECASE) else None
 
     # 2c. Operating Mode: Cool Only vs Heat & Cool
     cool_only = True if re.search(r"\b(?:COOL\s+ONLY|COOLING\s+ONLY|ONLY\s+COOL)\b", clean_title, re.IGNORECASE) else None
@@ -1575,6 +1753,104 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     elif re.search(r"\b(?:DD|DOUBLE\s+DOOR)\b", clean_title, re.IGNORECASE):
         door_type = "DD"
 
+    # 2h. Inverter Mode
+    is_inverter = None
+    if re.search(r"\b(?:NON[\s\-]*INVERTER|FIX(?:ED)?\s*SPEED|CONVENTIONAL)\b", clean_title, re.IGNORECASE):
+        is_inverter = False
+    elif re.search(r"\b(?:INVERTER|INV|DC\s*INVERTER)\b", clean_title, re.IGNORECASE):
+        is_inverter = True
+
+    # 2i. Dynamic Post-Model Code & Category 2 Modifiers Engine
+    # Dynamically grabs the code right after the model and across remaining tokens
+    # (e.g. ES, ES8, T3, T4, UV, WIFI, IOT) with ZERO hardcoding.
+    # RULE:
+    # - If token in CATEGORY_1_DIRECT_MATCH_MODIFIERS -> Category 1 (Direct match when omitted)
+    # - Else -> Category 2 (Exact match if present, fallback if omitted, collision if extra/different)
+    caps: set[str] = set()
+
+    # 1. Connectivity keywords across title
+    if re.search(r"\b(?:WIFI|WI-FI)\b", clean_title, re.IGNORECASE):
+        caps.add("WIFI")
+    if re.search(r"\b(?:IOT|SMART)\b", clean_title, re.IGNORECASE):
+        caps.add("IOT")
+
+    # 2. Extract candidate modifier tokens:
+    candidate_tokens: list[str] = []
+
+    # A. Hyphenated trailing modifier attached directly to the model/anchor (e.g. 18AITH24S-T3 -> T3, DWT-11467-ES -> ES)
+    if anchor and "-" in anchor:
+        anc_parts = anchor.split("-")
+        if len(anc_parts) > 1 and any(re.search(r"\d", p) for p in anc_parts[:-1]) and is_sku_variant_tag(anc_parts[-1]):
+            candidate_tokens.append(anc_parts[-1].upper())
+
+    # B. Trailing tokens immediately following the model in raw_model:
+    # If the first token is a 1-2 digit capacity code (e.g. '24 HDZ', '32 D2', '50 MB'),
+    # the compound model is tokens[0] + tokens[1], and trailing modifiers start at tokens[2:]!
+    post_model_tokens = tokens[2:] if (len(tokens) >= 2 and tokens[0].isdigit() and len(tokens[0]) <= 2) else tokens[1:]
+    for t in post_model_tokens:
+        t_clean = t.strip("-.,_ \"'/").upper()
+        if is_sku_variant_tag(t_clean):
+            candidate_tokens.append(t_clean)
+
+    # C. Search code right after the model AND across all remaining tokens in clean_title:
+    post_words: list[str] = []
+    if anchor:
+        anc_variants = [anchor]
+        if "-" in anchor:
+            anc_variants.extend([anchor.replace("-", " "), anchor.replace("-", "")])
+        # Find position of anchor in clean_title
+        found_pos = -1
+        for v in anc_variants:
+            idx = clean_title.upper().find(v.upper())
+            if idx != -1:
+                found_pos = idx + len(v)
+                break
+        if found_pos != -1:
+            post_anchor = clean_title[found_pos:]
+            post_words = post_anchor.split()
+        else:
+            # Fallback: check if numeric stem exists in title
+            m_stem = re.search(r"\d{3,}", anchor)
+            if m_stem:
+                idx = clean_title.find(m_stem.group(0))
+                if idx != -1:
+                    post_anchor = clean_title[idx + len(m_stem.group(0)) :]
+                    post_words = post_anchor.split()
+
+    for w in post_words:
+        w_clean = w.strip("()[]-.,_ \"'/").upper()
+        if is_sku_variant_tag(w_clean):
+            candidate_tokens.append(w_clean)
+        elif "-" in w:
+            w_sub = w.split("-")[-1].strip("()[]-.,_ \"'/").upper()
+            if is_sku_variant_tag(w_sub):
+                candidate_tokens.append(w_sub)
+
+    # D. Glued trailing code on numeric stem >= 3 digits (e.g. DWT11467ES -> ES, 11467ES8 -> ES8)
+    m_glued_stem = re.search(r"\b[A-Za-z]{0,4}(\d{3,})([A-Za-z]{2,4})\b", clean_title)
+    if m_glued_stem:
+        glued_tag = m_glued_stem.group(2).upper()
+        if is_sku_variant_tag(glued_tag):
+            candidate_tokens.append(glued_tag)
+
+    # Tokens managed by dedicated orthogonal slots or soft styling residuals:
+    dedicated_orthogonal_slots = {"GD", "INOX", "DD", "INVERTER", "INV", "WB", "GB", "GC", "FH", "CHROME", "LVS"}
+
+    anc_core, _ = extract_tag(anchor) if anchor else ("", "")
+    norm_anc = anc_core.replace("-", "").upper() if anc_core else ""
+
+    # Distribute candidate tokens into Category 1 vs Category 2:
+    for tok in candidate_tokens:
+        if tok in dedicated_orthogonal_slots:
+            continue
+        if norm_anc and tok in norm_anc:
+            continue
+        if tok in CATEGORY_1_DIRECT_MATCH_MODIFIERS:
+            # Category 1 modifier (strictly 'SD') -> Handled by Category 1 direct-match logic
+            continue
+        # Category 2: All other hardware/variant codes go here dynamically (e.g. ES, ES8, T3, T4, UV, S6)!
+        caps.add(tok)
+
     guarded = GuardedFacets(
         t3=t3,
         iot=iot,
@@ -1586,6 +1862,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         cool_only=cool_only,
         heat_and_cool=heat_and_cool,
         door_type=door_type,
+        is_inverter=is_inverter,
+        capabilities=caps,
     )
 
     # 3. Soft Residual Modifiers
@@ -1636,13 +1914,19 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # Strip any hyphenated prefix-number codes (e.g. HWM-120, DWT-1165, GS-12)
     sub = re.sub(r"\b[A-Za-z]{2,4}-\d+", " ", sub)
     sub = re.sub(
-        r"\b(?:T3|INVERTER|INV|4K|SMART|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD|AAA\+|AA\+|A\+{1,3}|AAA|AA)\b",
+        r"\b(?:NON[\s\-]*INVERTER|FIX(?:ED)?\s*SPEED|CONVENTIONAL|T3|INVERTER|INV|4K|SMART|WIFI|WI-FI|IOT|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD|AAA\+|AA\+|A\+{1,3}|AAA|AA)\b",
         " ",
         sub,
         flags=re.IGNORECASE,
     )
+    if tub_series:
+        sub = re.sub(rf"\b{re.escape(tub_series)}\b", " ", sub, flags=re.IGNORECASE)
     for r in residuals:
         sub = re.sub(rf"\b{re.escape(r)}\b", " ", sub, flags=re.IGNORECASE)
+    for c in caps:
+        sub = re.sub(rf"\b{re.escape(c)}\b", " ", sub, flags=re.IGNORECASE)
+    for c1 in CATEGORY_1_DIRECT_MATCH_MODIFIERS:
+        sub = re.sub(rf"\b{re.escape(c1)}\b", " ", sub, flags=re.IGNORECASE)
     # Strip all color tokens
     sub_words = [
         tok for tok in sub.split()
@@ -1736,6 +2020,24 @@ def referee_match(
             candidate_slots=cand_slots,
         )
 
+    # Category 2 Rule for Hardware Finish (GD / INOX):
+    # 1. Target specifies finish (GD or INOX), but candidate omitted it:
+    # "mila toh lelon leken nahi mila toh fallback"
+    if (
+        target_slots.guarded_facets.door_finish
+        and not cand_slots.guarded_facets.door_finish
+        and target_slots.guarded_facets.door_finish not in CATEGORY_1_DIRECT_MATCH_MODIFIERS
+    ):
+        missing_finish = target_slots.guarded_facets.door_finish
+        return MatchDecision(
+            is_match=False,
+            reason=f"Hardware finish omitted ({missing_finish} mismatch): Target specifies {missing_finish} but candidate does not",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+            is_base_match=True,
+            missing_modifier=missing_finish,
+        )
+
     # 1b2. Zero-Tolerance Door Structure Guard (SD vs DD)
     if (
         target_slots.guarded_facets.door_type
@@ -1750,6 +2052,33 @@ def referee_match(
             ),
             target_slots=target_slots,
             candidate_slots=cand_slots,
+        )
+
+    # 1b3. Zero-Tolerance Inverter Mode Guard (Inverter vs Non-Inverter / Fixed Speed)
+    if (
+        target_slots.guarded_facets.is_inverter is not None
+        and cand_slots.guarded_facets.is_inverter is not None
+        and target_slots.guarded_facets.is_inverter != cand_slots.guarded_facets.is_inverter
+    ):
+        t_inv = "Inverter" if target_slots.guarded_facets.is_inverter else "Non-Inverter"
+        c_inv = "Inverter" if cand_slots.guarded_facets.is_inverter else "Non-Inverter"
+        return MatchDecision(
+            is_match=False,
+            reason=f"Inverter mode collision: target is {t_inv} vs candidate {c_inv}",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # Category 2 Rule for Inverter:
+    # If target explicitly specifies INVERTER, but candidate omitted it:
+    if target_slots.guarded_facets.is_inverter is True and cand_slots.guarded_facets.is_inverter is None:
+        return MatchDecision(
+            is_match=False,
+            reason="Hardware capability omitted (INVERTER mismatch): Target specifies INVERTER but candidate does not",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+            is_base_match=True,
+            missing_modifier="INVERTER",
         )
 
     # 1c. Zero-Tolerance Operating Mode Guard (Cool Only vs Heat & Cool)
@@ -1888,22 +2217,34 @@ def referee_match(
             )
 
     # 3. Guarded Facets Zero-Tolerance Checks
-    # 3a. T3 Compressor Guard
-    if (
-        target_slots.guarded_facets.t3 is not None
-        and cand_slots.guarded_facets.t3 is not None
-        and target_slots.guarded_facets.t3 != cand_slots.guarded_facets.t3
-    ):
-        t_str = "T3" if target_slots.guarded_facets.t3 else "non-T3"
-        c_str = "T3" if cand_slots.guarded_facets.t3 else "non-T3"
-        is_base = bool(target_slots.guarded_facets.t3 and not cand_slots.guarded_facets.t3)
+    # 3a. Generic Category 2 Hardware Capabilities & Modifiers Engine (Zero Hardcoding, Pure Dynamic Set Logic)
+    target_caps = target_slots.guarded_facets.capabilities
+    cand_caps = cand_slots.guarded_facets.capabilities
+
+    # Collision 1: Candidate has extra hardware capabilities/modifiers that target lacks -> Hard mismatch
+    # (Cannot reprice baseline target against upgraded listing with extra physical components)
+    extra_cand_caps = cand_caps - target_caps
+    if extra_cand_caps:
+        extra_str = ", ".join(sorted(extra_cand_caps))
         return MatchDecision(
             is_match=False,
-            reason=f"T3 mismatch: Target is {t_str}, candidate is {c_str}",
+            reason=f"Hardware capability mismatch ({extra_str} mismatch): Candidate has extra capability {extra_str} not present in target",
             target_slots=target_slots,
             candidate_slots=cand_slots,
-            is_base_match=is_base,
-            missing_modifier="T3" if is_base else None,
+            is_base_match=False,
+        )
+
+    # Fallback 2: Target specifies Category 2 modifiers that candidate omitted -> Valid base-model fallback
+    missing_target_caps = target_caps - cand_caps
+    if missing_target_caps:
+        missing_str = ", ".join(sorted(missing_target_caps))
+        return MatchDecision(
+            is_match=False,
+            reason=f"Hardware capability omitted ({missing_str} mismatch): Target specifies {missing_str} but candidate does not",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+            is_base_match=True,
+            missing_modifier=missing_str,
         )
 
     # 3b. Capacity / Screen Size Guard
