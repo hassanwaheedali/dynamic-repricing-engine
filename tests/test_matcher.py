@@ -691,7 +691,7 @@ def test_referee_match_hardware_tub_rejection() -> None:
 def test_referee_match_t3_isolation() -> None:
     # Non-T3 target strictly rejects T3 listings
     target_non_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA 30 INVERTER", brand="Dawlance")
-    assert target_non_t3.guarded_facets.t3 is False or target_non_t3.guarded_facets.t3 is None
+    assert "T3" not in target_non_t3.guarded_facets.capabilities
 
     decision_rej = referee_match(
         target_non_t3, "Dawlance Magna Inverter AC 1.5 Ton T3", brand="Dawlance"
@@ -701,7 +701,7 @@ def test_referee_match_t3_isolation() -> None:
 
     # T3 target strictly rejects non-T3 listings
     target_t3 = extract_product_slots("DAWLANCE SPLIT AC MAGNA T3 30 INVERTER", brand="Dawlance")
-    assert target_t3.guarded_facets.t3 is True
+    assert "T3" in target_t3.guarded_facets.capabilities
 
     decision_rej_non_t3 = referee_match(
         target_t3, "Dawlance Magna Inverter AC 1.5 Ton", brand="Dawlance"

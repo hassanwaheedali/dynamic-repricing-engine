@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 class GuardedFacets:
     """Zero-tolerance guarded attributes for strict variant collision protection."""
 
-    t3: bool | None = None
-    iot: bool | None = None
     capacity: str | None = None  # e.g. "1.5T", "12KG", "50INCH"
     tub_series: str | None = None  # e.g. "WB", "GB"
     color_family: str | None = None  # One of the 9 normalized color families
@@ -1673,8 +1671,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
                         anchor = f"{m_cap_ser.group(1)}{w.upper()}"
 
     # 2. Guarded Facets Extraction
-    # 2a. T3
-    t3_match = bool(re.search(r"(?:-|\b)T3\b", clean_title, re.IGNORECASE))
+    # AC Category Detection (used for AC tonnage capacity extraction)
     is_non_ac = bool(
         re.search(
             r"\b(?:CU\s*FT|CU\.FT|CFT|REFRIGERATOR|FRIDGE|WASHER|WASHING|DISPENSER|OVEN|MICROWAVE)\b",
@@ -1687,12 +1684,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
     has_ac_cap_code = any(t in all_known_cap_codes for t in clean_title.split())
     is_ac = (has_ac_keyword or has_ac_cap_code) and not is_non_ac
-    t3 = t3_match if (t3_match or is_ac) else None
 
-    # 2b. IoT / Smart connectivity
-    iot = True if re.search(r"\b(?:IOT|SMART|WIFI)\b", clean_title, re.IGNORECASE) else None
-
-    # 2c. Operating Mode: Cool Only vs Heat & Cool
+    # 2a. Operating Mode: Cool Only vs Heat & Cool
     cool_only = True if re.search(r"\b(?:COOL\s+ONLY|COOLING\s+ONLY|ONLY\s+COOL)\b", clean_title, re.IGNORECASE) else None
     heat_and_cool = True if re.search(r"\b(?:HEAT\s*(?:&|AND|/)\s*COOL|H\s*&\s*C|H/C)\b", clean_title, re.IGNORECASE) else None
 
@@ -1869,8 +1862,6 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         caps.add(tok)
 
     guarded = GuardedFacets(
-        t3=t3,
-        iot=iot,
         capacity=capacity,
         tub_series=tub_series,
         color_family=color_fam,
