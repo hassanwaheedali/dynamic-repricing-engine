@@ -864,6 +864,55 @@ def test_referee_multi_segment_series_isolation() -> None:
     assert "Generation series collision" in dec_s8_vs_s6.reason
 
 
+def test_led_quote_and_screen_size_handling() -> None:
+    """Ensure double quote ("), single quote ('), and hyphenated screen sizes are never missed,
+    preventing 32" from matching 40" or splitting fractions on slash."""
+    from pricing_engine.matcher import (
+        SAFEGUARD_PATTERN,
+        extract_product_slots,
+        referee_match,
+    )
+
+    # 1. Double quote capacity extraction
+    slots_32_quote = extract_product_slots('TCL 32" S5400A Full HD Smart Android LED TV', brand="TCL")
+    assert slots_32_quote.guarded_facets.capacity == "32INCH"
+    assert slots_32_quote.anchor == "S5400A"
+
+    slots_40_quote = extract_product_slots('TCL 40" S5400A Full HD Smart Android LED TV', brand="TCL")
+    assert slots_40_quote.guarded_facets.capacity == "40INCH"
+
+    # 2. Strict Cross-Screen Rejection (32" vs 40")
+    dec_diff_screen = referee_match(
+        'TCL 32" S5400A Full HD Smart Android LED TV',
+        'TCL 40" S5400A Full HD Smart Android LED TV',
+        brand="TCL",
+    )
+    assert dec_diff_screen.is_match is False
+    assert "screen size mismatch" in dec_diff_screen.reason.lower() or "capacity" in dec_diff_screen.reason.lower()
+
+    # 3. Double quote vs spelled-out Inch vs hyphenated inch
+    dec_quote_vs_inch = referee_match(
+        'EcoStar 32" HD LED TV CX-32U573',
+        "EcoStar 32-inch CX-32U573 LED TV",
+        brand="EcoStar",
+    )
+    assert dec_quote_vs_inch.is_match is True
+
+    # 4. Complex Smart TV with 4K/UHD and full model code
+    dec_samsung = referee_match(
+        'Samsung 55" Crystal UHD 4K Smart TV 55CU7000',
+        "Samsung 55 Inch Crystal 4K UHD LED TV (55CU7000)",
+        brand="Samsung",
+    )
+    assert dec_samsung.is_match is True
+
+    # 5. Fraction quote safeguarding without slash-branch expansion
+    m_safeguard = SAFEGUARD_PATTERN.search('Universal 1/2" Water Fitting Pipe')
+    assert m_safeguard is not None
+    assert '1/2"' in m_safeguard.group(0)
+
+
+
 
 
 

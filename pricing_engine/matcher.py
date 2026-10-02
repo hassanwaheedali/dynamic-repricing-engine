@@ -169,7 +169,7 @@ def get_all_color_families(text: str) -> set[str]:
 SAFEGUARD_PATTERN = re.compile(
     r"\b(?:W/M|W/D|D/F|A/C|H/C|H&C|W/O)\b"
     r"|\bHeat\s*/\s*Cool\b"
-    r"|\b\d+/\d+\s*(?:\"|inch|mm)\b"
+    r"|\b\d+/\d+\s*(?:\"|(?:inch|mm)\b)"
     r"|\b\d+W/\d+D\b"
     # Technical model suffixes: 18HE/DC, HBU-48E/DC, 48CE/DC, HBU-48HE/T3DC-012GE
     r"|[A-Za-z0-9\-]+/(?:DC|AC)\b"
@@ -189,8 +189,8 @@ CATEGORY_PATTERNS = re.compile(
     r"|\b(?:AIR\s*CURTAIN|AIR\s*COOLER|AIR\s*FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
     r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE)\b"
     r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE|SINGLE\s*TUB)\b"
-    r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|TWIN\s*TUB|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|FHD|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED)\b"
-    r"|\b(?:\d+(?:\.\d+)?\s*(?:TON|ΤΟN|KG|GM|LTR|LITRE|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH|MM|CM|\"|\'))\b",
+    r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|TWIN\s*TUB|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|8K|FHD|UHD|HD|QLED|OLED|GOOGLE\s*TV|ANDROID\s*TV|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED)\b"
+    r"|\b\d+(?:\.\d+)?\s*(?:(?:TON|ΤΟN|KG|GM|LTR|LITRE|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH(?:ES)?|MM|CM)\b|[\"\'])",
     re.IGNORECASE,
 )
 
@@ -379,6 +379,13 @@ NON_SKU_TOKENS = {
     "QLED",
     "TV",
     "DC",
+    "GOOGLE",
+    "ANDROID",
+    "INCHES",
+    "MODEL",
+    "DOT",
+    "UPTO",
+    "HUB",
 }
 
 GENUINE_SUB_SERIES_TOKENS = {
@@ -395,25 +402,33 @@ GENUINE_SUB_SERIES_TOKENS = {
     "TOUCH",
 }
 
+MERCHANT_TRACKING_CODE_RE = re.compile(
+    r"\s*\((?:ISPK|SNS|SKU|ID|NS|UE)[-_]?[A-Za-z0-9]+\)\s*|\b(?:ISPK|SNS|SKU|ID|NS|UE)[-_]?[A-Za-z0-9]+\b",
+    re.IGNORECASE,
+)
+
 # Generic marketplace noise (seller signatures, promotions, payment terms, HVAC operational phrases)
 MARKETPLACE_NOISE_RE = re.compile(
     r"\b(?:ON\s+INSTALLMENT|INSTALLMENT|0%\s*MARKUP|MARKUP|INTEREST|DOWN\s*PAYMENT|EMI|CASH\s+ON\s+DELIVERY|COD)\b"
+    r"|\b(?:UPTO\s+\d+\s*MONTHS?|\d+\s*MONTHS?|UPTO|MONTHLY|PER\s+MONTH)\b"
     r"|\b(?:FREE\s+(?:HOME\s+)?DELIVERY|FAST\s+DELIVERY|DELIVERY|SHIPPING|EXPRESS|FREE\s+INSTALLATION)\b"
     r"|\b(?:OFFICIAL\s+WARRANTY|BRAND\s+WARRANTY|COMPANY\s+WARRANTY|WARRANTY\s+CARD|WARRANTY|\d+\s*YEARS?\s+WARRANTY)\b"
     r"|\b(?:SALE|DISCOUNT|DEAL|OFFER|PROMO|PROMOTION|RAMADAN\s+OFFER|EID\s+OFFER|SUPER\s+SALE)\b"
     r"|\b(?:ORIGINAL|AUTHENTIC|GENUINE|BRAND\s+NEW|SEALED\s+PACK|SEALED|BOX\s+PACK|100%\s*ORIG(?:I)?NAL)\b"
-    r"|\b(?:SPECIAL\s+GIFT|SURPRISE\s+GIFT|FREE\s+GIFT|BEST\s+PRICE)\b"
+    r"|\b(?:SPECIAL\s+GIFT|SURPRISE\s+GIFT|FREE\s+GIFT|GIFT\s+PACK|GIFT|BEST\s+PRICE)\b"
+    r"|\b(?:QUANTUM\s+DOT|QUANTUM|TECHNOLOGY)\b"
     r"|\b(?:ELECTROEASE|HOMECART|METRO|HYPERSTAR|ALFAMALL|FAYSAL\s*BANK|QISTBAZAAR|ESBUY|TELEMART|YAYVO)\b"
     r"|\b(?:HEAT\s*(?:&|AND|/)\s*COOL|H\s*&\s*C|COOLING\s*ONLY|COOL\s*ONLY)\b"
     r"|\b(?:INVERTER\s*AC|DC\s*INVERTER|FIX(?:ED)?\s*SPEED|NON[\s\-]*INVERTER)\b"
     r"|\b(?:AAA\+|AA\+|A\+{1,3}|AAA|AA)\b"
-    r"|\b(?:ISPK|SNS|SKU|ID)[-_]?\w+",
+    r"|\b(?:FOR\s+[A-Za-z]+\s+ONLY)\b"
+    rf"|{MERCHANT_TRACKING_CODE_RE.pattern}",
     re.IGNORECASE,
 )
 
 
 def normalize_technical_slashes(text: str) -> str:
-    """Normalize technical compound codes (/DC, /AC, /Z, etc.) while preserving model boundaries."""
+    """Normalize technical compound codes (/DC, /AC, /Z, etc.) and screen units while preserving model boundaries."""
     t = text
     # 24 HD/Z -> 24 HDZ
     t = re.sub(r"\b([A-Za-z0-9]+)/Z\b", r"\1Z", t, flags=re.IGNORECASE)
@@ -423,28 +438,56 @@ def normalize_technical_slashes(text: str) -> str:
     t = re.sub(r"\bH/C\b", "Heat and Cool", t, flags=re.IGNORECASE)
     t = re.sub(r"\bW/M\b", "Washing Machine", t, flags=re.IGNORECASE)
     t = re.sub(r"\bA/C\b", "AC", t, flags=re.IGNORECASE)
+    return normalize_screen_units(t)
+
+
+def normalize_screen_units(text: str) -> str:
+    """Canonicalise screen-size notation: 32" / 32-inch / 32 Inches -> '32 INCH'.
+    Fractions such as 1/2" or 12/16" (pipe sizes) are left untouched."""
+    t = re.sub(r"(?<![\d./])(\d{2,3})\s*-?\s*(?:INCHES|INCH)\b", r"\1 INCH", text, flags=re.IGNORECASE)
+    t = re.sub(r"(?<![\d./])(\d{2,3})\s*(?:\"|\u201d|\u2033)", r"\1 INCH", t)
     return t
 
 
 def expand_cartesian_branches(title: str) -> list[str]:
     """If title contains slash-separated alternative models/variants, expand into independent branches."""
     t_norm = normalize_technical_slashes(title)
+    safeguards: list[str] = []
+
+    def mask_fn(m: re.Match[str]) -> str:
+        safeguards.append(m.group(0))
+        return f"__SAFEGUARD_{len(safeguards) - 1}__"
+
+    t_masked = SAFEGUARD_PATTERN.sub(mask_fn, t_norm)
+
     # Detect alternative model codes separated by slash:
     # e.g. 'HRF-418 TIFG1U1/TIFB1U1 (IOT)' or 'HGL-25MXP8 / 25MXP9' or '30 Sprinter / Powercon'
-    m_slash = re.search(r"(\b[A-Za-z0-9\-_]+)\s*/\s*([A-Za-z0-9\-_]+)", t_norm)
+    m_slash = re.search(r"(\b[A-Za-z0-9\-_]+)\s*/\s*([A-Za-z0-9\-_]+)", t_masked)
+    branches: list[str]
     if m_slash:
         left = m_slash.group(1).strip()
         right = m_slash.group(2).strip()
-        if len(left) >= 3 and len(right) >= 3:
-            b1 = t_norm[: m_slash.start()] + left + t_norm[m_slash.end() :]
-            b2 = t_norm[: m_slash.start()] + right + t_norm[m_slash.end() :]
+        if len(left) >= 3 and len(right) >= 3 and not left.startswith("__SAFEGUARD_") and not right.startswith("__SAFEGUARD_"):
+            b1 = t_masked[: m_slash.start()] + left + t_masked[m_slash.end() :]
+            b2 = t_masked[: m_slash.start()] + right + t_masked[m_slash.end() :]
             branches = [b1.strip(), b2.strip()]
             if "-" in left:
                 pfx, stem_left = left.rsplit("-", 1)
-                branches.append((t_norm[: m_slash.start()] + stem_left + t_norm[m_slash.end() :]).strip())
-                branches.append((t_norm[: m_slash.start()] + f"{pfx}-{right}" + t_norm[m_slash.end() :]).strip())
-            return list(dict.fromkeys(branches))
-    return [t_norm.strip()]
+                branches.append((t_masked[: m_slash.start()] + stem_left + t_masked[m_slash.end() :]).strip())
+                branches.append((t_masked[: m_slash.start()] + f"{pfx}-{right}" + t_masked[m_slash.end() :]).strip())
+            branches = list(dict.fromkeys(branches))
+        else:
+            branches = [t_masked.strip()]
+    else:
+        branches = [t_masked.strip()]
+
+    restored_branches: list[str] = []
+    for b in branches:
+        for idx, orig in enumerate(safeguards):
+            b = b.replace(f"__SAFEGUARD_{idx}__", orig)
+        restored_branches.append(b)
+
+    return restored_branches
 
 
 def clean_marketplace_noise(text: str) -> str:
@@ -463,6 +506,11 @@ def is_dimension_or_spec_token(token: str) -> bool:
         return True
     if re.match(r"^T\d+$", clean, re.IGNORECASE):
         return True
+    # 4-digit calendar years (e.g. 2024, 2025, 2026) are model-year specs, not SKU model codes
+    if re.match(r"^(?:19|20)\d{2}$", clean):
+        return True
+    if clean.upper() in NON_SKU_TOKENS or re.match(r"^[48]K$", clean, re.IGNORECASE):
+        return True
     # Units attached to numbers: 3FEET, 3FT, 4FEET, 7KG, 13SETS, 40INCH, 1000W, 3IN1, etc.
     if re.match(
         r"^\d+(?:\.\d+)?(?:FEET|FT|INCH|MM|CM|KG|GM|LTR|LITRE|SETS?|TON|WATTS?|W|\"|\')?$",
@@ -472,6 +520,10 @@ def is_dimension_or_spec_token(token: str) -> bool:
         # Standalone pure numbers with >= 3 digits (like 1088, 1400, 9270, 330) are valid model codes
         if re.match(r"^\d+$", clean):
             return len(clean) <= 2
+        return True
+    if re.match(r"^\d{1,2}K$", clean, re.IGNORECASE):  # 2K 4K 8K
+        return True
+    if re.match(r"^(?:480|576|720|1080|1440|2160)[PI]$", clean, re.IGNORECASE):  # 1080P 2160P
         return True
     return bool(re.match(r"^\d+IN\d+$", clean, re.IGNORECASE))  # 3IN1, 2IN1
 
@@ -489,6 +541,8 @@ def is_sku_variant_tag(token: str) -> bool:
     """
     clean = token.strip("-_., \"'")
     if not clean or clean.upper() in NON_SKU_TOKENS:
+        return False
+    if MERCHANT_TRACKING_CODE_RE.search(clean):
         return False
     if clean.upper() in {"WB", "GB"}:
         return False
@@ -645,9 +699,9 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         query = f"{detected_brand} {series_name} {cap_val}".strip() if detected_brand else f"{series_name} {cap_val}"
         return query, f"{series_name} {cap_val}"
 
-    # Check for TV pattern: e.g. 32" D2 -> 32 D2
-    m_tv = re.search(r"\b(\d{2})\s*(?:\"|inch|\')\s+([A-Za-z0-9]+)\b", clean, flags=re.IGNORECASE)
-    if m_tv:
+    # Check for TV pattern: e.g. 32" D2 -> 32 D2 (only if model is not a generic descriptor/non-sku token)
+    m_tv = re.search(r"\b(\d{2})\s*-?\s*(?:\"|inches|inch|\')\s+([A-Za-z0-9][A-Za-z0-9\-_]*)\b", clean, flags=re.IGNORECASE)
+    if m_tv and m_tv.group(2).upper() not in NON_SKU_TOKENS:
         screen = m_tv.group(1)
         model = m_tv.group(2)
         query = f"{detected_brand} {screen} {model}".strip() if detected_brand else f"{screen} {model}"
@@ -1585,6 +1639,44 @@ ROOT_COLORS: set[str] = {
 }
 
 
+def _anchor_from_prefix_match(m: re.Match[str], first_token_tag: str) -> tuple[str, str]:
+    pfx = m.group(1).upper()
+    num = m.group(2)
+    suf = (m.group(3) or "").upper()
+    suf = re.sub(r"[()]", "", suf).strip()
+    if num.isdigit() and len(num) <= 2 and (not suf or pfx in GENUINE_SUB_SERIES_TOKENS or pfx in {"SPLIT", "AUTO", "AWM"}):
+        return "", first_token_tag
+    elif pfx in NON_SKU_TOKENS:
+        # Category noise words (e.g. 'TV', 'AC', 'REF') should NEVER become anchor prefixes!
+        if suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
+            return f"{num}{suf}", first_token_tag
+        elif not (num.isdigit() and len(num) <= 2):
+            return num, first_token_tag
+    elif suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
+        if is_sku_variant_tag(suf) and len(num) >= 3:
+            return f"{pfx}-{num}", (first_token_tag if first_token_tag else suf)
+        else:
+            return f"{pfx}-{num}{suf}", first_token_tag
+    elif not (num.isdigit() and len(num) <= 2):
+        return f"{pfx}-{num}", first_token_tag
+    return "", first_token_tag
+
+
+def _text_after_anchor(clean_title: str, anchor: str) -> str | None:
+    """Return text occurring strictly after anchor (case-insensitive, checking hyphen variants)."""
+    if not anchor:
+        return None
+    anc_variants = [anchor]
+    if "-" in anchor:
+        anc_variants.extend([anchor.replace("-", " "), anchor.replace("-", "")])
+    upper_title = clean_title.upper()
+    for v in anc_variants:
+        idx = upper_title.find(v.upper())
+        if idx != -1:
+            return clean_title[idx + len(v) :]
+    return None
+
+
 def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     """Factor a catalog target or marketplace title into 4 orthogonal slots.
 
@@ -1604,6 +1696,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     raw_clean = title.replace("—", " ").replace("–", " ").replace("|", " ").strip()
     raw_clean = re.sub(r"\s*[-–—|]\s*(?:By\s+|Official\s+)[A-Za-z0-9\s.]{2,}$", "", raw_clean, flags=re.IGNORECASE)
     raw_clean = re.sub(r"\s*[-–—|]\s*(?:HomeCart|ElectroEase|Telemart|Metro|Hyperstar|AlfaMall|Faysal Bank|QistBazaar)\b.*$", "", raw_clean, flags=re.IGNORECASE)
+    raw_clean = MERCHANT_TRACKING_CODE_RE.sub(" ", raw_clean)
     clean_title = normalize_technical_slashes(raw_clean)
     first_w = clean_title.split()[0] if clean_title else ""
     detected_brand = brand.strip() or (first_w if first_w and not re.search(r"\d", first_w) else "")
@@ -1636,28 +1729,24 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
                 sub_anchor,
                 flags=re.IGNORECASE,
             )
-        m_pfx_stem = re.search(r"\b([A-Za-z]{2,4})[-_ ]?(\d+(?:-\d+)?)[-_ ]?([A-Za-z0-9]*)\b", sub_anchor)
-        if m_pfx_stem:
-            pfx = m_pfx_stem.group(1).upper()
-            num = m_pfx_stem.group(2)
-            suf = (m_pfx_stem.group(3) or "").upper()
-            suf = re.sub(r"[()]", "", suf).strip()
-            if num.isdigit() and len(num) <= 2 and (not suf or pfx in GENUINE_SUB_SERIES_TOKENS or pfx in {"SPLIT", "AUTO", "AWM"}):
-                pass
-            elif suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
-                if is_sku_variant_tag(suf) and len(num) >= 3:
-                    anchor = f"{pfx}-{num}"
-                    if not first_token_tag:
-                        first_token_tag = suf
-                else:
-                    anchor = f"{pfx}-{num}{suf}"
-            elif not (num.isdigit() and len(num) <= 2):
-                anchor = f"{pfx}-{num}"
-        else:
-            m_alpha = re.search(r"\b(\d+[A-Za-z]+[A-Za-z0-9\-]*|[A-Za-z]+\d+[A-Za-z0-9\-]*)\b", sub_anchor)
-            if m_alpha and not is_dimension_or_spec_token(m_alpha.group(1)):
-                anchor = m_alpha.group(1).upper()
-            else:
+        matched_any_pfx = False
+        for m_pfx in re.finditer(r"\b([A-Za-z]{2,4})[-_ ]?(\d+(?:-\d+)?)[-_ ]?([A-Za-z0-9]*)\b", sub_anchor):
+            matched_any_pfx = True
+            cand_anc, cand_tag = _anchor_from_prefix_match(m_pfx, first_token_tag)
+            num_suf = f"{m_pfx.group(2)}{(m_pfx.group(3) or '').upper()}"
+            if not cand_anc or is_dimension_or_spec_token(cand_anc) or is_dimension_or_spec_token(num_suf):
+                continue
+            anchor = cand_anc
+            first_token_tag = cand_tag
+            break
+
+        if not matched_any_pfx:
+            for m_cand in re.finditer(r"\b(\d+[A-Za-z]+[A-Za-z0-9\-]*|[A-Za-z]+\d+[A-Za-z0-9\-]*)\b", sub_anchor):
+                cand_tok = m_cand.group(1).upper()
+                if not is_dimension_or_spec_token(cand_tok):
+                    anchor = cand_tok
+                    break
+            if not anchor:
                 m_cap_ser = re.search(r"\b(\d{1,2})\s+([A-Za-z0-9]+(?:-[A-Za-z0-9]+)?)\b", sub_anchor)
                 if (
                     m_cap_ser
@@ -1699,9 +1788,10 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             re.IGNORECASE,
         )
     )
-    m_screen = re.search(r"\b(\d{2})\s*(?:INCH|\"|\')\b", clean_title, re.IGNORECASE)
+    m_screen = re.search(r"(?<![\d./])(\d{2})\s*-?\s*(?:INCH(?:ES)?\b|\"|\')", clean_title, re.IGNORECASE)
     if m_screen:
         capacity = f"{m_screen.group(1)}INCH"
+        is_display = True
     elif is_display and anchor and re.match(r"^(\d{2})[A-Z]\w{3,}$", anchor):
         capacity = f"{anchor[:2]}INCH"
     else:
@@ -1775,7 +1865,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # 1. Connectivity keywords across title
     if re.search(r"\b(?:WIFI|WI-FI)\b", clean_title, re.IGNORECASE):
         caps.add("WIFI")
-    if re.search(r"\b(?:IOT|SMART)\b", clean_title, re.IGNORECASE):
+    if re.search(r"\bIOT\b", clean_title, re.IGNORECASE) or (
+        not is_display and re.search(r"\bSMART\b", clean_title, re.IGNORECASE)
+    ):
         caps.add("IOT")
 
     # 2. Extract candidate modifier tokens:
@@ -1805,18 +1897,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # C. Search code right after the model AND across all remaining tokens in clean_title:
     post_words: list[str] = []
     if anchor:
-        anc_variants = [anchor]
-        if "-" in anchor:
-            anc_variants.extend([anchor.replace("-", " "), anchor.replace("-", "")])
-        # Find position of anchor in clean_title
-        found_pos = -1
-        for v in anc_variants:
-            idx = clean_title.upper().find(v.upper())
-            if idx != -1:
-                found_pos = idx + len(v)
-                break
-        if found_pos != -1:
-            post_anchor = clean_title[found_pos:]
+        post_anchor = _text_after_anchor(clean_title, anchor)
+        if post_anchor is not None:
             post_words = post_anchor.split()
         else:
             # Fallback: check if numeric stem exists in title
@@ -1881,16 +1963,17 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
     if m_gc:
         residuals.append(m_gc.group(0).upper())
-    if anchor and anchor in clean_title:
-        post_anchor = clean_title.split(anchor, 1)[1]
-        for t in post_anchor.split():
-            t_c = t.strip("-.,_ \"'")
-            if is_sku_variant_tag(t_c) and t_c.upper() not in residuals:
-                residuals.append(t_c.upper())
-    elif anchor:
-        for t in tokens[1:]:
-            if is_sku_variant_tag(t) and t.upper() not in residuals:
-                residuals.append(t.upper())
+    if anchor:
+        post_anchor = _text_after_anchor(clean_title, anchor)
+        if post_anchor is not None:
+            for t in post_anchor.split():
+                t_c = t.strip("-.,_ \"'")
+                if is_sku_variant_tag(t_c) and t_c.upper() not in residuals:
+                    residuals.append(t_c.upper())
+        else:
+            for t in tokens[1:]:
+                if is_sku_variant_tag(t) and t.upper() not in residuals:
+                    residuals.append(t.upper())
     residuals = list(dict.fromkeys(residuals))
 
     # 4. Dynamic Series Extraction via CSV Metadata Subtraction
@@ -1989,6 +2072,9 @@ def referee_match(
                 if dec.is_match:
                     return dec
             for dec in decs:
+                if dec.is_base_match:
+                    return dec
+            for dec in decs:
                 if any(x in dec.reason for x in ("mismatch", "collision")):
                     return dec
             return decs[0]
@@ -2034,7 +2120,6 @@ def referee_match(
     if (
         target_slots.guarded_facets.door_finish
         and not cand_slots.guarded_facets.door_finish
-        and target_slots.guarded_facets.door_finish not in CATEGORY_1_DIRECT_MATCH_MODIFIERS
     ):
         missing_finish = target_slots.guarded_facets.door_finish
         return MatchDecision(
@@ -2116,13 +2201,30 @@ def referee_match(
             t_nums = re.findall(r"\d{2,}", norm_t)
             c_nums = re.findall(r"\d{2,}", norm_c)
 
-            if norm_t == norm_c or norm_t in norm_c or norm_c in norm_t or norm_t in norm_cand_title:
+            if norm_t == norm_c or norm_t in norm_c or (len(norm_c) >= 3 and norm_c in norm_t) or norm_t in norm_cand_title:
                 # Check for conflicting numeric series stems (e.g. 699 vs 2578, 130 vs 150, 316 vs 826)
                 if t_nums and c_nums and len(t_nums) > 1 and len(c_nums) > 1:
                     # Multi-segment models: ALL significant numbers (capacity + series) must be consistent
                     matched_anchor = (set(t_nums) == set(c_nums))
                 elif t_nums and c_nums and len(t_nums) == 1 and len(c_nums) == 1:
                     matched_anchor = (t_nums[0] == c_nums[0])
+                elif (
+                    t_nums
+                    and c_nums
+                    and len(t_nums) > 1
+                    and len(c_nums) == 1
+                    and (
+                        re.search(rf"\b{re.escape(target_slots.anchor)}\b", candidate_title, re.IGNORECASE) is not None
+                        or (
+                            target_slots.guarded_facets.capacity
+                            and cand_slots.guarded_facets.capacity
+                            and target_slots.guarded_facets.capacity == cand_slots.guarded_facets.capacity
+                            and "INCH" in target_slots.guarded_facets.capacity
+                        )
+                    )
+                ):
+                    # Candidate literally contains target's full anchor or matches same display screen + series
+                    matched_anchor = True
                 elif t_nums and c_nums and len(t_nums) > 1 and len(c_nums) == 1:
                     # Target is a specific multi-part series (e.g. 150B-699); candidate with only 1 number cannot match
                     matched_anchor = False
