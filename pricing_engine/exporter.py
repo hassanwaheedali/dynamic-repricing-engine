@@ -264,7 +264,7 @@ def render_export_panel(manifest: ExportManifest) -> None:
 
     panel = Panel(
         table,
-        title="[bold green]ðŸ’¾ Catalog Repricing Exported (CSV + Dynamic Excel)[/bold green]",
+        title="[bold green]💾 Catalog Repricing Exported (CSV + Dynamic Excel)[/bold green]",
         border_style="green",
         expand=False,
     )
@@ -323,7 +323,7 @@ def export_results(
         export_excel_workbook(export_df, timestamped_xlsx_path)
         shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
     except Exception as exc:
-        console.print(f"[bold yellow]âš ï¸  Excel export warning:[/] {exc}")
+        console.print(f"[bold yellow]⚠️  Excel export warning:[/] {exc}")
         timestamped_xlsx_path = None  # type: ignore[assignment]
         latest_xlsx_path = None  # type: ignore[assignment]
 
