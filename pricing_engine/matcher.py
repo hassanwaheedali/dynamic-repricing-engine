@@ -806,6 +806,35 @@ def _keyword_match(expanded_title: str, target_keywords: str, brand: str = "") -
     return True
 
 
+def _single_letter_suffix_collision(target_model: str, candidate_title: str) -> bool:
+    """Detect a conflicting single-letter variant suffix after the same model stem.
+
+    Target ``DWT-270 C`` carries variant letter ``C``. A candidate ``DWT 270 S LVS+``
+    carries ``S`` after the same stem -> collision. A candidate with no suffix letter
+    (``DWT 270 LVS+``) is not a collision. Fully dynamic: no letters or stems hardcoded.
+    """
+    tokens = target_model.split()
+    for i, tok in enumerate(tokens[:-1]):
+        nxt = tokens[i + 1]
+        m_stem = re.fullmatch(r"([A-Za-z]*)[- ]?(\d{3,})", tok.strip())
+        if not (m_stem and re.fullmatch(r"[A-Za-z]", nxt)):
+            continue
+        letters, digits = m_stem.group(1), m_stem.group(2)
+        target_letter = nxt.upper()
+        pattern = (
+            rf"(?<![A-Za-z0-9]){re.escape(letters)}[-\s]?{digits}(?!\d)"
+            r"(?:[-\s]?([A-Za-z])(?![A-Za-z0-9]))?"
+        )
+        found = [
+            m.group(1).upper()
+            for m in re.finditer(pattern, candidate_title, re.IGNORECASE)
+            if m.group(1)
+        ]
+        if found and target_letter not in found:
+            return True
+    return False
+
+
 def is_strict_model_match(scraped_title: str, target_model: str, brand: str = "") -> bool:
     """Validate that scraped product title strictly matches target model.
 
@@ -881,6 +910,10 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
         cand_colors = get_all_color_families(expanded_title)
         if cand_colors and not target_colors.intersection(cand_colors):
             return False
+
+    # Single-letter variant suffix guard (e.g. DWT-270 C vs DWT 270 S)
+    if _single_letter_suffix_collision(clean_target, expanded_title):
+        return False
 
     # 2. Multi-token model containment (e.g. "DWT-1165 PL" -> "DWT1165" and "PL")
     target_tokens = [re.sub(r"[^A-Z0-9]", "", t.upper()) for t in clean_target.split() if t.strip()]

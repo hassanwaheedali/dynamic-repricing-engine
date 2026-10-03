@@ -945,3 +945,25 @@ def test_search_patterns_numeric_stem_color() -> None:
     assert "Dawlance 9101" in patterns["tier_1"]
 
 
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Dawlance 12 KG DWT-270 C LVS+ Top Load Fully Automatic Washing Machine", True),
+        ("Dawlance Top Load Fully Automatic Washing Machine (DWT-270 C LVS +)", True),
+        ("Dawlance Top Load Fully Automatic Washing Machine (DWT 270C LVS+)", True),
+        ("Dawlance 10KG TopLoad Automic Washing Machine DWT270C LVS", True),
+        ("Dawlance DWT 270 LVS+ Top Load Washing Machine", True),
+        ("Dawlance - Washing Machine Automatic Top Load 12KG - DWT 270 S LVS+", False),
+        ("Dawlance Top Load Washing Machine DWT 270 S LVS+", False),
+        ("Dawlance DWT 260 C LVS+ Washing Machine 9KG", False),
+    ],
+)
+def test_single_letter_variant_suffix_isolation(title: str, expected: bool) -> None:
+    """DWT-270 C must never match DWT 270 S (variant letter collision); no suffix is allowed."""
+    assert is_strict_model_match(title, "DWT-270 C", brand="Dawlance") is expected
+
+
+def test_single_letter_variant_suffix_isolation_260() -> None:
+    assert is_strict_model_match("Dawlance DWT 260 C LVS+ Washing Machine", "DWT-260 C", brand="Dawlance")
+    assert not is_strict_model_match("Dawlance DWT 260 S LVS+ fully automatic", "DWT-260 C", brand="Dawlance")
