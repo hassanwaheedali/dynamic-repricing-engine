@@ -129,12 +129,17 @@ async def _execute_waterfall(
     max_retries: int,
     floor_price: float | None = None,
     brand: str = "",
+    exhaustive: bool = False,
 ) -> ScrapeResult:
     """Execute tiered early-exit waterfall candidate retrieval across query tiers.
 
     Tiers are queried in sequence: tier_1 -> tier_2 -> tier_3.
     If >= 2 valid candidate offers are discovered after completing a tier,
     search terminates immediately, saving up to 80% redundant network I/O.
+
+    When ``exhaustive`` is True the early exit is disabled and every tier is queried and
+    merged, so market-range lookups (min/max) never miss listings that only surface under
+    a later tier's query.
     """
     collected_offers: list[ScrapedOffer] = []
     seen_offers: set[tuple[str, float]] = set()
@@ -186,7 +191,7 @@ async def _execute_waterfall(
             matched_tier = tier_name
 
         # Early-exit condition: if >= 2 valid candidate offers collected after completing this tier, stop!
-        if len(collected_offers) >= 2:
+        if not exhaustive and len(collected_offers) >= 2:
             break
 
     return ScrapeResult(
@@ -462,6 +467,7 @@ async def scrape_alfamall(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    exhaustive: bool = False,
 ) -> ScrapeResult:
     """Query AlfaMall storefront search API and extract verified product offers with retries.
 
@@ -498,6 +504,7 @@ async def scrape_alfamall(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        exhaustive=exhaustive,
     )
 
 
@@ -531,6 +538,7 @@ async def scrape_digimall(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    exhaustive: bool = False,
 ) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
@@ -567,5 +575,6 @@ async def scrape_digimall(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        exhaustive=exhaustive,
     )
 

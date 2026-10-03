@@ -162,3 +162,138 @@ def export_results(
         render_export_panel(manifest)
 
     return manifest
+
+
+RANGE_NUMERIC_COLUMNS: list[str] = [
+    "Minimum Price Alfa",
+    "Maximum Price Alfa",
+    "Minimum Price Digi",
+    "Maximum Price Digi",
+    "Alfa Offers Found",
+    "Digi Offers Found",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class RangeExportManifest:
+    """Manifest of Market Range Mode artifacts (xlsx entries are None if not written)."""
+
+    csv_path: Path
+    csv_latest: Path
+    xlsx_path: Path | None
+    xlsx_latest: Path | None
+    timestamp: str
+    total_rows: int
+    warnings: tuple[str, ...] = ()
+
+
+def _range_xlsx_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Copy of df with real numeric cells for XLSX (prices, counts and numeric S.NO)."""
+    xl = df.copy()
+    for col in RANGE_NUMERIC_COLUMNS:
+        if col in xl.columns:
+            xl[col] = pd.to_numeric(xl[col].apply(format_export_price), errors="coerce").astype(
+                "Int64"
+            )
+    if "S.NO" in xl.columns:
+        sno = xl["S.NO"].apply(format_export_sno)
+        numeric = pd.to_numeric(sno, errors="coerce")
+        xl["S.NO"] = numeric.astype("Int64") if numeric.notna().all() else sno
+    return xl
+
+
+def _write_range_xlsx(df: pd.DataFrame, path: Path) -> None:
+    """Write a styled XLSX (bold header, frozen header row, auto column width)."""
+    from openpyxl import load_workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    df.to_excel(path, index=False, engine="openpyxl")
+    wb = load_workbook(path)
+    ws = wb.active
+    if ws is None:
+        return
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    for idx, col in enumerate(df.columns, start=1):
+        longest = max([len(str(col))] + [len(str(v)) for v in df[col].tolist()])
+        ws.column_dimensions[get_column_letter(idx)].width = min(max(longest + 2, 10), 60)
+    wb.save(path)
+
+
+def export_range_results(
+    df: pd.DataFrame,
+    source_filename: str | Path,
+    output_dir: str | Path = "data/outputs/range",
+    timestamp: datetime | None = None,
+    render_panel: bool = True,
+) -> RangeExportManifest:
+    """Export Market Range results to ``csv/`` and ``xlsx/`` (timestamped + latest each).
+
+    CSV uses pure-integer strings (no ``.0`` drift). XLSX uses real numeric cells.
+    XLSX problems (openpyxl missing, file locked by Excel) never abort the run: the CSV
+    is always written first and issues are reported in ``manifest.warnings``.
+    """
+    root = Path(output_dir)
+    csv_dir, xlsx_dir = root / "csv", root / "xlsx"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    xlsx_dir.mkdir(parents=True, exist_ok=True)
+
+    ts_str = (timestamp or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    stem = Path(source_filename).stem
+
+    csv_path = csv_dir / f"{stem}_range_{ts_str}.csv"
+    csv_latest = csv_dir / f"{stem}_range_latest.csv"
+    csv_df = df.copy()
+    if "S.NO" in csv_df.columns:
+        csv_df["S.NO"] = csv_df["S.NO"].apply(format_export_sno)
+    for col in RANGE_NUMERIC_COLUMNS:
+        if col in csv_df.columns:
+            csv_df[col] = csv_df[col].apply(format_export_price)
+    csv_df.to_csv(csv_path, index=False)
+    shutil.copyfile(csv_path, csv_latest)
+
+    warnings: list[str] = []
+    xlsx_path: Path | None = xlsx_dir / f"{stem}_range_{ts_str}.xlsx"
+    xlsx_latest: Path | None = xlsx_dir / f"{stem}_range_latest.xlsx"
+    xl_df = _range_xlsx_frame(df)
+    assert xlsx_path is not None and xlsx_latest is not None
+    try:
+        _write_range_xlsx(xl_df, xlsx_path)
+    except ImportError:
+        warnings.append("openpyxl is not installed; XLSX skipped (pip install openpyxl).")
+        xlsx_path = xlsx_latest = None
+    except OSError as exc:
+        warnings.append(f"Could not write XLSX {xlsx_path.name}: {exc}")
+        xlsx_path = xlsx_latest = None
+    else:
+        try:
+            _write_range_xlsx(xl_df, xlsx_latest)
+        except OSError as exc:
+            warnings.append(
+                f"{xlsx_latest.name} not updated (is it open in Excel?): {exc}. "
+                "Timestamped copy was saved."
+            )
+            xlsx_latest = None
+
+    manifest = RangeExportManifest(
+        csv_path=csv_path,
+        csv_latest=csv_latest,
+        xlsx_path=xlsx_path,
+        xlsx_latest=xlsx_latest,
+        timestamp=ts_str,
+        total_rows=len(df),
+        warnings=tuple(warnings),
+    )
+    if render_panel:
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan")
+        table.add_column(style="green")
+        table.add_row("CSV:", str(csv_path))
+        table.add_row("XLSX:", str(xlsx_path) if xlsx_path else "skipped")
+        table.add_row("Rows Exported:", str(manifest.total_rows))
+        console.print(
+            Panel(table, title="[bold green]Market Range Exported[/bold green]", expand=False)
+        )
+    return manifest

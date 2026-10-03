@@ -52,6 +52,17 @@ class ScrapeResult:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketRange:
+    """Market min/max of in-stock offers on one platform (no floors, no pricing decision)."""
+
+    min_price: float | None
+    max_price: float | None
+    offer_count: int
+    is_down: bool = False
+    error_detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PlatformPricingResult:
     """Evaluation result and pricing decision for a single platform."""
 

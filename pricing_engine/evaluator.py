@@ -7,6 +7,7 @@ from pricing_engine.calculator import (
 from pricing_engine.models import (
     STATUS_SERVER_DOWN,
     CostFloors,
+    MarketRange,
     PlatformPricingResult,
     ScrapedOffer,
     ScrapeResult,
@@ -14,6 +15,31 @@ from pricing_engine.models import (
 
 MONOPOLY_PROFIT: float = 4000.0
 FALLBACK_PROFIT: float = 1500.0
+
+
+def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRange:
+    """Compute market min/max over in-stock offers with no floor filtering.
+
+    Sold-out offers are ignored. A failed ScrapeResult yields ``is_down=True`` so callers
+    never confuse an unreachable server with an empty market.
+    """
+    if isinstance(offers, ScrapeResult):
+        if not offers.is_success:
+            return MarketRange(
+                min_price=None,
+                max_price=None,
+                offer_count=0,
+                is_down=True,
+                error_detail=offers.error_detail or "HTTP Server/Network Error",
+            )
+        offer_list = offers.offers
+    else:
+        offer_list = list(offers)
+
+    prices = [o.price for o in offer_list if not o.is_sold_out]
+    if not prices:
+        return MarketRange(min_price=None, max_price=None, offer_count=0)
+    return MarketRange(min_price=min(prices), max_price=max(prices), offer_count=len(prices))
 
 
 def evaluate_alfa_pricing(
@@ -71,8 +97,9 @@ def evaluate_alfa_pricing(
     active_offers = [o for o in offer_list if not o.is_sold_out]
     valid_prices = sorted([o.price for o in active_offers])
 
-    min_p: float | None = min(valid_prices) if valid_prices else None
-    max_p: float | None = max(valid_prices) if valid_prices else None
+    market = evaluate_market_range(offer_list)
+    min_p: float | None = market.min_price
+    max_p: float | None = market.max_price
 
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
@@ -258,8 +285,9 @@ def evaluate_digi_pricing(
     active_offers = [o for o in offer_list if not o.is_sold_out]
     valid_prices = sorted([o.price for o in active_offers])
 
-    min_p: float | None = min(valid_prices) if valid_prices else None
-    max_p: float | None = max(valid_prices) if valid_prices else None
+    market = evaluate_market_range(offer_list)
+    min_p: float | None = market.min_price
+    max_p: float | None = market.max_price
 
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
