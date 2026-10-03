@@ -105,3 +105,50 @@ def test_main_with_explicit_valid_file(tmp_path: Path) -> None:
         code = asyncio.run(main())
         assert code == 0
         mock_pipe.assert_called_once()
+
+
+def test_parse_args_range_flag() -> None:
+    with patch("sys.argv", ["index.py"]):
+        assert parse_args().range_only is False
+    for flag in ("-r", "--range-only"):
+        with patch("sys.argv", ["index.py", flag]):
+            assert parse_args().range_only is True
+
+
+def test_main_range_only_uses_range_pipeline(tmp_path: Path) -> None:
+    test_csv = tmp_path / "models.csv"
+    test_csv.write_text("Brand,Name\nGree,GS-12XPH32\n", encoding="utf-8")
+
+    with (
+        patch("sys.argv", ["index.py", "-r", "-i", str(test_csv)]),
+        patch("index.run_range_pipeline", new_callable=AsyncMock) as mock_range,
+        patch("index.run_pipeline", new_callable=AsyncMock) as mock_pipe,
+    ):
+        code = asyncio.run(main())
+    assert code == 0
+    mock_range.assert_called_once()
+    mock_pipe.assert_not_called()
+
+
+def test_prompt_run_mode_choices() -> None:
+    from index import prompt_run_mode
+
+    for answer, expected in (("1", "reprice"), ("", "reprice"), ("2", "range"), ("r", "range")):
+        with patch("builtins.input", return_value=answer):
+            assert prompt_run_mode() == expected
+    with patch("builtins.input", return_value="q"):
+        assert prompt_run_mode() is None
+
+
+def test_main_interactive_mode_prompt_selects_range(tmp_path: Path) -> None:
+    test_csv = tmp_path / "models.csv"
+    test_csv.write_text("Brand,Name\nGree,GS-12XPH32\n", encoding="utf-8")
+
+    with (
+        patch("sys.argv", ["index.py", "-i", str(test_csv)]),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("index.prompt_run_mode", return_value="range"),
+        patch("index.run_range_pipeline", new_callable=AsyncMock) as mock_range,
+    ):
+        assert asyncio.run(main()) == 0
+    mock_range.assert_called_once()

@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from pricing_engine.pipeline import run_pipeline
+from pricing_engine.range_pipeline import run_range_pipeline
 
 # Ensure UTF-8 output encoding on Windows consoles
 if hasattr(sys.stdout, "reconfigure"):
@@ -65,6 +66,16 @@ def parse_args() -> argparse.Namespace:
         "--quiet",
         action="store_true",
         help="Suppress visual 90-char terminal audit cards",
+    )
+    parser.add_argument(
+        "-r",
+        "--range-only",
+        dest="range_only",
+        action="store_true",
+        help=(
+            "Market Range Mode: input needs only Brand+Name; outputs market Min/Max for "
+            "AlfaMall & DigiMall (CSV + XLSX in data/outputs/range/), no final prices"
+        ),
     )
     return parser.parse_args()
 
@@ -120,12 +131,47 @@ def interactive_catalog_picker(catalogs: list[Path]) -> list[Path] | None:
     return None
 
 
+def prompt_run_mode() -> str | None:
+    """Ask which mode to run. Returns 'reprice', 'range', or None to quit."""
+    table = Table(show_header=False, box=None)
+    table.add_column(style="bold yellow", width=6)
+    table.add_column(style="green")
+    table.add_row("[1]", "Full Repricing (final winning prices)")
+    table.add_row("[2]", "Market Range Only (Min/Max per mall, Brand+Name list)")
+    table.add_row("[Q]", "Quit")
+    console.print(
+        Panel(table, title="[bold cyan]Select Mode[/bold cyan]", border_style="cyan", expand=False)
+    )
+    try:
+        choice = input("Select mode [1/2, Q] (default 1): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[yellow]Operation cancelled.[/yellow]")
+        return None
+    if choice in ("q", "quit", "exit"):
+        return None
+    if choice in ("2", "r", "range"):
+        return "range"
+    return "reprice"
+
+
 async def main() -> int:
     """Main asynchronous pipeline entrypoint."""
     args = parse_args()
     input_path: Path | None = args.input
     output_path: Path | None = args.output
     target_catalogs: list[Path] = []
+    range_mode: bool = args.range_only
+
+    if not range_mode and sys.stdin.isatty():
+        chosen_mode = prompt_run_mode()
+        if chosen_mode is None:
+            return 0
+        range_mode = chosen_mode == "range"
+    if range_mode and output_path is not None:
+        console.print(
+            "[yellow]ℹ️  -o/--output is ignored in range mode; "
+            "files go to data/outputs/range/.[/yellow]"
+        )
 
     if args.batch:
         target_catalogs = find_input_catalogs()
@@ -180,6 +226,13 @@ async def main() -> int:
     had_errors = False
     for cat in target_catalogs:
         try:
+            if range_mode:
+                await run_range_pipeline(
+                    input_path=cat,
+                    concurrency=args.concurrency,
+                    verbose=not args.quiet,
+                )
+                continue
             effective_out = output_path if len(target_catalogs) == 1 else None
             await run_pipeline(
                 input_path=cat,
