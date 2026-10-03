@@ -218,3 +218,15 @@ When implementing Phase 2, follow these exact requirements:
    - Subparser: `python index.py history [--latest | --model <pattern> | --date <YYYY-MM-DD> | --profit-below <amount>]`.
    - If run without flags in an interactive terminal, display an interactive Rich query menu.
    - Render results in styled Rich tables with model, date, prices, profits, and risk alert badges.
+
+
+---
+
+## 9. Market Range Mode (`pricing_engine/range_pipeline.py`)
+
+- Entry: `python index.py -r/--range-only` (or mode `[2]` in the interactive prompt, TTY only). Input needs only `Brand` + `Name`.
+- Reuses scraper + matcher unchanged (variant protection intact). Scrapes with `exhaustive=True` (no waterfall early-exit) and `floor_price=None`.
+- `evaluate_market_range(offers) -> MarketRange` (evaluator.py) is the single source of truth for min/max over in-stock offers; both platform evaluators use it too.
+- Output columns follow section 5, with cost/decision columns blank, plus `Alfa Offers Found` / `Digi Offers Found` between `Maximum Price Digi` and `Final Price Alfa`. Risk alerts: `NONE | NO_OFFERS | SERVER_DOWN`.
+- Exports via `export_range_results(...)` to `data/outputs/range/{csv,xlsx}/` (timestamped + latest). XLSX failures never abort the run.
+- Tests: `tests/test_range_mode.py`, plus range cases in `tests/test_cli.py`.

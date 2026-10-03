@@ -302,3 +302,19 @@ Contributions are what make the open-source community an amazing place to learn,
 ## 📄 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+
+## Market Range Mode (`--range-only`)
+
+Give only a model list (`Brand`, `Name`) and get the market **Min / Max** price on AlfaMall and DigiMall. No cost math, no floors, no final price.
+
+```bash
+python index.py -r -i data/inputs/models.csv      # or: --range-only
+python index.py                                   # interactive: pick mode [2] Market Range Only
+```
+
+- **Min / Max**: lowest / highest in-stock price any vendor lists for the same strictly-matched model (sold-out offers ignored, no profit-floor filter).
+- **Exhaustive search**: every query tier is run and merged, so Max is not understated by the normal early-exit waterfall.
+- **Columns**: same layout as the repricing output. Cost, Final Price, Profit and Reason columns are blank. Two extra columns, `Alfa Offers Found` / `Digi Offers Found`, sit between `Maximum Price Digi` and `Final Price Alfa`. Risk alerts stay the last two columns: `NONE`, `NO_OFFERS` (empty market) or `SERVER_DOWN`.
+- **Output**: `data/outputs/range/csv/` and `data/outputs/range/xlsx/` (`{stem}_range_{timestamp}` + `{stem}_range_latest`). If the latest XLSX is open in Excel, the timestamped copy is still saved and a warning is shown.
+- Requires `openpyxl` (in `requirements.txt`).
