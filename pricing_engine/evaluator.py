@@ -13,6 +13,7 @@ from pricing_engine.models import (
     PlatformPricingResult,
     ScrapedOffer,
     ScrapeResult,
+    is_non_competitor_vendor,
 )
 
 MONOPOLY_PROFIT: float = 4000.0
@@ -38,7 +39,11 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
     else:
         offer_list = list(offers)
 
-    prices = [o.price for o in offer_list if not o.is_sold_out]
+    prices = [
+        o.price
+        for o in offer_list
+        if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+    ]
     if not prices:
         return MarketRange(min_price=None, max_price=None, offer_count=0)
     return MarketRange(min_price=min(prices), max_price=max(prices), offer_count=len(prices))
@@ -126,7 +131,11 @@ def _evaluate_alfa_core(
             effective_comm="10.00%",
         )
 
-    active_offers = [o for o in offer_list if not o.is_sold_out]
+    active_offers = [
+        o
+        for o in offer_list
+        if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+    ]
     valid_prices = sorted([o.price for o in active_offers])
 
     market = evaluate_market_range(offer_list)
@@ -331,7 +340,11 @@ def _evaluate_digi_core(
             effective_comm="8.00%",
         )
 
-    active_offers = [o for o in offer_list if not o.is_sold_out]
+    active_offers = [
+        o
+        for o in offer_list
+        if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+    ]
     valid_prices = sorted([o.price for o in active_offers])
 
     market = evaluate_market_range(offer_list)

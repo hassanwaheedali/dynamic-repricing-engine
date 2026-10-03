@@ -649,8 +649,17 @@ def test_dynamic_post_model_code_and_finish_rules() -> None:
         referee_match,
     )
 
-    # 1. Category 1 list verification: Strictly contains only SD
-    assert {"SD"} == CATEGORY_1_DIRECT_MATCH_MODIFIERS
+    # 1. Category 1 list verification: Contains SD and GT (Glass Top)
+    assert {"SD", "GT"} == CATEGORY_1_DIRECT_MATCH_MODIFIERS
+
+    # Direct match when candidate omits Category 1 modifier (GT)
+    dec_gt_omit = referee_match(
+        "Haier HWM 120-316S6 GT 12 Kg Top Load Automatic Washing Machine",
+        "Haier HWM 120-316S6 12 Kg Top Load Automatic Washing Machine",
+        brand="Haier",
+    )
+    assert dec_gt_omit.is_match is True
+    assert dec_gt_omit.is_base_match is False
 
     # 2. Washing Machine: Dynamic code right after model (e.g. DWT-11467 ES)
     # A. Exact match when candidate has ES

@@ -11,7 +11,7 @@ from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
 from pricing_engine.matcher import referee_match
-from pricing_engine.models import ScrapedOffer, ScrapeResult
+from pricing_engine.models import ScrapedOffer, ScrapeResult, is_non_competitor_vendor
 
 # Configure UTF-8 encoding safely for Windows CLI terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -179,46 +179,59 @@ async def _execute_waterfall(
         t for t in patterns if t not in tier_order
     ]
 
+    executed_lower: set[str] = set()
     for tier_name in all_tiers:
         tier_queries = patterns[tier_name]
         tier_offers_count = 0
+        unique_tier_queries: list[str] = []
         for q in tier_queries:
             q_str = str(q).strip()
             if not q_str:
                 continue
-            if q_str not in executed_queries:
-                executed_queries.append(q_str)
-            sub_res = await single_scraper_fn(
-                session=session,
-                query=q_str,
-                target_model=target_model,
-                timeout=timeout,
-                max_retries=max_retries,
-                floor_price=floor_price,
-                brand=brand,
-                target_desc=target_desc,
+            if q_str.lower() in executed_lower:
+                continue
+            executed_lower.add(q_str.lower())
+            executed_queries.append(q_str)
+            unique_tier_queries.append(q_str)
+
+        if unique_tier_queries:
+            sub_results = await asyncio.gather(
+                *[
+                    single_scraper_fn(
+                        session=session,
+                        query=q_str,
+                        target_model=target_model,
+                        timeout=timeout,
+                        max_retries=max_retries,
+                        floor_price=floor_price,
+                        brand=brand,
+                        target_desc=target_desc,
+                    )
+                    for q_str in unique_tier_queries
+                ]
             )
-            if sub_res.is_success:
-                any_success = True
-            last_status = sub_res.status_code
-            if sub_res.error_detail:
-                last_error = sub_res.error_detail
+            for sub_res in sub_results:
+                if sub_res.is_success:
+                    any_success = True
+                last_status = sub_res.status_code
+                if sub_res.error_detail:
+                    last_error = sub_res.error_detail
 
-            for off in sub_res.offers:
-                dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
-                if dedupe_key not in seen_offers:
-                    seen_offers.add(dedupe_key)
-                    collected_offers.append(off)
-                    tier_offers_count += 1
+                for off in sub_res.offers:
+                    dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
+                    if dedupe_key not in seen_offers:
+                        seen_offers.add(dedupe_key)
+                        collected_offers.append(off)
+                        tier_offers_count += 1
 
-            for off in sub_res.base_offers:
-                dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
-                if dedupe_key not in seen_base_offers:
-                    seen_base_offers.add(dedupe_key)
-                    collected_base_offers.append(off)
+                for off in sub_res.base_offers:
+                    dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
+                    if dedupe_key not in seen_base_offers:
+                        seen_base_offers.add(dedupe_key)
+                        collected_base_offers.append(off)
 
-            if sub_res.active_modifier_fallback and not detected_missing_modifier:
-                detected_missing_modifier = sub_res.active_modifier_fallback
+                if sub_res.active_modifier_fallback and not detected_missing_modifier:
+                    detected_missing_modifier = sub_res.active_modifier_fallback
 
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
@@ -280,6 +293,9 @@ def _parse_offers_from_raw_items(
 
         vendor_obj = item.get("vendor") or {}
         vendor = vendor_obj.get("name") or "Unknown Vendor"
+        vendor_handle = vendor_obj.get("handle") or ""
+        if is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(str(vendor_handle)):
+            continue
 
         if price > 0:
             offer = ScrapedOffer(
@@ -459,6 +475,9 @@ async def _scrape_platform_single_query(
                     _query_cache[cache_key] = result
                     if raw_items:
                         _raw_items_cache[raw_cache_key] = list(raw_items)
+                elif raw_items is not None and not raw_items:
+                    _query_cache[cache_key] = result
+                    _raw_items_cache[raw_cache_key] = []
 
                 return result
 

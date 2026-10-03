@@ -371,3 +371,44 @@ def test_asymmetric_portal_failure_isolated(sample_floors: CostFloors) -> None:
     # Digi cleanly reports Server Down
     assert digi_res.final_price is None
     assert digi_res.status == "Server Down / Unreachable"
+
+
+def test_is_non_competitor_vendor() -> None:
+    from pricing_engine.models import is_non_competitor_vendor
+
+    assert is_non_competitor_vendor("haier-official-store") is True
+    assert is_non_competitor_vendor("Haier Official Store") is True
+    assert is_non_competitor_vendor("HAIER OFFICIAL STORE") is True
+    assert is_non_competitor_vendor("haierofficialstore") is True
+    assert is_non_competitor_vendor("Umar Electronics") is False
+    assert is_non_competitor_vendor("Ezzi traders") is False
+    assert is_non_competitor_vendor("") is False
+    assert is_non_competitor_vendor(None) is False
+
+
+def test_evaluate_market_range_ignores_non_competitor() -> None:
+    from pricing_engine.evaluator import evaluate_market_range
+
+    offers = [
+        ScrapedOffer(vendor_name="Haier Official Store", price=50000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="Competitor 1", price=65000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="Competitor 2", price=70000.0, is_sold_out=False, raw_title="AC"),
+    ]
+    rng = evaluate_market_range(offers)
+    assert rng.offer_count == 2
+    assert rng.min_price == 65000.0
+    assert rng.max_price == 70000.0
+
+
+def test_evaluator_ignores_non_competitor_as_sole_offer(sample_floors: CostFloors) -> None:
+    # If the only seller is Haier Official Store, it is NOT considered a competitor -> Monopoly Win!
+    offers = [
+        ScrapedOffer(vendor_name="Haier Official Store", price=75000.0, is_sold_out=False, raw_title="AC"),
+    ]
+    alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=offers)
+    assert alfa_res.status == "Monopoly Win"
+    assert alfa_res.min_price is None
+    digi_res = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
+    assert digi_res.status == "Monopoly Win"
+    assert digi_res.min_price is None
+

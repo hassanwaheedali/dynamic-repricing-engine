@@ -270,3 +270,15 @@ def test_export_range_results_locked_xlsx_does_not_crash(tmp_path: Path) -> None
     assert man.xlsx_path is not None and man.xlsx_path.is_file()
     assert man.xlsx_latest is None
     assert man.warnings
+
+
+def test_range_pipeline_headerless_single_column(tmp_path: Path) -> None:
+    cat = _write_catalog(tmp_path / "raw_titles.csv", "Haier HRF-276 EBD 276 Liters\nDawlance 9173WB 12 Cu Ft\n")
+    alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 80_000)]))
+    digi = AsyncMock(return_value=ScrapeResult(offers=[]))
+    df = _run(cat, tmp_path, alfa, digi)
+    assert len(df) == 2
+    assert list(df["S.NO"]) == [1, 2]
+    assert df.loc[0, "Name"] == "Haier HRF-276 EBD 276 Liters"
+    assert df.loc[1, "Name"] == "Dawlance 9173WB 12 Cu Ft"
+

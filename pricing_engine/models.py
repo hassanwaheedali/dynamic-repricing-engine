@@ -1,8 +1,29 @@
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
 STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
+
+# List of vendor names/handles excluded from competitor pricing and market discovery
+# (e.g. brand-owned official flagship stores that shouldn't be competed against)
+NON_COMPETITOR_VENDORS: set[str] = {
+    "haier-official-store",
+    "haier official store",
+    "haierofficialstore",
+}
+
+
+def is_non_competitor_vendor(vendor_name: str | None) -> bool:
+    """Check if a vendor should be excluded from competitive repricing and market discovery."""
+    if not vendor_name:
+        return False
+    norm = re.sub(r"[^a-z0-9]", "", str(vendor_name).lower())
+    for excluded in NON_COMPETITOR_VENDORS:
+        if norm == re.sub(r"[^a-z0-9]", "", excluded.lower()):
+            return True
+    return False
+
 
 
 @dataclass(frozen=True, slots=True)

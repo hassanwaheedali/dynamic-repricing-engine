@@ -1127,3 +1127,94 @@ def test_water_dispenser_tap_count_matching() -> None:
     assert res_omitted.is_match
 
 
+def test_deep_freezer_df300_es_matching() -> None:
+    """Verify deep freezer model matching for spaced DF-300 ES vs glued DF-300ES."""
+    target_name = "Dawlance DF-300 ES 300 Litres Energy Saver Series Deep Freezer"
+    brand = "Dawlance"
+
+    # 1. Glued DF-300ES with single door series and LTR
+    res_glued = referee_match(
+        target_name,
+        "Dawlance Deep Freezer DF-300ES - Single Door Series - 300 LTR - White",
+        brand=brand,
+    )
+    assert res_glued.is_match is True
+    assert res_glued.is_base_match is False
+
+    # 2. Exact match with same wording
+    res_exact = referee_match(
+        target_name,
+        "Dawlance DF-300 ES 300 Litres Energy Saver Series Deep Freezer",
+        brand=brand,
+    )
+    assert res_exact.is_match is True
+
+    # 3. Extra ET hardware capability must be rejected
+    res_extra_et = referee_match(
+        target_name,
+        "Dawlance Deep Freezer DF300 ES ET",
+        brand=brand,
+    )
+    assert res_extra_et.is_match is False
+
+    # 4. Base model omitting ES
+    res_base = referee_match(
+        target_name,
+        "DAWLANCE DEEP FREEZER DF300 P STUCCO",
+        brand=brand,
+    )
+    assert res_base.is_match is False
+    assert res_base.is_base_match is True
+
+    # 5. Search patterns must include both glued and spaced variants
+    patterns = generate_search_patterns(target_name, brand=brand)
+    assert any("DF-300ES" in p for p in patterns["tier_1"])
+    assert any("DF-300 ES" in p for p in patterns["tier_1"])
+
+
+def test_deep_freezer_df400_eds_matching() -> None:
+    """Verify DF-400 EDS matches listings with parentheses or omitted marketing series."""
+    target_name = "Dawlance DF-400 EDS 400 Litres Extended Durability Series Deep Freezer"
+    brand = "Dawlance"
+
+    # Candidate with parentheses and merchant tracking code
+    c1 = "Dawlance Single Door Deep Freezer (DF-400 EDS) - ISPK-0612"
+    res1 = referee_match(target_name, c1, brand=brand)
+    assert res1.is_match is True, f"Failed: {res1.reason}"
+
+    # Candidate with Tech House boilerplate and ARC packaging
+    c2 = "Dawlance DF-400 SD EDS (ARC-P1-WHITE) Regular Deep Freezer Brand New Box Pack 100% Original With Brand Warranty-By Tech House9122"
+    res2 = referee_match(target_name, c2, brand=brand)
+    assert res2.is_match is True, f"Failed: {res2.reason}"
+
+    # Conflicting model DF-500 must NOT match
+    c_wrong = "Dawlance DF-500 EDS 500 Litres Extended Durability Series Deep Freezer"
+    assert referee_match(target_name, c_wrong, brand=brand).is_match is False
+
+
+def test_deep_freezer_df500_dd_matching() -> None:
+    """Verify DF 500 DD matches Tech House listing containing STUCCO PCM and promotional text."""
+    target_name = "Dawlance DF 500 DD 500 Litres Twin Door Deep Freezer"
+    brand = "Dawlance"
+
+    c = "Dawlance DF-500 DD STUCCO PCM (ARC-P1-WHITE) Regular Deep Freezer Brand New Box Pack 100% Original With Brand Warranty-By Tech House9122"
+    res = referee_match(target_name, c, brand=brand)
+    assert res.is_match is True, f"Failed: {res.reason}"
+
+
+def test_deep_freezer_91998_signature_matching() -> None:
+    """Verify 91998 Signature matches listing where seller omitted the words Glass Door."""
+    target_name = "Dawlance 91998 385 Litres Signature Glass Door Deep Freezer"
+    brand = "Dawlance"
+
+    c = "Dawlance Deep Freezer 91998 Signature Inverter Grey Twin Door Freezer"
+    res = referee_match(target_name, c, brand=brand)
+    assert res.is_match is True, f"Failed: {res.reason}"
+
+    # Conflicting finish INOX must NOT match
+    c_inox = "Dawlance Deep Freezer 91998 Signature Inverter INOX Twin Door Freezer"
+    assert referee_match(target_name, c_inox, brand=brand).is_match is False
+
+
+
+

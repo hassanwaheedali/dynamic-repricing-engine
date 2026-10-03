@@ -128,7 +128,11 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
     ]
     name_col = "Name " if "Name " in df.columns else "Name"
     if name_col not in df.columns:
-        raise ValueError(f"Missing required column 'Name' in {input_path.name}.")
+        if len(df.columns) == 1:
+            df = pd.read_csv(input_path, header=None, names=["Name"])
+            name_col = "Name"
+        else:
+            raise ValueError(f"Missing required column 'Name' in {input_path.name}.")
 
     if "Brand" not in df.columns:
         # Gracefully derive Brand from leading token of Name when Brand column is omitted
@@ -344,7 +348,7 @@ async def run_range_pipeline(
                     )
                 )
             )
-            if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:
+            if i < concurrency - 1 and RANGE_STAGGER_SECONDS > 0:
                 await asyncio.sleep(RANGE_STAGGER_SECONDS)
         records = await asyncio.gather(*tasks)  # gather preserves submission order
 

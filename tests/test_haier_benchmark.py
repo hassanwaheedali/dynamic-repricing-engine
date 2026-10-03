@@ -204,3 +204,64 @@ def test_haier_descriptive_series_and_tv_screen_matching() -> None:
         brand="Haier",
     )
     assert dec_tv.is_match is True
+
+
+def test_haier_floor_standing_slash_variant_matching() -> None:
+    """Ensure dual-variant slashed listings (HPU-24HDZ CA/DC) match both CA and DC targets without false collisions."""
+    target_ca = "Haier HPU-24HDZCA 2 Ton T3 Plus Floor Standing Air Conditioner"
+    target_dc = "Haier HPU-24HDZDC 2 Ton T3 Plus Floor Standing Air Conditioner"
+    cand_slash = (
+        "Haier 2 Ton T3 Plus Heat & Cool Floor Stand HPU-24HDZ CA/DC White "
+        "0% Processing 0% Markup ON INSTALLMENTS-UE010"
+    )
+    cand_single_ca = "Haier 2 Ton T3 Plus Heat & Cool Floor Stand HPU-24HDZCA White"
+
+    # Both CA and DC targets should accept the dual-variant listing
+    dec_ca = referee_match(target_ca, cand_slash, brand="Haier")
+    assert dec_ca.is_match is True
+    assert "HPU-24HDZCA" in dec_ca.reason
+
+    dec_dc = referee_match(target_dc, cand_slash, brand="Haier")
+    assert dec_dc.is_match is True
+    assert "HPU-24HDZDC" in dec_dc.reason
+
+    # Cross-variant protection: DC target must reject single-variant CA listing
+    dec_reject = referee_match(target_dc, cand_single_ca, brand="Haier")
+    assert dec_reject.is_match is False
+    assert "collision" in dec_reject.reason.lower()
+
+
+def test_haier_hsu_19hfs_golden_and_dark_grey_matching() -> None:
+    """Ensure HSU-19HFS (G) matches Golden, (S-G), and HSU-19HFS-G listings while rejecting White and Dark Grey."""
+    target_g = "Haier HSU-19HFS (G) T3 Pro 1.5 Ton Super Air Conditioner"
+
+    # 1. Golden listings from market must match
+    cand_golden = (
+        "Haier - Air Conditioner 1.5 Ton Super T3 Pro Inverter Heat & Cool with "
+        "Wi-Fi Golden Color- HSU-19HFS(G) - (SNS60)"
+    )
+    cand_sg = "Haier T3 PRO 1.5-Ton Inverter AC (HSU-19HFS) (S-G)"
+    cand_hyphen_g = "HAIER 1.5 TON SUPER T3 PRO INVERTER AC Model HSU-19HFS-G(WITH 0% MARKUP ON 3 AND 6 MONTHS)"
+
+    assert referee_match(target_g, cand_golden, brand="Haier").is_match is True
+    assert referee_match(target_g, cand_sg, brand="Haier").is_match is True
+    assert referee_match(target_g, cand_hyphen_g, brand="Haier").is_match is True
+
+    # 2. White and Dark Grey listings must be rejected with color collision
+    cand_white = "Haier HSU-19HFS White T3 Pro 1.5 Ton Inverter AC"
+    cand_dg = "Haier HSU-19HFS (DG) Dark Grey T3 Pro 1.5 Ton Inverter AC"
+
+    dec_w = referee_match(target_g, cand_white, brand="Haier")
+    assert dec_w.is_match is False
+    assert "color collision" in dec_w.reason.lower()
+
+    dec_dg = referee_match(target_g, cand_dg, brand="Haier")
+    assert dec_dg.is_match is False
+    assert "color collision" in dec_dg.reason.lower()
+
+    # 3. Target Dark Grey must match Dark Grey and reject Golden
+    target_dg = "Haier HSU-19HFS (DG) T3 Pro 1.5 Ton Super Air Conditioner"
+    assert referee_match(target_dg, cand_dg, brand="Haier").is_match is True
+    assert referee_match(target_dg, cand_golden, brand="Haier").is_match is False
+
+
