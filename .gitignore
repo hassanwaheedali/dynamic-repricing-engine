@@ -48,3 +48,8 @@ htmlcov/
 data/outputs/*.csv
 !data/outputs/.gitkeep
 !data/inputs/template.csv
+# Market Range Mode outputs (generated CSV/XLSX)
+data/outputs/range/
+
+# Local scratch scripts
+scratch/

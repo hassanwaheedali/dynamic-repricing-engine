@@ -7,6 +7,7 @@ dependencies = [
     "curl_cffi>=0.7.0",
     "pandas>=2.0.0",
     "rich>=13.0.0",
+    "openpyxl>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +40,7 @@ no_implicit_optional = true
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = ["curl_cffi.*", "pandas.*"]
+module = ["curl_cffi.*", "pandas.*", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
