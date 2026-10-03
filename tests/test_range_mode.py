@@ -163,14 +163,13 @@ def test_range_pipeline_brand_name_only_and_order(tmp_path: Path) -> None:
     assert list(df["Digi Offers Found"]) == [1, 1]
 
 
-def test_range_pipeline_requests_exhaustive_and_no_floor(tmp_path: Path) -> None:
+def test_range_pipeline_scrapes_without_floor(tmp_path: Path) -> None:
     cat = _write_catalog(tmp_path / "list.csv", "Brand,Name\nGree,GS-12XPH32\n")
     alfa = AsyncMock(return_value=ScrapeResult(offers=[]))
     digi = AsyncMock(return_value=ScrapeResult(offers=[]))
     _run(cat, tmp_path, alfa, digi)
     for mock in (alfa, digi):
         kwargs = mock.call_args.kwargs
-        assert kwargs["exhaustive"] is True
         assert kwargs.get("floor_price") is None
 
 
@@ -261,34 +260,3 @@ def test_export_range_results_locked_xlsx_does_not_crash(tmp_path: Path) -> None
     assert man.xlsx_path is not None and man.xlsx_path.is_file()
     assert man.xlsx_latest is None
     assert man.warnings
-
-
-
-# ------------------------------------------------------- scraper exhaustive
-
-
-def test_waterfall_exhaustive_merges_all_tiers() -> None:
-    from pricing_engine.scraper import _execute_waterfall
-
-    async def fake_single(**kwargs: object) -> ScrapeResult:
-        q = str(kwargs["query"])
-        offers = {
-            "q1": [_offer("A", 10), _offer("B", 20)],
-            "q2": [_offer("C", 999)],
-        }[q]
-        return ScrapeResult(offers=offers)
-
-    patterns = {"tier_1": ["q1"], "tier_2": ["q2"]}
-
-    def run(exhaustive: bool) -> ScrapeResult:
-        return asyncio.run(
-            _execute_waterfall(
-                fake_single, None, patterns, "m", 1.0, 1, exhaustive=exhaustive  # type: ignore[arg-type]
-            )
-        )
-
-    early = run(False)
-    full = run(True)
-    assert max(o.price for o in early.offers) == 20  # early exit misses tier_2
-    assert max(o.price for o in full.offers) == 999
-    assert full.executed_queries == ["q1", "q2"]

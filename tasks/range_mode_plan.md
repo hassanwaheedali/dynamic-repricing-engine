@@ -101,7 +101,7 @@ XLSX stores prices as real numbers. CSV keeps pure-integer strings (no `.0`).
 ## Risks and Mitigations
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Waterfall early-exit (>=2 offers) understates Max | High | Range mode runs all tiers and merges (`exhaustive=True` param on waterfall, default False). Test with 2-tier fake. More requests, acceptable. |
+| Waterfall early-exit (>=2 offers) understates Max | High | Resolved upstream: waterfall now always queries every tier (no `exhaustive` flag needed). |
 | Accessory/odd listing distorts Min or Max | Med | Matching already strict. Offer count column + live smoke check. |
 | XLSX `latest` locked by Excel on Windows (PermissionError) | Med | Catch, warn, keep timestamped file, do not crash. |
 | `openpyxl` missing in user env | Low | Add to requirements/pyproject; clear error, CSV still written. |

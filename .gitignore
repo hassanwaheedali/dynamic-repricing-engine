@@ -46,10 +46,17 @@ htmlcov/
 
 # Data Pipeline
 data/outputs/*.csv
+data/outputs/*.json
+data/outputs/*.xlsx
+data/outputs/~*
 !data/outputs/.gitkeep
-!data/inputs/template.csv
+!data/inputs/template.csv
+
 # Market Range Mode outputs (generated CSV/XLSX)
 data/outputs/range/
 
 # Local scratch scripts
 scratch/
+
+# Repomix & Local Dumps
+repomix-output.*

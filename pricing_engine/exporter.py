@@ -81,6 +81,170 @@ class ExportManifest:
     latest_path: Path
     timestamp: str
     total_rows: int
+    timestamped_xlsx_path: Path | None = None
+    latest_xlsx_path: Path | None = None
+
+
+def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
+    """Export DataFrame to a styled Excel workbook with live dynamic formulas.
+
+    Dynamically binds Excel formulas for:
+      - Shipping Estimate: =ROUNDUP(((Length*Width*Height)/5000)*70, 0)
+      - Total Without Profit: =ROUND((Net Price + Shipping) / (1 - Effective Comm), 0)
+      - Calculation: =ROUND((Net Price + Shipping + Profit) / 0.90, 0)
+      - Alfa Real Profit: =IF(ISBLANK(Final Price Alfa), "", ROUND((Final Price Alfa * 0.90) - (Net Price + Shipping), 0))
+      - Digi Real Profit: =IF(ISBLANK(Final Price Digi), "", ROUND((Final Price Digi * (1 - Effective Comm)) - (Net Price + Shipping), 0))
+    """
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Repriced Catalog"
+
+    headers = list(df.columns)
+    ws.append(headers)
+
+    col_map = {name: get_column_letter(idx + 1) for idx, name in enumerate(headers)}
+
+    # Header styling: Dark navy with bold white text
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    thin_border = Border(
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9"),
+    )
+
+    ws.row_dimensions[1].height = 28
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+
+    currency_format = "#,##0"
+    price_cols_set = {
+        "Net Price",
+        "Profit",
+        "Shipping Estimate",
+        "Total Without Profit",
+        "Calculation",
+        "Minimum Price Alfa",
+        "Maximum Price Alfa",
+        "Minimum Price Digi",
+        "Maximum Price Digi",
+        "Final Price Alfa",
+        "Final Price Digi",
+        "Alfa Real Profit",
+        "Digi Real Profit",
+    }
+
+    # Populate data rows
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
+        ws.row_dimensions[row_idx].height = 20
+        row_vals = []
+        for col_name in headers:
+            val = row[col_name]
+            if pd.isna(val):
+                row_vals.append(None)
+            elif col_name in price_cols_set:
+                try:
+                    clean = str(val).replace(",", "").strip()
+                    row_vals.append(float(clean) if clean else None)
+                except (ValueError, TypeError):
+                    row_vals.append(val)
+            elif col_name == "S.NO":
+                row_vals.append(format_export_sno(val))
+            else:
+                row_vals.append(val)
+
+        ws.append(row_vals)
+
+        # Inject dynamic formulas for row_idx
+        r = row_idx
+        net = col_map.get("Net Price")
+        l_col = col_map.get("Length")
+        w_col = col_map.get("Width")
+        h_col = col_map.get("Height")
+        p_col = col_map.get("Profit")
+        ship = col_map.get("Shipping Estimate")
+        comm = col_map.get("Digi Effective Commision")
+        twop = col_map.get("Total Without Profit")
+        calc = col_map.get("Calculation")
+        final_alfa = col_map.get("Final Price Alfa")
+        final_digi = col_map.get("Final Price Digi")
+        prof_alfa = col_map.get("Alfa Real Profit")
+        prof_digi = col_map.get("Digi Real Profit")
+
+        # 1. Shipping Estimate
+        if ship and l_col and w_col and h_col:
+            ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 0)"
+
+        # 2. Total Without Profit
+        if twop and net and ship:
+            if comm:
+                ws[f"{twop}{r}"] = (
+                    f'=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({comm}{r}), 1-{comm}{r}, '
+                    f'IF(ISNUMBER(FIND("8", {comm}{r})), 0.92, 0.90)), 0)'
+                )
+            else:
+                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/0.90, 0)"
+
+        # 3. Calculation (Baseline Target)
+        if calc and net and ship:
+            if p_col:
+                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+IF(ISBLANK({p_col}{r}), 500, {p_col}{r}))/0.90, 0)"
+            else:
+                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+500)/0.90, 0)"
+
+        # 4. Alfa Real Profit
+        if prof_alfa and final_alfa and net and ship:
+            ws[f"{prof_alfa}{r}"] = (
+                f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
+            )
+
+        # 7. Digi Real Profit
+        if prof_digi and final_digi and net and ship:
+            if comm:
+                ws[f"{prof_digi}{r}"] = (
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*'
+                    f'IF(ISNUMBER({comm}{r}), 1-{comm}{r}, IF(ISNUMBER(FIND("8", {comm}{r})), 0.92, 0.90)))'
+                    f'-({net}{r}+{ship}{r}), 0))'
+                )
+            else:
+                ws[f"{prof_digi}{r}"] = (
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
+                )
+
+        # Apply cell formats & borders
+        for c_idx, col_name in enumerate(headers, start=1):
+            cell = ws.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            if col_name in price_cols_set:
+                cell.number_format = currency_format
+                cell.alignment = Alignment(horizontal="right")
+            elif col_name in {"Commision", "Digi Effective Commision", "S.NO", "Alfa Status", "Digi Status"}:
+                cell.alignment = Alignment(horizontal="center")
+
+    # Freeze top row
+    ws.freeze_panes = "A2"
+
+    # Auto-fit column widths
+    for col in ws.columns:
+        col_letter = get_column_letter(col[0].column)
+        max_len = 0
+        for cell in col:
+            val_str = str(cell.value or "")
+            if val_str.startswith("="):
+                val_str = "123,456"
+            max_len = max(max_len, len(val_str))
+        ws.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
+
+    wb.save(file_path)
 
 
 def render_export_panel(manifest: ExportManifest) -> None:
@@ -89,14 +253,18 @@ def render_export_panel(manifest: ExportManifest) -> None:
     table.add_column(style="bold cyan")
     table.add_column(style="green")
 
-    table.add_row("Timestamped Audit:", str(manifest.timestamped_path))
-    table.add_row("Latest Upload Ready:", str(manifest.latest_path))
+    table.add_row("Portal Upload CSV:", str(manifest.latest_path))
+    if manifest.latest_xlsx_path:
+        table.add_row("Dynamic Excel (.xlsx):", str(manifest.latest_xlsx_path))
+    table.add_row("Timestamped Audit CSV:", str(manifest.timestamped_path))
+    if manifest.timestamped_xlsx_path:
+        table.add_row("Timestamped Audit Excel:", str(manifest.timestamped_xlsx_path))
     table.add_row("Rows Exported:", str(manifest.total_rows))
     table.add_row("Generated At:", manifest.timestamp)
 
     panel = Panel(
         table,
-        title="[bold green]💾 Catalog Repricing Exported[/bold green]",
+        title="[bold green]ðŸ’¾ Catalog Repricing Exported (CSV + Dynamic Excel)[/bold green]",
         border_style="green",
         expand=False,
     )
@@ -110,7 +278,7 @@ def export_results(
     timestamp: datetime | None = None,
     render_panel: bool = True,
 ) -> ExportManifest:
-    """Format and export results DataFrame to timestamped and latest CSV files.
+    """Format and export results DataFrame to timestamped and latest CSV and XLSX files.
 
     Args:
         df: Processed DataFrame containing repricing results.
@@ -134,28 +302,46 @@ def export_results(
     elif stem.endswith("_repriced"):
         stem = stem[: -len("_repriced")]
 
-    timestamped_filename = f"{stem}_repriced_{ts_str}.csv"
-    latest_filename = f"{stem}_repriced_latest.csv"
+    timestamped_csv_filename = f"{stem}_repriced_{ts_str}.csv"
+    latest_csv_filename = f"{stem}_repriced_latest.csv"
 
-    timestamped_path = out_dir / timestamped_filename
-    latest_path = out_dir / latest_filename
+    timestamped_xlsx_filename = f"{stem}_repriced_{ts_str}.xlsx"
+    latest_xlsx_filename = f"{stem}_repriced_latest.xlsx"
+
+    timestamped_csv_path = out_dir / timestamped_csv_filename
+    latest_csv_path = out_dir / latest_csv_filename
+
+    timestamped_xlsx_path = out_dir / timestamped_xlsx_filename
+    latest_xlsx_path = out_dir / latest_xlsx_filename
 
     export_df = df.copy()
     if "S.NO" in export_df.columns:
         export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
 
+    # 1. Export Excel workbook with dynamic formulas first (from full precision numbers)
+    try:
+        export_excel_workbook(export_df, timestamped_xlsx_path)
+        shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
+    except Exception as exc:
+        console.print(f"[bold yellow]âš ï¸  Excel export warning:[/] {exc}")
+        timestamped_xlsx_path = None  # type: ignore[assignment]
+        latest_xlsx_path = None  # type: ignore[assignment]
+
+    # 2. Format pure integer strings for portal upload CSV (eliminating float drift .0)
     for col in PRICE_INT_COLUMNS:
         if col in export_df.columns:
             export_df[col] = export_df[col].apply(format_export_price)
 
-    export_df.to_csv(timestamped_path, index=False)
-    shutil.copyfile(timestamped_path, latest_path)
+    export_df.to_csv(timestamped_csv_path, index=False)
+    shutil.copyfile(timestamped_csv_path, latest_csv_path)
 
     manifest = ExportManifest(
-        timestamped_path=timestamped_path,
-        latest_path=latest_path,
+        timestamped_path=timestamped_csv_path,
+        latest_path=latest_csv_path,
         timestamp=ts_str,
         total_rows=len(export_df),
+        timestamped_xlsx_path=timestamped_xlsx_path,
+        latest_xlsx_path=latest_xlsx_path,
     )
 
     if render_panel:

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from pricing_engine.calculator import (
     calculate_adaptive_target_price,
     find_winning_psychological_price,
@@ -42,7 +44,37 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
     return MarketRange(min_price=min(prices), max_price=max(prices), offer_count=len(prices))
 
 
+def _annotate_fallback_reason(
+    res: PlatformPricingResult, active_fallback: str | None
+) -> PlatformPricingResult:
+    """Prepend explicit fallback notification to pricing reason when market omitted target modifier."""
+    if active_fallback and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
+        new_reason = (
+            f"[FALLBACK MODEL: Target specified '{active_fallback}', but market listings omitted it; "
+            f"repriced against base model] {res.reason}"
+        )
+        return replace(res, reason=new_reason)
+    return res
+
+
 def evaluate_alfa_pricing(
+    cost_floors: CostFloors,
+    offers: list[ScrapedOffer] | ScrapeResult,
+    monopoly_profit: float = MONOPOLY_PROFIT,
+    max_profit_cap: float | None = None,
+) -> PlatformPricingResult:
+    """Evaluate pricing on AlfaMall with automatic fallback reason annotation."""
+    active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
+    res = _evaluate_alfa_core(
+        cost_floors=cost_floors,
+        offers=offers,
+        monopoly_profit=monopoly_profit,
+        max_profit_cap=max_profit_cap,
+    )
+    return _annotate_fallback_reason(res, active_fallback)
+
+
+def _evaluate_alfa_core(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
     monopoly_profit: float = MONOPOLY_PROFIT,
@@ -229,6 +261,23 @@ def evaluate_alfa_pricing(
 
 
 def evaluate_digi_pricing(
+    cost_floors: CostFloors,
+    offers: list[ScrapedOffer] | ScrapeResult,
+    monopoly_profit: float = MONOPOLY_PROFIT,
+    max_profit_cap: float | None = None,
+) -> PlatformPricingResult:
+    """Evaluate pricing on DigiMall with automatic fallback reason annotation."""
+    active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
+    res = _evaluate_digi_core(
+        cost_floors=cost_floors,
+        offers=offers,
+        monopoly_profit=monopoly_profit,
+        max_profit_cap=max_profit_cap,
+    )
+    return _annotate_fallback_reason(res, active_fallback)
+
+
+def _evaluate_digi_core(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
     monopoly_profit: float = MONOPOLY_PROFIT,

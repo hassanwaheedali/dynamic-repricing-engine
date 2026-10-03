@@ -314,7 +314,7 @@ python index.py                                   # interactive: pick mode [2] M
 ```
 
 - **Min / Max**: lowest / highest in-stock price any vendor lists for the same strictly-matched model (sold-out offers ignored, no profit-floor filter).
-- **Exhaustive search**: every query tier is run and merged, so Max is not understated by the normal early-exit waterfall.
+- **Full search**: the scraper queries every tier and merges results, so Max is not understated.
 - **Columns**: same layout as the repricing output. Cost, Final Price, Profit and Reason columns are blank. Two extra columns, `Alfa Offers Found` / `Digi Offers Found`, sit between `Maximum Price Digi` and `Final Price Alfa`. Risk alerts stay the last two columns: `NONE`, `NO_OFFERS` (empty market) or `SERVER_DOWN`.
 - **Output**: `data/outputs/range/csv/` and `data/outputs/range/xlsx/` (`{stem}_range_{timestamp}` + `{stem}_range_latest`). If the latest XLSX is open in Excel, the timestamped copy is still saved and a warning is shown.
 - Requires `openpyxl` (in `requirements.txt`).

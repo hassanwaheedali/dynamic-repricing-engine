@@ -18,11 +18,11 @@ Files: `range_pipeline.py`, `tests/test_range_pipeline.py`
 - [ ] risk alerts last 2 cols: NONE / SERVER_DOWN / NO_OFFERS
 
 ## T3 `run_range_pipeline` [M]
-Files: `range_pipeline.py`, `scraper.py` (`exhaustive` flag), `tests/test_range_pipeline.py`, `tests/test_scraper.py`
+Files: `range_pipeline.py`, `tests/test_range_pipeline.py`, `tests/test_scraper.py`
 - [ ] input with only Brand+Name works (no Net/L/W/H)
 - [ ] missing Brand/Name -> clear error
 - [ ] semaphore concurrency, original row order preserved
-- [ ] `exhaustive=True`: all tiers merged, Max not understated (2-tier fake)
+- [x] waterfall queries every tier (upstream), Max not understated
 - [ ] one platform down does not break the row or the run
 - [ ] Rich summary table (Model | Alfa Min-Max | Digi Min-Max)
 

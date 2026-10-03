@@ -40,6 +40,8 @@ class ScrapeResult:
     executed_queries: list[str] = field(default_factory=list)
     matched_tier: str | None = None
     tier_summary: dict[str, int] = field(default_factory=dict)
+    active_modifier_fallback: str | None = None
+    base_offers: list[ScrapedOffer] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)

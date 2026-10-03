@@ -146,21 +146,19 @@ async def process_range_item_async(
     session: AsyncSession,
     semaphore: asyncio.Semaphore,
 ) -> dict[str, Any]:
-    """Scrape both malls exhaustively (all query tiers) and build the range record."""
+    """Scrape both malls (all query tiers) and build the range record."""
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
     async with semaphore:
         alfa_offers, digi_offers = await asyncio.gather(
             scrape_alfamall(
-                session, patterns, target_model, floor_price=None, brand=product.brand,
-                exhaustive=True,
+                session, patterns, target_model, floor_price=None, brand=product.brand
             ),
             scrape_digimall(
-                session, patterns, target_model, floor_price=None, brand=product.brand,
-                exhaustive=True,
+                session, patterns, target_model, floor_price=None, brand=product.brand
             ),
-        )  # fmt: skip
+        )
 
     return build_range_record(
         product, evaluate_market_range(alfa_offers), evaluate_market_range(digi_offers)
