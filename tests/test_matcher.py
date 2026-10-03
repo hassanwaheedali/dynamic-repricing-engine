@@ -967,3 +967,163 @@ def test_single_letter_variant_suffix_isolation(title: str, expected: bool) -> N
 def test_single_letter_variant_suffix_isolation_260() -> None:
     assert is_strict_model_match("Dawlance DWT 260 C LVS+ Washing Machine", "DWT-260 C", brand="Dawlance")
     assert not is_strict_model_match("Dawlance DWT 260 S LVS+ fully automatic", "DWT-260 C", brand="Dawlance")
+
+
+def test_tv_model_not_hijacked_by_series_or_descriptors() -> None:
+    """Ensure TV titles with series names (Blaze, Canvas) or descriptors (Bezel Less) extract true SKU."""
+    q, m = extract_search_query_and_model(
+        "Dawlance 32 Inch Blaze Series 32E22 HD Google Smart LED TV", brand="Dawlance"
+    )
+    assert m == "32E22"
+    assert q == "32E22"
+
+    q2, m2 = extract_search_query_and_model(
+        "Dawlance 50 Inch Canvas Series 50G3A 4K UHD Android Smart LED TV", brand="Dawlance"
+    )
+    assert m2 == "50G3A"
+    assert q2 == "50G3A"
+
+    q3, m3 = extract_search_query_and_model(
+        "Haier 32 Inch Bezel Less Google TV H32K85GX Smart HD LED TV", brand="Haier"
+    )
+    assert m3 == "H32K85GX"
+    assert q3 == "H32K85GX"
+
+
+def test_water_dispenser_spec_units_not_in_model() -> None:
+    """Units like 3.2L and 500W must be treated as specs, not SKU variant tags."""
+    q, m = extract_search_query_and_model(
+        "WestPoint WF-1401 3.2L 500W Deluxe Water Dispenser", brand="WestPoint"
+    )
+    assert m == "WF-1401"
+    assert q == "WF-1401"
+    assert is_strict_model_match(
+        "Westpoint Deluxe 3 Taps Water Dispenser (WF-1401) - ISPK-0513", m, brand="WestPoint"
+    )
+
+
+def test_separated_prefix_microwave_models() -> None:
+    """Space-separated prefix + numeric stems must be extracted cleanly without junk words."""
+    _, m1 = extract_search_query_and_model(
+        "Dawlance DBMO 25 BG series Microwave oven in grill", brand="Dawlance"
+    )
+    assert "DBMO" in m1 and "25" in m1
+    assert "grill" not in m1.lower()
+    assert is_strict_model_match("Dawlance Built-In Microwave Oven DBMO-25 BG", m1, brand="Dawlance")
+
+    _, m2 = extract_search_query_and_model(
+        "Dawlance 20 Litres DW 210 Solo White Microwave Oven Large", brand="Dawlance"
+    )
+    assert "210" in m2
+    assert is_strict_model_match("Dawlance DW-210 Microwave Oven White", m2, brand="Dawlance")
+
+    for num in ("10", "15", "4", "7"):
+        _, m = extract_search_query_and_model(
+            f"Dawlance MWO DW-MD {num} 20 Liters Heating Microwave Oven", brand="Dawlance"
+        )
+        assert m == f"DW-MD-{num}"
+        assert is_strict_model_match(
+            f"Dawlance MWO DW-MD {num} Heating Microwave Oven", m, brand="Dawlance"
+        )
+
+
+def test_tcl_savein_svn_extraction_and_search_queries() -> None:
+    """Verify TCL SaveIN <-> SVN model extraction, queries, and multi-tier search patterns."""
+    titles = [
+        ("TCL 1.0 Ton 12SVN-AI-21 SaveIN AI Series DC Inverter Heat & Cool Air Conditioner", "12SVN-AI-21", "12SVN"),
+        ("TCL 1.0 Ton TAC-12SVN-AI-11 SaveIN DC Inverter Heat & Cool Split Air Conditioner", "TAC-12SVN-AI-11", "TAC-12SVN-AI-11"),
+        ("TCL 1.5 Ton TAC-18SVN-EX-31W SaveIN Extreme DC Inverter Heat & Cool Split Air Conditioner", "TAC-18SVN-EX-31W", "TAC-18SVN-EX-31W"),
+        ("TCL 1.0 Ton 12SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "12SaveIN-AI-41 T3", "12SVN"),
+        ("TCL 1.5 Ton 18SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "18SaveIN-AI-41 T3", "18SVN"),
+        ("TCL 2 Ton 24SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "24SaveIN-AI-41 T3", "24SVN"),
+        ("TCL 1.0 Ton 12 SVN-AI-CO-31S SaveIN AI Series DC Inverter Cool Only Split Air Conditioner", "12SVN-AI-CO-31S", "12SVN"),
+    ]
+    for full_name, exp_model, exp_query in titles:
+        q, m = extract_search_query_and_model(full_name, brand="TCL")
+        assert m == exp_model, f"Model mismatch for '{full_name}': got '{m}', expected '{exp_model}'"
+        assert q == exp_query, f"Query mismatch for '{full_name}': got '{q}', expected '{exp_query}'"
+
+        patterns = generate_search_patterns(full_name, brand="TCL")
+        t1 = patterns["tier_1"]
+        t2 = patterns["tier_2"]
+        t3 = patterns["tier_3"]
+
+        # Ensure both SVN and SaveIN variants are generated
+        combined = " ".join(t1 + t2 + t3)
+        assert "SVN" in combined, f"SVN missing from search patterns for {full_name}"
+
+
+def test_tcl_savein_svn_strict_matching_and_variant_isolation() -> None:
+    """Verify bidirectional matching between SaveIN and SVN, while strictly guarding capacities and revisions."""
+    # 1. 18SaveIN-AI-41 must match TAC-18SVN-AI-41 and 18SVN-AI-41
+    cands_18_ai41 = [
+        "TCL Split AC 1.5 Ton SaveIn Inverter TAC-18SVN-AI-41",
+        "TCL 1.5 Ton 18SVN-AI-41 SaveIN Series DC Inverter",
+    ]
+    for c in cands_18_ai41:
+        assert is_strict_model_match(c, "18SaveIN-AI-41", brand="TCL")
+        assert is_strict_model_match(c, "18SVN-AI-41", brand="TCL")
+        assert referee_match("18SaveIN-AI-41", c, brand="TCL").is_match
+
+    # 2. Strict capacity isolation (12 vs 18 vs 24)
+    c_12 = "TCL Split AC 1.0 Ton SaveIn Inverter TAC-12SVN-AI-41"
+    assert not is_strict_model_match(c_12, "18SaveIN-AI-41", brand="TCL")
+    assert not is_strict_model_match(c_12, "18SVN-AI-41", brand="TCL")
+
+    # 3. Strict revision isolation (AI-21 vs AI-11 vs AI-41)
+    c_ai21 = "TCL Split AC 1.0 Ton SaveIn Inverter TAC-12SVN-AI-21"
+    assert is_strict_model_match(c_ai21, "12SVN-AI-21", brand="TCL")
+    assert not is_strict_model_match(c_ai21, "12SVN-AI-11", brand="TCL")
+    assert not is_strict_model_match(c_ai21, "12SaveIN-AI-41", brand="TCL")
+
+    # 4. Cool-only isolation (CO-31S must not match heat & cool models)
+    c_co31 = "TCL - Air Conditioner 1.0 Ton T-AI Inverter Cool only SaveIN Series - TAC-12SVN-AI-CO-31S"
+    assert is_strict_model_match(c_co31, "12SVN-AI-CO-31S", brand="TCL")
+    assert not is_strict_model_match(c_co31, "12SVN-AI-21", brand="TCL")
+    assert not is_strict_model_match(c_co31, "12SVN-AI-11", brand="TCL")
+
+
+def test_hyphenated_capacity_extraction_and_slots() -> None:
+    """Verify that hyphenated capacities like 8-KG or 10-KG are not mistaken for model identifiers."""
+    cases = [
+        ("Dawlance 8-KG DW-6550 C Twin Tub Semi Automatic Washing Machine", "DW-6550", "8KG"),
+        ("Dawlance 8-KG DW-6580-WFL Twin Tub Semi Automatic Washing Machine", "DW-6580-WFL", "8KG"),
+        ("Dawlance 10-KG DW-7500-C Twin Tub Semi Automatic Washing Machine", "DW-7500-C", "10KG"),
+        ("Dawlance 12-KG DWT-1471-FLP CGlow Top Load Fully Automatic Washing Machine", "DWT-1471-FLP", "12KG"),
+    ]
+    for title, exp_model, exp_cap in cases:
+        q, m = extract_search_query_and_model(title, brand="Dawlance")
+        assert m == exp_model, f"Expected model {exp_model}, got {m} for '{title}'"
+        assert exp_model.split()[0] in q, f"Expected {exp_model} in query {q}"
+
+        slots = extract_product_slots(title, brand="Dawlance")
+        assert slots.guarded_facets.capacity == exp_cap, f"Expected capacity {exp_cap}, got {slots.guarded_facets.capacity}"
+
+
+def test_water_dispenser_tap_count_matching() -> None:
+    """Verify water dispenser tap count matching and non-forcing behavior."""
+    # 1. Exact match with same tap count
+    res_same = referee_match(
+        "Dawlance WD-1051 Cloud White 3 Tap Water Dispenser",
+        "Dawlance Water Dispenser WD-1051 3 Taps Glass Door",
+        brand="Dawlance",
+    )
+    assert res_same.is_match
+
+    # 2. Collision when opposing tap count is explicitly specified
+    res_diff = referee_match(
+        "Dawlance WD-1051 Cloud White 3 Tap Water Dispenser",
+        "Dawlance Water Dispenser WD-1051 2 Taps",
+        brand="Dawlance",
+    )
+    assert not res_diff.is_match
+
+    # 3. Non-forcing fallback if tap count is omitted in seller title
+    res_omitted = referee_match(
+        "Dawlance WD-1051 Cloud White 3 Tap Water Dispenser",
+        "Dawlance Water Dispenser WD-1051 Cloud White",
+        brand="Dawlance",
+    )
+    assert res_omitted.is_match
+
+

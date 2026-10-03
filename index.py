@@ -243,8 +243,7 @@ async def main() -> int:
             )
         except Exception as exc:
             console.print(
-                f"\n[bold red]❌ Pipeline execution error for '{cat.name}': {exc}[/bold red]",
-                file=sys.stderr,
+                f"\n[bold red]❌ Pipeline execution error for '{cat.name}': {exc}[/bold red]"
             )
             had_errors = True
 

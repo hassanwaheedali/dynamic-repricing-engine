@@ -126,11 +126,15 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
     df.columns = [
         "Name " if c == "Name " and has_legacy_name_space else str(c).strip() for c in df.columns
     ]
-    for required in ("Brand",):
-        if required not in df.columns:
-            raise ValueError(f"Missing required column '{required}' in {input_path.name}.")
-    if "Name" not in df.columns and "Name " not in df.columns:
+    name_col = "Name " if "Name " in df.columns else "Name"
+    if name_col not in df.columns:
         raise ValueError(f"Missing required column 'Name' in {input_path.name}.")
+
+    if "Brand" not in df.columns:
+        # Gracefully derive Brand from leading token of Name when Brand column is omitted
+        df["Brand"] = df[name_col].apply(
+            lambda x: str(x).strip().split()[0] if str(x).strip() and not pd.isna(x) else ""
+        )
 
     products: list[ProductInput] = []
     for idx, row in df.iterrows():
@@ -145,6 +149,10 @@ async def process_range_item_async(
     product: ProductInput,
     session: AsyncSession,
     semaphore: asyncio.Semaphore,
+    render_lock: asyncio.Lock | None = None,
+    verbose: bool = False,
+    item_index: int = 1,
+    total_items: int = 1,
 ) -> dict[str, Any]:
     """Scrape both malls (all query tiers) and build the range record."""
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
@@ -153,16 +161,49 @@ async def process_range_item_async(
     async with semaphore:
         alfa_offers, digi_offers = await asyncio.gather(
             scrape_alfamall(
-                session, patterns, target_model, floor_price=None, brand=product.brand
+                session,
+                patterns,
+                target_model,
+                floor_price=None,
+                brand=product.brand,
+                target_desc=product.name,
             ),
             scrape_digimall(
-                session, patterns, target_model, floor_price=None, brand=product.brand
+                session,
+                patterns,
+                target_model,
+                floor_price=None,
+                brand=product.brand,
+                target_desc=product.name,
             ),
         )
 
-    return build_range_record(
+    rec = build_range_record(
         product, evaluate_market_range(alfa_offers), evaluate_market_range(digi_offers)
     )
+
+    if verbose and render_lock is not None:
+        alfa_str = _fmt_range(
+            rec["Minimum Price Alfa"],
+            rec["Maximum Price Alfa"],
+            rec["Alfa Offers Found"],
+            rec["Alfa Risk Alert"],
+        )
+        digi_str = _fmt_range(
+            rec["Minimum Price Digi"],
+            rec["Maximum Price Digi"],
+            rec["Digi Offers Found"],
+            rec["Digi Risk Alert"],
+        )
+        display_name = product.name if len(product.name) <= 32 else product.name[:30] + ".."
+        async with render_lock:
+            console.print(
+                f"  [bold cyan][{item_index:03d}/{total_items:03d}][/] "
+                f"[bold white]{display_name:<32}[/] │ "
+                f"[cyan]Alfa:[/] {alfa_str:<24} │ [magenta]Digi:[/] {digi_str}"
+            )
+
+    return rec
 
 
 def _fmt_range(low: Any, high: Any, count: Any, alert: str) -> str:
@@ -171,6 +212,33 @@ def _fmt_range(low: Any, high: Any, count: Any, alert: str) -> str:
     if low is None or pd.isna(low):
         return "[dim]no offers[/]"
     return f"{int(low):,} - {int(high):,} [dim]({int(count)})[/]"
+
+
+def render_range_start_banner(
+    input_path: Path,
+    total_items: int,
+    concurrency: int,
+) -> None:
+    """Render the initiation banner for Market Range Mode."""
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold cyan", width=16)
+    grid.add_column(style="white")
+    grid.add_row("Input Catalog:", str(input_path.name))
+    grid.add_row("Total Items:", f"[bold yellow]{total_items}[/] products")
+    grid.add_row("Concurrency:", f"[bold magenta]{concurrency}[/] simultaneous searches")
+    grid.add_row("Execution Mode:", "[bold green]Market Range Discovery (Min/Max)[/]")
+
+    console.print()
+    console.print(
+        Panel(
+            grid,
+            title="[bold green]🔍 MARKET RANGE PIPELINE INITIATED[/]",
+            border_style="green",
+            box=box.ROUNDED,
+            padding=(0, 2),
+        )
+    )
+    console.print()
 
 
 def render_range_summary(records: list[dict[str, Any]]) -> None:
@@ -253,12 +321,29 @@ async def run_range_pipeline(
 
     products = load_range_products(path)
     start = time.perf_counter()
+
+    if verbose:
+        render_range_start_banner(path, len(products), concurrency)
+
     semaphore = asyncio.Semaphore(concurrency)
+    render_lock = asyncio.Lock()
     tasks: list[asyncio.Task[dict[str, Any]]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
         for i, product in enumerate(products):
-            tasks.append(asyncio.create_task(process_range_item_async(product, session, semaphore)))
+            tasks.append(
+                asyncio.create_task(
+                    process_range_item_async(
+                        product,
+                        session,
+                        semaphore,
+                        render_lock=render_lock,
+                        verbose=verbose,
+                        item_index=i + 1,
+                        total_items=len(products),
+                    )
+                )
+            )
             if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:
                 await asyncio.sleep(RANGE_STAGGER_SECONDS)
         records = await asyncio.gather(*tasks)  # gather preserves submission order
@@ -270,3 +355,4 @@ async def run_range_pipeline(
         render_range_summary(list(records))
         render_range_finish(manifest, len(records), time.perf_counter() - start)
     return out_df
+

@@ -883,10 +883,20 @@ async def process_item_async(
 
     async with semaphore:
         alfa_task = scrape_alfamall(
-            session, patterns, target_model, floor_price=floors.floor_alfa, brand=product.brand
+            session,
+            patterns,
+            target_model,
+            floor_price=floors.floor_alfa,
+            brand=product.brand,
+            target_desc=product.name,
         )
         digi_task = scrape_digimall(
-            session, patterns, target_model, floor_price=floors.floor_digi_8, brand=product.brand
+            session,
+            patterns,
+            target_model,
+            floor_price=floors.floor_digi_8,
+            brand=product.brand,
+            target_desc=product.name,
         )
         alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
 

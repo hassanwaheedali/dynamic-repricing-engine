@@ -195,6 +195,16 @@ def test_range_pipeline_missing_name_column_raises(tmp_path: Path) -> None:
         _run(cat, tmp_path, AsyncMock(), AsyncMock())
 
 
+def test_range_pipeline_name_only_auto_derives_brand(tmp_path: Path) -> None:
+    """If Brand column is omitted, range mode auto-derives Brand from the leading word of Name."""
+    cat = _write_catalog(tmp_path / "list.csv", "Name\nTCL 55 Inch 55C6KS UHD\nDawlance DW-6550 C\n")
+    alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 100)]))
+    digi = AsyncMock(return_value=ScrapeResult(offers=[_offer("D", 90)]))
+    df = _run(cat, tmp_path, alfa, digi)
+    assert list(df["Brand"]) == ["TCL", "Dawlance"]
+    assert list(df["S.NO"]) == [1, 2]
+
+
 def test_range_pipeline_writes_csv_and_xlsx(tmp_path: Path) -> None:
     cat = _write_catalog(tmp_path / "list.csv", "Brand,Name\nGree,GS-12XPH32\n")
     alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 100)]))

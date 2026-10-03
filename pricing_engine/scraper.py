@@ -154,6 +154,7 @@ async def _execute_waterfall(
     max_retries: int,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Execute tiered early-exit waterfall candidate retrieval across query tiers.
 
@@ -195,6 +196,7 @@ async def _execute_waterfall(
                 max_retries=max_retries,
                 floor_price=floor_price,
                 brand=brand,
+                target_desc=target_desc,
             )
             if sub_res.is_success:
                 any_success = True
@@ -248,16 +250,20 @@ async def _execute_waterfall(
 
 
 def _parse_offers_from_raw_items(
-    raw_items: list[dict[str, Any]], target_model: str, brand: str = ""
+    raw_items: list[dict[str, Any]],
+    target_model: str,
+    brand: str = "",
+    target_desc: str = "",
 ) -> tuple[list[ScrapedOffer], list[ScrapedOffer], str | None]:
     """Extract and validate offers from raw API items array, segregating exact from base matches."""
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
+    match_target = target_desc.strip() if target_desc and target_desc.strip() else target_model
 
     for item in raw_items:
         title = str(item.get("title", ""))
-        decision = referee_match(target_model, title, brand=brand)
+        decision = referee_match(match_target, title, brand=brand)
         is_exact = decision.is_match
         is_base = decision.is_base_match
 
@@ -301,6 +307,7 @@ async def _scrape_platform_single_query(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Generic single-query scraper for e-commerce storefront search APIs.
 
@@ -312,10 +319,13 @@ async def _scrape_platform_single_query(
     - Live terminal telemetry badges on retries/stalls.
     - Conditional sub-floor page 2 probing.
     """
-    cache_key = (config.platform_name, query.strip().upper())
-    if cache_key in _raw_items_cache:
-        raw_cached = _raw_items_cache[cache_key]
-        e_cached, b_cached, d_cached = _parse_offers_from_raw_items(raw_cached, target_model, brand=brand)
+    raw_cache_key = (config.platform_name, query.strip().upper())
+    cache_key = (config.platform_name, query.strip().upper(), (target_desc.strip() or target_model).upper())
+    if raw_cache_key in _raw_items_cache:
+        raw_cached = _raw_items_cache[raw_cache_key]
+        e_cached, b_cached, d_cached = _parse_offers_from_raw_items(
+            raw_cached, target_model, brand=brand, target_desc=target_desc
+        )
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
         return ScrapeResult(
@@ -397,7 +407,7 @@ async def _scrape_platform_single_query(
                     continue
 
                 e_items, b_items, d_mod = _parse_offers_from_raw_items(
-                    raw_items, target_model, brand=brand
+                    raw_items, target_model, brand=brand, target_desc=target_desc
                 )
                 exact_offers.extend(e_items)
                 base_offers.extend(b_items)
@@ -424,7 +434,7 @@ async def _scrape_platform_single_query(
                             raw_p2 = data_p2.get("results") or data_p2.get("data") or []
                             if isinstance(raw_p2, list):
                                 e_p2, b_p2, d_p2 = _parse_offers_from_raw_items(
-                                    raw_p2, target_model, brand=brand
+                                    raw_p2, target_model, brand=brand, target_desc=target_desc
                                 )
                                 exact_offers.extend(e_p2)
                                 base_offers.extend(b_p2)
@@ -448,7 +458,7 @@ async def _scrape_platform_single_query(
                 if exact_offers or base_offers:
                     _query_cache[cache_key] = result
                     if raw_items:
-                        _raw_items_cache[cache_key] = list(raw_items)
+                        _raw_items_cache[raw_cache_key] = list(raw_items)
 
                 return result
 
@@ -529,6 +539,7 @@ async def _scrape_alfamall_single_query(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Internal single-query scraper for AlfaMall storefront search API."""
     return await _scrape_platform_single_query(
@@ -540,6 +551,7 @@ async def _scrape_alfamall_single_query(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        target_desc=target_desc,
     )
 
 
@@ -551,6 +563,7 @@ async def scrape_alfamall(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Query AlfaMall storefront search API and extract verified product offers with retries.
 
@@ -564,6 +577,7 @@ async def scrape_alfamall(
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor to probe page 2 if all page 1 items are sub-floor.
         brand: Optional brand name for strict matching.
+        target_desc: Optional full catalog product description for comprehensive facet matching.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -577,6 +591,7 @@ async def scrape_alfamall(
             max_retries=max_retries,
             floor_price=floor_price,
             brand=brand,
+            target_desc=target_desc,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_alfamall_single_query,
@@ -587,6 +602,7 @@ async def scrape_alfamall(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        target_desc=target_desc,
     )
 
 
@@ -598,6 +614,7 @@ async def _scrape_digimall_single_query(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Internal single-query scraper for DigiMall storefront search API."""
     return await _scrape_platform_single_query(
@@ -609,6 +626,7 @@ async def _scrape_digimall_single_query(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        target_desc=target_desc,
     )
 
 
@@ -620,6 +638,7 @@ async def scrape_digimall(
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
+    target_desc: str = "",
 ) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
@@ -633,6 +652,7 @@ async def scrape_digimall(
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor for conditional sub-floor page 2 probing.
         brand: Optional brand name for strict matching.
+        target_desc: Optional full catalog product description for comprehensive facet matching.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
@@ -646,6 +666,7 @@ async def scrape_digimall(
             max_retries=max_retries,
             floor_price=floor_price,
             brand=brand,
+            target_desc=target_desc,
         )
     return await _execute_waterfall(
         single_scraper_fn=_scrape_digimall_single_query,
@@ -656,4 +677,5 @@ async def scrape_digimall(
         max_retries=max_retries,
         floor_price=floor_price,
         brand=brand,
+        target_desc=target_desc,
     )
