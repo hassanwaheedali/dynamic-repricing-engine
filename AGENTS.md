@@ -185,7 +185,7 @@ Standardized output column ordering:
 ## 7. Testing Discipline & Quality Gates
 
 The codebase enforces strict test-driven development:
-- **Test Suite**: Located in `tests/` (168 passing tests).
+- **Test Suite**: Located in `tests/` (983 passing tests, including the corpus smoke guard).
 - **Test Fixtures**: Isolated in `tests/fixtures/` (`Gree_Uploading_on_DigiMall_and_Price.csv`, `Haier_Washing_Machines_Uploading_and_Price.csv`, `Stock Holding Report 25-Feb-2026.csv`).
 - **Commands**:
   ```bash
@@ -228,5 +228,7 @@ When implementing Phase 2, follow these exact requirements:
 - Reuses scraper + matcher unchanged (variant protection intact). Scrapes with `floor_price=None` (the waterfall queries every tier, so Max is not understated).
 - `evaluate_market_range(offers) -> MarketRange` (evaluator.py) is the single source of truth for min/max over in-stock offers; both platform evaluators use it too.
 - Output columns follow section 5, with cost/decision columns blank, plus `Alfa Offers Found` / `Digi Offers Found` between `Maximum Price Digi` and `Final Price Alfa`. Risk alerts: `NONE | NO_OFFERS | SERVER_DOWN`.
+- **Base-model cross-check notice**: when the waterfall finds zero exact matches and falls back to base-model listings, the scraper sets `ScrapeResult.active_modifier_fallback`. Range mode has no `Reason` column, so the notice is terminal-only: the live row is tagged `⚠ BASE (<modifier> omitted)`, a per-item `CROSS-CHECK` line is printed, and a consolidated `RANGED AGAINST BASE MODELS` panel is rendered before the summary. The CSV/XLSX column contract is unchanged.
+- **Matching verdicts** are reported through one vocabulary — `MatchDecision.tier` is `EXACT | BASE | REJECT` and `.usable` is `is_match or is_base_match`. Category-2 semantics (ADR-002) apply to the series slot as well as to capabilities: exact if present, **base-model fallback if omitted**, collision if the candidate asserts a different series.
 - Exports via `export_range_results(...)` to `data/outputs/range/{csv,xlsx}/` (timestamped + latest). XLSX failures never abort the run.
 - Tests: `tests/test_range_mode.py`, plus range cases in `tests/test_cli.py`.

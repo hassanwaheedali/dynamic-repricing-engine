@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from rich.table import Table
 from pricing_engine.evaluator import evaluate_market_range
 from pricing_engine.exporter import RangeExportManifest, export_range_results
 from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
-from pricing_engine.models import MarketRange, ProductInput
+from pricing_engine.models import MarketRange, ProductInput, ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import parse_product_input
 from pricing_engine.scraper import scrape_alfamall, scrape_digimall
 
@@ -145,6 +146,49 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
     return products
 
 
+@dataclass(frozen=True, slots=True)
+class PlatformFallback:
+    """One platform repriced against base-model listings instead of the exact variant."""
+
+    platform: str
+    modifier: str
+    offer_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RangeItemResult:
+    """Output row plus any base-model fallback notices owed to the terminal."""
+
+    record: dict[str, Any]
+    fallbacks: tuple[PlatformFallback, ...] = ()
+
+
+def _detect_fallbacks(
+    alfa: list[ScrapedOffer] | ScrapeResult, digi: list[ScrapedOffer] | ScrapeResult
+) -> tuple[PlatformFallback, ...]:
+    """Read the scraper's base-model fallback metadata for each platform.
+
+    The waterfall already segregates exact from base-model matches and records the
+    modifier the market omitted; range mode used to drop that on the floor.
+    """
+    found: list[PlatformFallback] = []
+    for label, result in (("AlfaMall", alfa), ("DigiMall", digi)):
+        if isinstance(result, ScrapeResult) and result.active_modifier_fallback:
+            found.append(
+                PlatformFallback(
+                    platform=label,
+                    modifier=result.active_modifier_fallback,
+                    offer_count=len(result.offers),
+                )
+            )
+    return tuple(found)
+
+
+def _fallback_marker(fallbacks: tuple[PlatformFallback, ...], platform: str) -> str:
+    hit = next((f for f in fallbacks if f.platform == platform), None)
+    return f" [bold yellow]⚠ BASE[/] [dim]({hit.modifier} omitted)[/]" if hit else ""
+
+
 async def process_range_item_async(
     product: ProductInput,
     session: AsyncSession,
@@ -153,7 +197,7 @@ async def process_range_item_async(
     verbose: bool = False,
     item_index: int = 1,
     total_items: int = 1,
-) -> dict[str, Any]:
+) -> RangeItemResult:
     """Scrape both malls (all query tiers) and build the range record."""
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
@@ -181,6 +225,7 @@ async def process_range_item_async(
     rec = build_range_record(
         product, evaluate_market_range(alfa_offers), evaluate_market_range(digi_offers)
     )
+    fallbacks = _detect_fallbacks(alfa_offers, digi_offers)
 
     if verbose and render_lock is not None:
         alfa_str = _fmt_range(
@@ -200,10 +245,17 @@ async def process_range_item_async(
             console.print(
                 f"  [bold cyan][{item_index:03d}/{total_items:03d}][/] "
                 f"[bold white]{display_name:<32}[/] │ "
-                f"[cyan]Alfa:[/] {alfa_str:<24} │ [magenta]Digi:[/] {digi_str}"
+                f"[cyan]Alfa:[/] {alfa_str:<24}{_fallback_marker(fallbacks, 'AlfaMall')} │ "
+                f"[magenta]Digi:[/] {digi_str}{_fallback_marker(fallbacks, 'DigiMall')}"
             )
+            for fb in fallbacks:
+                console.print(
+                    f"      [bold yellow]⚠️  CROSS-CHECK:[/] [cyan]{fb.platform}[/] listings omitted "
+                    f"[bold cyan]'{fb.modifier}'[/] → ranged against [bold green]{fb.offer_count} "
+                    f"base model offer{'s' if fb.offer_count != 1 else ''}[/]"
+                )
 
-    return rec
+    return RangeItemResult(record=rec, fallbacks=fallbacks)
 
 
 def _fmt_range(low: Any, high: Any, count: Any, alert: str) -> str:
@@ -236,6 +288,44 @@ def render_range_start_banner(
             border_style="green",
             box=box.ROUNDED,
             padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def render_range_fallback_notices(
+    notices: list[tuple[Any, str, tuple[PlatformFallback, ...]]],
+) -> None:
+    """Render the consolidated base-model cross-check notice panel.
+
+    Range mode has no cost math and no pricing reason column, so the terminal is the
+    only place the operator can be told that a Min/Max came from base-model listings
+    rather than the exact variant they asked for.
+    """
+    if not notices:
+        return
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold yellow", no_wrap=True)
+    grid.add_column(style="white")
+    grid.add_column(style="cyan")
+    for sno, name, fallbacks in notices:
+        short = name if len(name) <= 46 else name[:44] + ".."
+        for fb in fallbacks:
+            grid.add_row(
+                f"⚠️  #{sno}",
+                short,
+                f"{fb.platform} omitted '{fb.modifier}' → "
+                f"{fb.offer_count} base model offer{'s' if fb.offer_count != 1 else ''}",
+            )
+    console.print()
+    console.print(
+        Panel(
+            grid,
+            title="[bold yellow]⚠️  NOTICE (DO CROSS-CHECK): RANGED AGAINST BASE MODELS[/]",
+            subtitle="[dim]Min/Max for these rows excludes a modifier the market omitted[/]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(0, 1),
         )
     )
     console.print()
@@ -327,7 +417,7 @@ async def run_range_pipeline(
 
     semaphore = asyncio.Semaphore(concurrency)
     render_lock = asyncio.Lock()
-    tasks: list[asyncio.Task[dict[str, Any]]] = []
+    tasks: list[asyncio.Task[RangeItemResult]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
         for i, product in enumerate(products):
@@ -346,13 +436,20 @@ async def run_range_pipeline(
             )
             if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:
                 await asyncio.sleep(RANGE_STAGGER_SECONDS)
-        records = await asyncio.gather(*tasks)  # gather preserves submission order
+        results = await asyncio.gather(*tasks)  # gather preserves submission order
 
+    records = [r.record for r in results]
     out_df = pd.DataFrame(records)
     manifest = export_range_results(out_df, path, output_dir=export_dir, render_panel=False)
 
     if verbose:
-        render_range_summary(list(records))
+        notices = [
+            (products[i].sno, products[i].name, r.fallbacks)
+            for i, r in enumerate(results)
+            if r.fallbacks
+        ]
+        render_range_fallback_notices(notices)
+        render_range_summary(records)
         render_range_finish(manifest, len(records), time.perf_counter() - start)
     return out_df
 
