@@ -1245,8 +1245,33 @@ def _series_capacity_patterns(
             b.plain("tier_3", f"{opt} {tonnage} TON", f"{opt} {tonnage}TON")
             b.branded("tier_3", f"{opt} {tonnage} TON")
         b.plain("tier_3", f"{opt} {cap_code}", f"{cap_code} {opt}")
+        # Base-model tiers: strict search engines only answer short, human-like
+        # queries.  Derive them structurally -- (a) the series blob with its
+        # trailing aux tags stripped ("Sprinter T3" -> "Sprinter"), and (b) the
+        # prefix cut at the first capacity-like token inside the blob
+        # ("PINV 12K Turbo Ultimate T3" -> "PINV 12K").  Category-2 then decides
+        # EXACT / BASE+notice / REJECT on whatever these queries retrieve.
+        for form in _base_model_forms(opt):
+            query = form if re.search(r"\d", form) else f"{cap_code} {form}"
+            b.plain("tier_2", query)
+            b.branded("tier_1", query)
     b.plain("tier_1", raw_model)
     b.branded("tier_1", raw_model)
+
+
+def _base_model_forms(series: str) -> list[str]:
+    """Structural short forms of a series blob: tag-stripped and capacity-cut."""
+    toks = series.split()
+    forms: list[str] = []
+    while toks and is_sku_variant_tag(toks[-1]):
+        toks = toks[:-1]
+    if toks:
+        forms.append(" ".join(toks))
+    for i in range(1, len(toks)):
+        if re.search(r"\d", toks[i]) and len(toks[i]) >= 3:
+            forms.append(" ".join(toks[: i + 1]))
+            break
+    return list(dict.fromkeys(forms))
 
 
 def _standard_model_patterns(
@@ -2132,26 +2157,38 @@ def _reject(
 def _run_rules(
     rules: Iterable[_FacetRule], target: ProductSlots, cand: ProductSlots
 ) -> MatchDecision | None:
-    """Apply a rule table; return the first collision/omission verdict, else None."""
+    """Apply a rule table; return the first collision/omission verdict, else None.
+
+    Two passes by design: a *declared conflict* on any facet (H&C vs COOL ONLY,
+    Ruby vs Diamond) must REJECT even when another facet is merely omitted.
+    An omission (soft, BASE + notice) can never mask a hard collision -- the
+    Category-2 doctrine is "collisions beat omissions".
+    """
     tf, cf = target.guarded_facets, cand.guarded_facets
-    for rule in rules:
-        tv, cv = rule.get(tf), rule.get(cf)
-        if not rule.collides(tv, cv) and not rule.is_omitted(tv, cv):
-            continue
+    ruled = list(rules)
+
+    def fields_for(rule: _FacetRule, tv: Any, cv: Any) -> dict[str, Any]:
         fields: dict[str, Any] = {"t": rule.render(tv), "c": rule.render(cv)}
         if rule.context is not None:
             fields.update({f"t_{k}": v for k, v in rule.context(tf, tv).items()})
             fields.update({f"c_{k}": v for k, v in rule.context(cf, cv).items()})
+        return fields
+
+    for rule in ruled:  # pass 1: hard collisions
+        tv, cv = rule.get(tf), rule.get(cf)
         if rule.collides(tv, cv):
-            return _reject(rule.collision.format(**fields), target, cand)
-        missing = (rule.missing_render or rule.render)(tv)
-        return _reject(
-            rule.omission.format(**fields),  # type: ignore[union-attr]
-            target,
-            cand,
-            base=True,
-            missing=missing,
-        )
+            return _reject(rule.collision.format(**fields_for(rule, tv, cv)), target, cand)
+    for rule in ruled:  # pass 2: omissions -> BASE fallback + notice
+        tv, cv = rule.get(tf), rule.get(cf)
+        if rule.is_omitted(tv, cv):
+            missing = (rule.missing_render or rule.render)(tv)
+            return _reject(
+                rule.omission.format(**fields_for(rule, tv, cv)),  # type: ignore[union-attr]
+                target,
+                cand,
+                base=True,
+                missing=missing,
+            )
     return None
 
 
