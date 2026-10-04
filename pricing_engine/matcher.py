@@ -2229,6 +2229,21 @@ def _series_verdict(
     if not target.series:
         return None
 
+    # A candidate that is a single-branch spelling of a multi-branch anchor is
+    # the *same product* -- the anchor already established identity.  Any residual
+    # "series" difference at that point is prose noise (e.g. "Super Pro" absorbed
+    # into the slot), not a real generation difference, so the series rule must
+    # not second-guess it.
+    if "/" in target.anchor and cand.anchor:
+        nt, nc = _squash(target.anchor), _squash(cand.anchor)
+        if (
+            _is_branch_form(nt, nc)
+            or _is_branch_form(_strip_lead_alpha(nt), nc)
+            or _is_branch_form(nc, nt)
+            or nc in _anchor_equivalents(nt, target.anchor)
+        ):
+            return None
+
     # The series slot can absorb fragments of a multi-branch anchor
     # ("13HFS / 013WDC" out of "HSU-13HFS/013WDC(G)").  Those tokens belong to
     # the anchor, not to a generation series, so they are never a series

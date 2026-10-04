@@ -152,12 +152,25 @@ def test_adjacent_slash_list_is_one_variant_axis() -> None:
 
 
 def test_multi_branch_anchor_matches_its_own_branches() -> None:
-    """One branch of a multi-variant anchor *is* the product."""
-    target = "Haier HSU-13HFS/013WDC(G)-T3 Pro 1 Ton Super T3 Pro Air Conditioner"
-    slots = extract_product_slots(target, brand="")
+    """One branch of a multi-variant anchor *is* the product.
+
+    ``HSU-13HFS/013WDC(G)`` is one machine with two orderable branches, so a
+    listing written with either single branch must match EXACT -- not reject,
+    not even fall back to base.  The ``013WDC`` case previously rejected because
+    the series slot had absorbed prose ("Super Pro") that the branch's matched
+    series alternative did not contain.
+    """
+    target = (
+        "Haier AC 1 Ton Inverter T3 Compressor Golden Color Heat and Cool Super "
+        "T3 Pro Inverter HSU-13HFS/013WDC(G)-T3 Pro | Official 5year parts 10 "
+        "Year Compressor warranty | Free Installation by Haier (0% Ma"
+    )
+    slots = extract_product_slots(target, brand="Haier")
+    assert referee_match(slots, target, brand="Haier").is_match
     for branch in ("HSU-13HFS(G)", "HSU-013WDC(G)"):
-        decision = referee_match(slots, f"Haier {branch} 1 Ton Air Conditioner", brand="")
-        assert decision.usable, f"{branch}: {decision.reason}"
+        listing = target.replace("HSU-13HFS/013WDC(G)-T3 Pro", f"{branch}-T3 Pro")
+        decision = referee_match(slots, listing, brand="Haier")
+        assert decision.is_match, f"{branch}: {decision.reason}"
 
 
 def test_homoglyph_capacity_unit_is_not_a_series() -> None:
