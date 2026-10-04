@@ -437,12 +437,18 @@ def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | Non
             if re.search(rf"\b{re.escape(alias)}\b", haystack, re.IGNORECASE):
                 return family, alias
 
-    if anchor:  # standalone single-letter colour code right after the anchor
+    # Single-letter variant codes resolve through the ONE sanctioned colour
+    # vocabulary (COLOR_SUFFIX_MAP) so a code and its full word agree: ``B`` ==
+    # Black, ``C`` == Champagne, and ``C`` != ``S``.  One table, one code path for
+    # both glued and standalone letters -- no per-product logic.
+    if anchor:  # standalone single-letter code immediately after the anchor
         m = re.search(rf"\b{re.escape(anchor)}\s*[-_]?\s*([A-Za-z])\b", title, re.IGNORECASE)
-        if m and COLOR_SUFFIX_MAP.get(m.group(1).upper()):
-            return COLOR_SUFFIX_MAP[m.group(1).upper()], m.group(1).upper()
-    if anchor:  # trailing single-letter colour code on the anchor itself
-        m = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRPC])$", anchor, re.IGNORECASE)
+        if m:
+            letter = m.group(1).upper()
+            if letter not in GENUINE_SUB_SERIES_TOKENS and COLOR_SUFFIX_MAP.get(letter):
+                return COLOR_SUFFIX_MAP[letter], letter
+    if anchor:  # single-letter code glued to the anchor's digit run (18AITH21W -> W)
+        m = re.search(r"\d([A-Za-z])$", anchor)
         if m and COLOR_SUFFIX_MAP.get(m.group(1).upper()):
             return COLOR_SUFFIX_MAP[m.group(1).upper()], m.group(1).upper()
     return None, None

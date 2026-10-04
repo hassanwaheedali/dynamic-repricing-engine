@@ -235,6 +235,8 @@ def test_standalone_letter_color_code_is_protected() -> None:
         "Low Voltage Series Triple Waterfall"
     )
     slots = extract_product_slots(target, brand="Dawlance")
+    # The single letter resolves through the one colour vocabulary, so a code and
+    # its full word agree (C == Champagne) while C != S.
     assert slots.guarded_facets.color_family == "Gold / Bronze / Copper"
     same = referee_match(slots, "Dawlance DWT-260 C LVS+ 9KG Top Load Washing Machine",
                          brand="Dawlance")
