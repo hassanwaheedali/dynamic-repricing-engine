@@ -1102,13 +1102,15 @@ def test_hyphenated_capacity_extraction_and_slots() -> None:
 
 def test_water_dispenser_tap_count_matching() -> None:
     """Verify water dispenser tap count matching and non-forcing behavior."""
-    # 1. Exact match with same tap count
+    # 1. Same tap count, listing omits the shade word ("Cloud"): usable BASE
+    # with a cross-check notice (two-layer colour doctrine), never a reject.
     res_same = referee_match(
         "Dawlance WD-1051 Cloud White 3 Tap Water Dispenser",
         "Dawlance Water Dispenser WD-1051 3 Taps Glass Door",
         brand="Dawlance",
     )
-    assert res_same.is_match
+    assert res_same.usable
+    assert "Color shade omitted" in res_same.reason
 
     # 2. Collision when opposing tap count is explicitly specified
     res_diff = referee_match(

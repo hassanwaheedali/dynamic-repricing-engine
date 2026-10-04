@@ -46,6 +46,7 @@ class GuardedFacets:
     tub_series: str | None = None  # e.g. "WB", "GB"
     color_family: str | None = None  # One of the 9 normalized color families
     color_raw: str | None = None  # Original matched color text
+    color_shade: str | None = None  # Shade modifier of the colour: SMOKE, RUBY…
     door_finish: str | None = None  # Hardware finish: 'GD' (Glass Door) vs 'INOX'
     cool_only: bool | None = None  # True if strictly cooling-only AC model
     heat_and_cool: bool | None = None  # True if Heat & Cool AC model
@@ -210,6 +211,12 @@ _CATEGORY_PHRASES: tuple[str, ...] = (
 
 CATEGORY_PATTERNS = re.compile(
     "|".join(rf"\b(?:{p})\b" for p in _CATEGORY_PHRASES), re.IGNORECASE
+)
+
+# Every noun inside the category phrases ("WATER DISPENSER" -> WATER, DISPENSER):
+# these can never be a colour shade modifier ("Dispenser Purple" is not a shade).
+_CATEGORY_WORDS: frozenset[str] = frozenset(
+    w for p in _CATEGORY_PHRASES for w in re.findall(r"[A-Za-z]+", p)
 )
 
 # --- Merchant / marketplace noise --------------------------------------------
@@ -469,6 +476,45 @@ def get_all_color_families(text: str) -> set[str]:
         if m and COLOR_SUFFIX_MAP.get(m.group(1).upper()):
             families.add(COLOR_SUFFIX_MAP[m.group(1).upper()])
     return families
+
+
+_SHADE_STOP: frozenset[str] = frozenset(
+    {"WITH", "NEW", "STYLE", "EDITION", "COLOR", "COLOUR", "FINISH", "TYPE", "SHADE", "MODEL"}
+)
+
+
+def _color_shade(title: str, anchor: str = "") -> str | None:
+    """Two-layer colour: the shade modifier attached to the matched base colour.
+
+    ``Smoke Purple`` -> base family Purple + shade ``SMOKE``; ``Ruby Red`` ->
+    Red + ``RUBY``.  Structural rule, zero per-product vocabulary: the word
+    immediately before the matched colour alias, provided it is not itself a
+    colour, a category noun (Dispenser/Glass/Door), a spec token, or noise.
+    A shade that the listing omits is an *omission* (BASE + notice), while two
+    different declared shades (Diamond Red vs Ruby Red) collide (REJECT).
+    """
+    family, alias = normalize_color(title, anchor=anchor)
+    if not family or not alias or len(alias) < 3:
+        return None
+    # A multi-word alias ("MILKY WHITE") is itself shade + base: decompose it.
+    parts = alias.split()
+    if len(parts) >= 2 and parts[-1].upper() in ALL_COLOR_WORDS:
+        return " ".join(parts[:-1]).upper()
+    m = re.search(rf"\b([A-Za-z]{{3,12}})\s+{re.escape(alias)}\b", title, re.IGNORECASE)
+    if not m:
+        return None
+    word = m.group(1).upper()
+    # A colour word in front of another colour word IS a shade modifier
+    # ("Ruby Red", "Pearl White"); category nouns / specs / noise are not.
+    if (
+        word in _SHADE_STOP
+        or word in _CATEGORY_WORDS
+        or word in NON_SKU_TOKENS
+        or word in _NAME_STOP
+        or is_dimension_or_spec_token(word)
+    ):
+        return None
+    return word
 
 
 _SPEC_SHAPES: tuple[tuple[re.Pattern[str], bool], ...] = (
@@ -1748,10 +1794,13 @@ def _extract_series(
     ):
         sub = re.sub(rf"\b{re.escape(tok)}\b", " ", sub, flags=re.IGNORECASE)
 
+    shade = _color_shade(ctx.title, anchor=ctx.anchor)
     sub = " ".join(
         tok
         for tok in sub.split()
-        if tok.upper() not in ALL_COLOR_WORDS and not is_color_token(tok)
+        if tok.upper() not in ALL_COLOR_WORDS
+        and not is_color_token(tok)
+        and tok.upper() != shade  # shade lives in the colour slot, never in series
     )
     if ctx.anchor:
         sub = re.sub(rf"\b{re.escape(ctx.anchor)}\b", " ", sub, flags=re.IGNORECASE)
@@ -1853,6 +1902,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     capacity = _facet_capacity_fallback(ctx, _facet_capacity(ctx))
     tub_series = _facet_tub_series(ctx)
     color_family, color_raw = _facet_color(ctx)
+    color_shade = _color_shade(ctx.title, anchor=anchor)
     cool_only, heat_and_cool = _operating_mode(ctx)
     capabilities = _facet_capabilities(ctx, first_token_tag)
     residuals = _extract_residuals(ctx)
@@ -1865,6 +1915,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             tub_series=tub_series,
             color_family=color_family,
             color_raw=color_raw,
+            color_shade=color_shade,
             door_finish=_facet_door_finish(ctx),
             cool_only=cool_only,
             heat_and_cool=heat_and_cool,
@@ -2052,6 +2103,14 @@ _POST_FACET_RULES: tuple[_FacetRule, ...] = (
         lambda f: f.color_family,
         "Color collision: {t_raw} ({t}) vs {c_raw} ({c})",
         context=_color_context,
+    ),
+    _FacetRule(
+        "color_shade",
+        lambda f: f.color_shade,
+        "Color shade collision: {t} vs {c}",
+        omission=(
+            "Color shade omitted: target specifies {t} but candidate does not"
+        ),
     ),
 )
 

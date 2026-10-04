@@ -74,10 +74,11 @@ def test_color_optionality_and_parentheses_cleaning() -> None:
     """Ensure catalog parenthetical colors are extracted, noise is stripped, and unmentioned color is accepted."""
     target = "30 Magna T3 INV (Milky White Textured)"
 
-    # Candidate omits color entirely -> MUST ACCEPT
+    # Candidate omits color entirely -> MUST stay usable (BASE + shade notice
+    # under the two-layer colour doctrine; never a hard reject).
     cand_no_color = "Dawlance Magna 30 T3 Inverter AC - HomeCart"
     dec_accept = referee_match(target, cand_no_color, brand="Dawlance")
-    assert dec_accept.is_match is True
+    assert dec_accept.usable is True
 
     # Candidate has conflicting color (Silver) -> MUST REJECT
     cand_silver = "Dawlance Magna 30 T3 Inverter AC Silver"
