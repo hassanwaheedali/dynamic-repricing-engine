@@ -221,3 +221,31 @@ def test_paren_wrapped_model_is_matched_and_clean_capabilities() -> None:
     slots = extract_product_slots(listing, brand="Gree")
     assert slots.anchor == "GS-18PITC12W"
     assert "T3)" not in slots.guarded_facets.capabilities
+
+
+def test_standalone_letter_color_code_is_protected() -> None:
+    """``DWT-260 C`` is Champagne; a Silver ``S`` listing must never price against it.
+
+    Live audit showed the old matcher pulling Silver (``S LVS+``) offers for a
+    Champagne (``C LVS+``) target because the single-letter code was never read as
+    a colour.  The letter right after the anchor is now a guarded colour facet.
+    """
+    target = (
+        "Dawlance DWT-260 C LVS+ 9KG Top Load Automatic Washing Machine "
+        "Low Voltage Series Triple Waterfall"
+    )
+    slots = extract_product_slots(target, brand="Dawlance")
+    assert slots.guarded_facets.color_family == "Gold / Bronze / Copper"
+    same = referee_match(slots, "Dawlance DWT-260 C LVS+ 9KG Top Load Washing Machine",
+                         brand="Dawlance")
+    assert same.usable, same.reason
+    silver = referee_match(slots, "Dawlance DWT-260 S LVS+ 9KG Top Load Washing Machine",
+                           brand="Dawlance")
+    assert not silver.usable, f"Silver matched a Champagne target: {silver.reason}"
+
+
+def test_glued_colour_suffix_still_protects() -> None:
+    """``18AITH21B`` (Black) must reject ``18AITH21W`` (White) -- the documented challenge."""
+    target = "GREE SPLIT AC 18AITH21B-T3"
+    decision = referee_match(target, "Gree 1.5 Ton Pular T3 Series Inverter AC GS-18AITH21W")
+    assert not decision.usable, decision.reason

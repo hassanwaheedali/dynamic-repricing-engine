@@ -128,6 +128,7 @@ COLOR_SUFFIX_MAP: dict[str, str] = {
     "W": "White",
     "B": "Black",
     "D": "Black",
+    "C": "Gold / Bronze / Copper",
     "S": "Grey / Silver",
     "G": "Grey / Silver",
     "R": "Red / Maroon",
@@ -436,8 +437,12 @@ def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | Non
             if re.search(rf"\b{re.escape(alias)}\b", haystack, re.IGNORECASE):
                 return family, alias
 
+    if anchor:  # standalone single-letter colour code right after the anchor
+        m = re.search(rf"\b{re.escape(anchor)}\s*[-_]?\s*([A-Za-z])\b", title, re.IGNORECASE)
+        if m and COLOR_SUFFIX_MAP.get(m.group(1).upper()):
+            return COLOR_SUFFIX_MAP[m.group(1).upper()], m.group(1).upper()
     if anchor:  # trailing single-letter colour code on the anchor itself
-        m = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRP])$", anchor, re.IGNORECASE)
+        m = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRPC])$", anchor, re.IGNORECASE)
         if m and COLOR_SUFFIX_MAP.get(m.group(1).upper()):
             return COLOR_SUFFIX_MAP[m.group(1).upper()], m.group(1).upper()
     return None, None
@@ -2423,6 +2428,13 @@ def referee_match(
     if (verdict := _run_rules(_FACET_RULES, target_slots, cand_slots)) is not None:
         return verdict
     if (verdict := _anchor_verdict(target_slots, cand_slots, candidate_title, brand)) is not None:
+        return verdict
+    # A hard capacity/colour COLLISION rejects before any series-omission fallback:
+    # a Silver listing must never price against a Champagne target just because it
+    # also omitted the series words.  Omissions (base) still fall through.
+    if (
+        verdict := _run_rules(_POST_FACET_RULES, target_slots, cand_slots)
+    ) is not None and not verdict.is_base_match:
         return verdict
     if (verdict := _series_verdict(target_slots, cand_slots, candidate_title, brand)) is not None:
         return verdict
