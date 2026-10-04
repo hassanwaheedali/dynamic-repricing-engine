@@ -42,7 +42,10 @@ htmlcov/
 *.swo
 *~
 .DS_Store
-.agents
+.agents/commands
+.agents/rules
+.agents/settings.json
+.agents/settings.local.json
 
 # Data Pipeline
 data/outputs/*.csv
@@ -59,4 +62,4 @@ data/outputs/range/
 scratch/
 
 # Repomix & Local Dumps
-repomix-output.*
+repomix-output.xml
