@@ -204,3 +204,20 @@ def test_three_way_variant_list_degrades_to_base_not_reject() -> None:
     target = "HDR-TC2C1 GB/GR/GS"
     decision = referee_match(target, target)
     assert decision.usable, decision.reason
+
+
+def test_model_code_glued_to_a_word_is_still_found() -> None:
+    """``...Washing MachineDwt-1166`` must surface ``DWT-1166`` as the anchor."""
+    listing = "Dawlance 11Kg Fully Automatic Top Load Washing MachineDwt-1166 - HUB"
+    target = "Dawlance 11 KG DWT-1166 X ADS+ Top Load Fully Automatic Washing Machine"
+    assert extract_product_slots(listing, brand="Dawlance").anchor.upper().endswith("DWT-1166")
+    assert referee_match(extract_product_slots(target, brand="Dawlance"), listing,
+                         brand="Dawlance").is_match
+
+
+def test_paren_wrapped_model_is_matched_and_clean_capabilities() -> None:
+    """``... 1.5 Ton (GS-18PITC12W-T3)`` must yield anchor ``GS-18PITC12W`` and no ``T3)``."""
+    listing = "Gree Pular T3 Split Air Conditioner Cool Only 1.5 Ton (GS-18PITC12W-T3) - ISPK"
+    slots = extract_product_slots(listing, brand="Gree")
+    assert slots.anchor == "GS-18PITC12W"
+    assert "T3)" not in slots.guarded_facets.capabilities

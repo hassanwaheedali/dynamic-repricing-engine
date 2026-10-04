@@ -1569,7 +1569,7 @@ def _facet_capabilities(ctx: _SlotContext, first_token_tag: str) -> set[str]:
 
     ordered: list[tuple[str, bool]] = []  # (token, contiguous_with_anchor)
 
-    tag = first_token_tag.strip("-.,_ \"'/").upper()
+    tag = first_token_tag.strip("()[]{}-.,_ \"'/").upper()
     if tag and is_sku_variant_tag(tag):
         ordered.append((tag, True))
 
@@ -1588,7 +1588,9 @@ def _facet_capabilities(ctx: _SlotContext, first_token_tag: str) -> set[str]:
         else ctx.tokens[1:]
     )
     ordered += [
-        (t.strip("-.,_ \"'/").upper(), True) for t in post_model if is_sku_variant_tag(t)
+        (t, True)
+        for t in (x.strip("()[]{}-.,_ \"'/").upper() for x in post_model)
+        if t and is_sku_variant_tag(t)
     ]
 
     contiguous = True
@@ -1610,7 +1612,7 @@ def _facet_capabilities(ctx: _SlotContext, first_token_tag: str) -> set[str]:
             contiguous = False
 
     if m := _GLUED_TAG_RE.search(ctx.title):
-        glued = m.group(2).upper()
+        glued = m.group(2).strip("()[]{}").upper()
         if is_sku_variant_tag(glued):
             ordered.append((glued, True))
 
@@ -1740,6 +1742,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         r"|Faysal Bank|QistBazaar)\b.*$",
     ):
         raw = re.sub(trailer, "", raw, flags=re.IGNORECASE)
+    # A model code glued onto the tail of a longer word is still a model code:
+    # "...Washing MachineDwt-1166" must surface "DWT-1166" as the anchor.
+    raw = re.sub(r"(?<=[a-z])([A-Z][A-Za-z]{1,3}[-_]\d)", r" \1", raw)
     clean_title = normalize_technical_slashes(MERCHANT_TRACKING_CODE_RE.sub(" ", raw))
 
     detected_brand = detect_brand(clean_title, brand)
@@ -1765,6 +1770,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     anchor, first_token_tag = _extract_anchor(
         clean_title, detected_brand, tokens[0] if tokens else raw_model
     )
+    # A listing may wrap the model in parentheses ("... 1.5 Ton (GS-18PITC12W-T3)");
+    # the wrapping punctuation is not part of the model identity.
+    anchor = anchor.strip("()[]{}")
 
     is_non_ac = bool(
         re.search(
