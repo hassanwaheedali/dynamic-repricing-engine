@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as _replace
 from typing import Any
 
 # =============================================================================
@@ -49,7 +50,8 @@ class GuardedFacets:
     cool_only: bool | None = None  # True if strictly cooling-only AC model
     heat_and_cool: bool | None = None  # True if Heat & Cool AC model
     door_type: str | None = None  # Hardware door structure: 'SD' vs 'DD'
-    is_inverter: bool | None = None  # True if Inverter, False if Non-Inverter
+    is_inverter: bool | None = None  # True if Inverter, False for Non-Inverter
+    variant_tag: str | None = None  # Parenthesised/glued finish-variant tag: '(G)', '(OW)'…
     capabilities: set[str] = field(default_factory=set)  # Additive hardware codes
 
 
@@ -1309,6 +1311,12 @@ def _sane_query(query: str) -> str:
 def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, list[str]]:
     """Generate tiered waterfall queries for every cartesian branch of a title."""
     clean_name = canonical_name.strip()
+    # Search backends treat literal parentheses as noise: a query containing
+    # "(G)" returns nothing even though a human typing the model finds the
+    # product.  Unfold a parenthesised variant tag into a bare token so the
+    # waterfall queries read like the listings do ("HSU-20HJUV G T3").
+    clean_name = re.sub(r"[\(\[]([A-Za-z0-9]{1,2})[\)\]]", " ", clean_name)
+    clean_name = re.sub(r"\s+-(?=[A-Za-z0-9])", " ", clean_name).strip()
     if not clean_name:
         return {"tier_1": [], "tier_2": [], "tier_3": []}
 
@@ -1366,6 +1374,21 @@ def _extract_anchor(clean_title: str, brand: str, first_token: str) -> tuple[str
         and not is_dimension_or_spec_token(first_token)
         and not (first_token.isdigit() and first_token in ALL_CAPACITY_CODES)
     ):
+        if re.search(r"[\(\[]", first_token):
+            # "HSU-20HJUV(G)-T3": the wrapped tag is a variant facet, not anchor
+            # identity -- unfold it so the anchor core stays clean.
+            pieces = [
+                p.strip("-_.,")
+                for p in re.sub(
+                    r"[\(\[]([A-Za-z0-9]{1,2})[\)\]]", r" \1 ", first_token
+                ).split()
+                if p.strip("-_.,")
+            ]
+            core, first_token_tag = extract_tag(pieces[0]) if pieces else (first_token, "")
+            for p in pieces[1:]:
+                if is_sku_variant_tag(p) or p.upper() in GENUINE_SUB_SERIES_TOKENS:
+                    first_token_tag = f"-{p}"
+            return core, first_token_tag
         core, first_token_tag = extract_tag(first_token)
         return core, first_token_tag
 
@@ -1600,12 +1623,20 @@ def _facet_capabilities(ctx: _SlotContext, first_token_tag: str) -> set[str]:
     )
     ordered += [
         (t, True)
-        for t in (x.strip("()[]{}-.,_ \"'/").upper() for x in post_model)
+        for t in (
+            x.strip("()[]{}-.,_ \"'/").upper()
+            for x in post_model
+            # A wrapped variant tag ("(OW)") belongs to the variant_tag slot,
+            # not to capabilities -- else it double-guards and false-BASEs.
+            if not re.fullmatch(r"[\(\[][A-Za-z]{1,2}[\)\]]", x.strip())
+        )
         if t and is_sku_variant_tag(t)
     ]
 
     contiguous = True
     for w in _post_anchor_words(ctx):
+        if re.fullmatch(r"[\(\[][A-Za-z]{1,2}[\)\]]", w.strip()):
+            continue  # wrapped variant tag -> variant_tag slot, not capabilities
         w_clean = w.strip("()[]-.,_ \"'/").upper()
         if not w_clean:
             continue  # a bare separator ('/', '-') does not end the code run
@@ -1757,6 +1788,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # "...Washing MachineDwt-1166" must surface "DWT-1166" as the anchor.
     raw = re.sub(r"(?<=[a-z])([A-Z][A-Za-z]{1,3}[-_]\d)", r" \1", raw)
     clean_title = normalize_technical_slashes(MERCHANT_TRACKING_CODE_RE.sub(" ", raw))
+    # Read the parenthesised variant tag from the FULL title: prose-trimming
+    # below may drop a "| (G) |" segment, but the tag is part of the identity.
+    variant_tag = _paren_variant_tag(clean_title)
 
     detected_brand = detect_brand(clean_title, brand)
     _, raw_model = extract_search_query_and_model(clean_title, brand=detected_brand)
@@ -1782,8 +1816,10 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         clean_title, detected_brand, tokens[0] if tokens else raw_model
     )
     # A listing may wrap the model in parentheses ("... 1.5 Ton (GS-18PITC12W-T3)");
-    # the wrapping punctuation is not part of the model identity.
-    anchor = anchor.strip("()[]{}")
+    # the wrapping punctuation is not part of the model identity.  A tag wrapped
+    # *inside* the model run ("HSU-20HJUV(G)") leaves a dangling "(" which is
+    # likewise punctuation, not identity.
+    anchor = re.sub(r"[^A-Za-z0-9]+$", "", anchor.strip("()[]{}"))
 
     is_non_ac = bool(
         re.search(
@@ -1834,6 +1870,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             heat_and_cool=heat_and_cool,
             door_type=_facet_door_type(ctx),
             is_inverter=_facet_inverter(ctx),
+            variant_tag=variant_tag,
             capabilities=capabilities,
         ),
         residuals=residuals,
@@ -1909,6 +1946,50 @@ def _color_context(f: GuardedFacets, value: Any) -> dict[str, str]:
     return {"raw": f.color_raw or ""}
 
 
+# A short *alphabetic* tag wrapped in parentheses anywhere in a listing is a
+# finish/variant code ("HSU-20HJUV(G)", "HSU-19HFS (G) T3", "(OW)"): the corpus
+# shows exactly G/W/OW/DG/GE.  Length-capped at 2 so marketing parens such as
+# "(NEW)" / "(IOT)" never enter the identity slots; digits excluded so "(12)"
+# style counts never do.  No brand or colour vocabulary is consulted.
+_PAREN_VARIANT_TAG_RE = re.compile(r"[\(\[]\s*([A-Za-z]{1,2})\s*[\)\]]")
+
+
+def _paren_variant_tag(text: str) -> str | None:
+    m = _PAREN_VARIANT_TAG_RE.search(text)
+    return m.group(1).upper() if m else None
+
+
+def _reconcile_variant_tags(
+    target: ProductSlots, cand: ProductSlots
+) -> tuple[ProductSlots, ProductSlots]:
+    """Fold a *glued* spelling of the variant tag into the same slot as '(X)'.
+
+    ``HSU-20HJUVGT3`` squashes to the other side's anchor plus one or two
+    trailing letters; that tail is the same tag a parenthesis would carry, so
+    move it out of the anchor and into ``variant_tag`` on both spellings.
+    Purely structural: only fires when one squashed anchor is a proper prefix
+    of the other with a short alphabetic difference.
+    """
+    slots = [target, cand]
+    for i, j in ((0, 1), (1, 0)):
+        long_side, short_side = slots[i], slots[j]
+        nl, ns = _squash(long_side.anchor), _squash(short_side.anchor)
+        if not ns or len(nl) <= len(ns) or not nl.startswith(ns):
+            continue
+        diff = nl[len(ns):]
+        if not (1 <= len(diff) <= 2 and diff.isalpha()):
+            continue
+        if long_side.guarded_facets.variant_tag is not None:
+            continue
+        new_anchor = re.sub(re.escape(diff) + r"$", "", long_side.anchor, flags=re.IGNORECASE)
+        slots[i] = _replace(
+            long_side,
+            anchor=new_anchor,
+            guarded_facets=_replace(long_side.guarded_facets, variant_tag=diff.upper()),
+        )
+    return slots[0], slots[1]
+
+
 # Evaluation order is significant and mirrors ADR-002: hardware identity first,
 # then the anchor, then the series, then additive capabilities, then cosmetics.
 _FACET_RULES: tuple[_FacetRule, ...] = (
@@ -1952,6 +2033,14 @@ _FACET_RULES: tuple[_FacetRule, ...] = (
 )
 
 _POST_FACET_RULES: tuple[_FacetRule, ...] = (
+    _FacetRule(
+        "variant_tag",
+        lambda f: f.variant_tag,
+        "Variant tag collision: ({t}) vs ({c})",
+        omission=(
+            "Variant tag omitted: target specifies ({t}) but candidate does not"
+        ),
+    ),
     _FacetRule(
         "capacity",
         lambda f: f.capacity,
@@ -2058,6 +2147,13 @@ def _anchor_verdict(
     norm_t = _squash(target.anchor)
     norm_title = _squash(candidate_title)
     norm_c = _squash(cand.anchor) if cand.anchor else ""
+    # The variant tag lives in its own slot now; re-attach it for branch-shape
+    # arithmetic so "HSU-13HFS(G)" still reads as a branch of
+    # "HSU-13HFS/013WDC(G)".  Kept OUT of the suffix-collision check: a tag
+    # *omission* (one side bare) must fall through to the BASE notice, not
+    # masquerade as a letter collision.
+    tagged_t = norm_t + (target.guarded_facets.variant_tag or "")
+    tagged_c = norm_c + (cand.guarded_facets.variant_tag or "")
     t_nums = re.findall(r"\d{2,}", norm_t)
     c_nums = re.findall(r"\d{2,}", norm_c)
     t_eq = _anchor_equivalents(norm_t, target.anchor)
@@ -2069,9 +2165,9 @@ def _anchor_verdict(
     multi_branch = "/" in target.anchor or "/" in cand.anchor
     if cand.anchor and multi_branch and (
         any(a == b for a in t_eq for b in c_eq)
-        or _is_branch_form(norm_t, norm_c)
-        or _is_branch_form(_strip_lead_alpha(norm_t), norm_c)
-        or _is_branch_form(norm_c, norm_t)
+        or _is_branch_form(tagged_t, tagged_c)
+        or _is_branch_form(_strip_lead_alpha(tagged_t), tagged_c)
+        or _is_branch_form(tagged_c, tagged_t)
     ):
         matched = True
     if cand.anchor and not matched:
@@ -2136,7 +2232,7 @@ def _anchor_verdict(
     # A multi-variant anchor and one of its own branches are the same product, so
     # the differing trailing runs are not a variant-tag collision.
     same_branch_family = ("/" in target.anchor or "/" in cand.anchor) and (
-        _is_branch_form(norm_t, norm_c) or _is_branch_form(norm_c, norm_t)
+        _is_branch_form(tagged_t, tagged_c) or _is_branch_form(tagged_c, tagged_t)
     )
     if (
         cand.anchor
@@ -2430,6 +2526,9 @@ def referee_match(
 
     target_slots = extract_product_slots(target, brand=brand) if isinstance(target, str) else target
     cand_slots = extract_product_slots(candidate_title, brand=brand)
+    # "(G)" in the catalog and "…UVGT3" in a listing are the same tag: fold the
+    # glued spelling into the variant_tag slot before any verdict runs.
+    target_slots, cand_slots = _reconcile_variant_tags(target_slots, cand_slots)
 
     if (verdict := _run_rules(_FACET_RULES, target_slots, cand_slots)) is not None:
         return verdict
