@@ -11,6 +11,13 @@ NON_COMPETITOR_VENDORS: set[str] = {
     "haier-official-store",
     "haier official store",
     "haierofficialstore",
+    "kiachahiye",
+    "kia chahiye",
+    "kia-chahiye",
+    "ajmer",
+    "ajmer electronics",
+    "ajmer-electronics",
+    "ajmerelectronics",
 }
 
 
@@ -36,6 +43,15 @@ class CostFloors:
     floor_alfa: float
     floor_digi_10: float
     floor_digi_8: float
+    personal_comm: int = 0
+    alfa_personal_comm: int = 0
+    digi_personal_comm: int = 0
+
+    def __post_init__(self) -> None:
+        if self.alfa_personal_comm == 0 and self.personal_comm > 0:
+            object.__setattr__(self, "alfa_personal_comm", self.personal_comm)
+        if self.digi_personal_comm == 0 and self.personal_comm > 0:
+            object.__setattr__(self, "digi_personal_comm", self.personal_comm)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,9 +108,9 @@ class PlatformPricingResult:
     min_price: float | None
     max_price: float | None
     final_price: int | None
-    real_profit: int
-    status: str
-    reason: str
+    real_profit: int | None = None
+    status: str = ""
+    reason: str = ""
     dropped: list[str] = field(default_factory=list)
     active_pool: list[str] = field(default_factory=list)
     effective_comm: str = "10.00%"

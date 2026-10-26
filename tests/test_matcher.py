@@ -1216,5 +1216,132 @@ def test_deep_freezer_91998_signature_matching() -> None:
     assert referee_match(target_name, c_inox, brand=brand).is_match is False
 
 
+def test_optional_feature_tag_matching() -> None:
+    """Verify that [OPT:tag1,tag2] allows candidates with or without specified features."""
+    target_name = "Midea 1.0 Ton MSAG2B-12HRDN1 [OPT:T3,QC0]"
+    brand = "Midea"
+
+    # Listing with both T3 and QC0 should match
+    c_both = "Midea - Air Conditioner 1.0 Ton T3 Inverter Heat & Cool Eco Series - MSAG2B-12HRDN1-QC0 - (SNS62)"
+    res_both = referee_match(target_name, c_both, brand=brand)
+    assert res_both.is_match is True, f"Failed: {res_both.reason}"
+
+    # Listing without T3 and without QC0 should also match
+    c_neither = "Midea AC 1.0 Ton MSAG2B-12HRDN1 Inverter"
+    res_neither = referee_match(target_name, c_neither, brand=brand)
+    assert res_neither.is_match is True, f"Failed: {res_neither.reason}"
+
+    # Listing with only QC0 should match
+    c_qc0 = "Midea AC 1.0 Ton MSAG2B-12HRDN1-QC0"
+    res_qc0 = referee_match(target_name, c_qc0, brand=brand)
+    assert res_qc0.is_match is True, f"Failed: {res_qc0.reason}"
+
+    # Conflicting model (e.g. 18HRDN1) must still be rejected
+    c_diff = "Midea AC 1.5 Ton MSAG2B-18HRDN1-QC0"
+    assert referee_match(target_name, c_diff, brand=brand).is_match is False
+
+    # Verify slots extraction does not create fake series from [OPT:...]
+    slots = extract_product_slots(target_name, brand=brand)
+    assert slots.guarded_facets.allowed_feature_tags == {"T3", "QC0"}
+    assert "OPT" not in slots.series
+    # Verify referee_match works with pre-extracted ProductSlots object
+    assert referee_match(slots, c_both, brand=brand).is_match is True
+    assert referee_match(slots, c_neither, brand=brand).is_match is True
+
+    # Verify query extraction strips OPT tags completely
+    q_opt, m_opt = extract_search_query_and_model("Haier 12AITH21W [OPT:T3]", "Haier")
+    assert "OPT" not in m_opt
+    assert "12AITH21W" in m_opt
+
+
+def test_spaced_washing_machine_model_extraction() -> None:
+    """Verify that spaced washing machine models like HWM 80 1217 are correctly joined into HWM-80-1217."""
+    _, m1 = extract_search_query_and_model("Haier HWM 80 1217 Washing Machine", "Haier")
+    assert m1 == "HWM-80-1217"
+
+    _, m2 = extract_search_query_and_model("Haier HWM 120 1708", "Haier")
+    assert m2 == "HWM-120-1708"
+
+    # Hyphenated form remains unaffected
+    _, m3 = extract_search_query_and_model("Haier HWM 120-1708", "Haier")
+    assert m3 == "120-1708"
+
+    # Descriptive tokens like FULLY AUTOMATIC do not become series
+    slots = extract_product_slots("Haier HWM 120-1708 Fully Automatic Washing Machine", "Haier")
+    assert slots.series == ""
+    assert "FULLY" not in slots.series
+    assert "AUTOMATIC" not in slots.series
+
+    # Other models unaffected
+    _, m_gree = extract_search_query_and_model("Gree GS-18PITH1W Air Conditioner", "Gree")
+    assert "18PITH1W" in m_gree
+
+
+def test_numeric_substring_collision_guard() -> None:
+    """Verify that substring numbers like 270 do not match 2700 or 306 matching 3065."""
+    assert referee_match("Dawlance DWT-270", "Dawlance DWT-2700 LVS+").is_match is False
+    assert referee_match("Dawlance DWT-270", "Dawlance DWT-270 LVS+").is_match is True
+    assert referee_match("Haier HRF-306", "Haier HRF-3065 Refrigerator").is_match is False
+    assert referee_match("Haier HRF-306", "Haier HRF-306 Refrigerator").is_match is True
+
+
+def test_single_letter_suffix_collision_referee() -> None:
+    """Verify that single-letter variant suffixes (e.g. C for Cream vs S for Steel) collide strictly."""
+    # Conflicting suffix C vs S must NOT match
+    assert referee_match("Dawlance DWT-270 C", "Dawlance DWT 270 S LVS+").is_match is False
+    # Matching suffix C vs C must match
+    assert referee_match("Dawlance DWT-270 C", "Dawlance DWT 270 C LVS+").is_match is True
+    # Base model with no suffix should accept candidate without suffix
+    assert referee_match("Dawlance DWT-270", "Dawlance DWT 270 LVS+").is_match is True
+
+
+def test_washing_machine_spaced_prefixes_and_unprefixed_drums() -> None:
+    """Verify Bug 1: 3-4 digit model prefixes (DW 7500, DWT 270) and unprefixed drums (120 826S6, 80 1217)."""
+    _, m_dw_c = extract_search_query_and_model("Dawlance DW 7500 C", "Dawlance")
+    assert m_dw_c == "DW-7500-C"
+
+    _, m_dwt_c = extract_search_query_and_model("Dawlance DWT 270 C", "Dawlance")
+    assert m_dwt_c == "DWT-270-C"
+
+    _, m_dw = extract_search_query_and_model("Dawlance DW 7500 Washing Machine", "Dawlance")
+    assert m_dw == "DW-7500"
+
+    _, m_dwt = extract_search_query_and_model("Dawlance DWT 270 LVS+", "Dawlance")
+    assert m_dwt == "DWT-270"
+
+    _, m_hrf = extract_search_query_and_model("Haier HRF 538", "Haier")
+    assert m_hrf == "HRF-538"
+
+    _, m_drum1 = extract_search_query_and_model("Haier 120 826S6", "Haier")
+    assert m_drum1 == "120-826S6"
+
+    _, m_drum2 = extract_search_query_and_model("Haier 80 1217", "Haier")
+    assert m_drum2 == "80-1217"
+
+
+def test_glued_single_letter_suffix_collision() -> None:
+    """Verify Bug 2: Glued suffixes like DWT-270C collide strictly with spaced DWT 270 S."""
+    assert referee_match("Dawlance DWT-270C", "Dawlance DWT 270 S LVS+", brand="Dawlance").is_match is False
+    assert referee_match("Dawlance DWT-270C", "Dawlance DWT 270 C LVS+", brand="Dawlance").is_match is True
+    assert referee_match("Dawlance DW-7500C", "Dawlance DW 7500 S", brand="Dawlance").is_match is False
+    assert is_strict_model_match("Dawlance Top Load Washing Machine DWT 270 S LVS+", "DWT-270C", brand="Dawlance") is False
+
+
+def test_glued_drum_search_patterns_and_tub_series() -> None:
+    """Verify Bug 3: Glued drum models (801217 WB) generate hyphenated patterns and detect tub series."""
+    patterns = generate_search_patterns("Haier 801217 WB", "Haier")
+    assert any("80-1217" in p for p in patterns["tier_1"] + patterns["tier_2"])
+    assert any("80 1217" in p for p in patterns["tier_3"])
+
+    slots = extract_product_slots("Haier 801217WB", "Haier")
+    assert slots.guarded_facets.tub_series == "WB"
+
+    slots_hyphen = extract_product_slots("Haier 80-1217WB", "Haier")
+    assert slots_hyphen.guarded_facets.capacity == "8KG"
+    assert slots_hyphen.guarded_facets.tub_series == "WB"
+
+    # Conflicting tub series (WB vs GB) must collide
+    decision = referee_match("Haier 801217WB", "Haier HWM 80-1217GB Washing Machine", brand="Haier")
+    assert decision.is_match is False
 
 
