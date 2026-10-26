@@ -10,16 +10,98 @@ from pricing_engine.models import CostFloors
 PSYCHOLOGICAL_ENDINGS: tuple[int, ...] = (999, 899, 799, 499, 299, 199, 99)
 
 
+def _extract_numeric_capacity(text: str, unit: str = "kg") -> float | None:
+    """Extract numeric capacity or size from title or model code."""
+    if unit == "kg":
+        kg_match = re.search(r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b", text)
+        if kg_match:
+            with contextlib.suppress(ValueError, TypeError):
+                return float(kg_match.group(1))
+        # Model code stem extraction (e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg, 150- -> 15kg)
+        model_match = re.search(r"\b[a-z]{0,4}[- ]?(\d{2,3})(?:[- ]|\b)", text)
+        if model_match:
+            with contextlib.suppress(ValueError, TypeError):
+                raw_num = float(model_match.group(1))
+                if 50 <= raw_num <= 250:
+                    return raw_num / 10.0
+    return None
+
+
+def _normalize_shipping_config(table: dict[str, Any]) -> dict[str, Any]:
+    """Ensure configuration dictionary adheres to the generic 'categories' list contract."""
+    if "categories" in table and isinstance(table["categories"], list):
+        return table
+
+    # Legacy nested dict adapter for backwards compatibility
+    categories: list[dict[str, Any]] = []
+    if "washing_machine" in table:
+        wm = table["washing_machine"]
+        categories.append({
+            "id": "washing_machine",
+            "name": "Washing Machine",
+            "keywords": ["washing machine", "washer", "single tub", "twin tub", "spinner", "dryer", "hwm", "dwt", "wm"],
+            "capacity_unit": "kg",
+            "sub_types": [
+                {
+                    "name": "Twin Tub Washer",
+                    "keywords": ["twin tub", "twin-tub", "twin", "semi auto", "semi-auto", "semi automatic", "semi-automatic"],
+                    "brackets": wm.get("twin_tub", []),
+                },
+                {
+                    "name": "Single Tub Washer",
+                    "keywords": ["single tub", "single-tub", "single", "washer only"],
+                    "brackets": wm.get("single_tub", []),
+                },
+                {
+                    "name": "Automatic Washer",
+                    "keywords": ["automatic", "front load", "top load", "inverter", "fully automatic"],
+                    "is_default": True,
+                    "brackets": wm.get("automatic", []),
+                },
+            ],
+            "default": wm.get("default", 3500.0),
+        })
+
+    if "air_conditioner" in table:
+        ac = table["air_conditioner"]
+        categories.append({
+            "id": "air_conditioner",
+            "name": "Air Conditioner",
+            "keywords": ["split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo"],
+            "sub_types": [
+                {"name": "Air Conditioner (2.0 Ton)", "pattern": r"\b(?:24|24000|2(?:\.0)?\s*ton)\b", "rate": ac.get("2.0_ton", 4500.0)},
+                {"name": "Air Conditioner (1.5 Ton)", "pattern": r"\b(?:18|18000|1\.5\s*ton)\b", "rate": ac.get("1.5_ton", 3500.0)},
+                {"name": "Air Conditioner (1.0 Ton)", "pattern": r"\b(?:12|12000|1(?:\.0)?\s*ton)\b", "rate": ac.get("1.0_ton", 3000.0)},
+            ],
+            "default": ac.get("default", 3500.0),
+        })
+
+    if "refrigerator" in table:
+        rf = table["refrigerator"]
+        categories.append({
+            "id": "refrigerator",
+            "name": "Refrigerator",
+            "keywords": ["refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer"],
+            "sub_types": [
+                {"name": "Refrigerator (Small / Mini Bar)", "keywords": ["mini bar", "mini-bar", "small", "single door", "bedside"], "rate": rf.get("small", 4000.0)},
+                {"name": "Refrigerator (Large / Side-by-Side)", "keywords": ["side by side", "4 door", "four door", "french door", "large", "500l"], "rate": rf.get("large", 7500.0)},
+            ],
+            "default": rf.get("default", 5500.0),
+        })
+
+    return {"categories": categories, "default": table.get("default", 3000.0)}
+
+
 def resolve_fallback_shipping(
     product_name: str,
     brand: str = "",
     config_table: dict[str, Any] | None = None,
 ) -> tuple[float, str]:
-    """Resolve default fallback shipping rate when LxWxH dimensions are missing or 0.
+    """Dynamically resolve default fallback shipping from config without hardcoded category logic.
 
-    Inspects product title and model keywords to determine appliance category,
-    sub-type (e.g. single tub vs twin tub vs automatic for washers), and capacity
-    to match user-defined brackets in config.DEFAULT_CATEGORY_SHIPPING.
+    Inspects config.DEFAULT_CATEGORY_SHIPPING['categories'] rules in declared order.
+    Matches keywords or patterns, resolves sub-types and capacity brackets, and returns
+    the matched shipping rate and display label.
 
     Args:
         product_name: Product title or description from input catalog.
@@ -29,99 +111,70 @@ def resolve_fallback_shipping(
     Returns:
         Tuple of (shipping_amount: float, fallback_label: str).
     """
-    table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
+    raw_table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
+    table = _normalize_shipping_config(raw_table)
     text = f"{brand} {product_name}".lower()
 
-    # 1. Washing Machine Detection
-    washer_kw = (
-        "washing machine",
-        "washer",
-        "single tub",
-        "twin tub",
-        "front load",
-        "top load",
-        "semi automatic",
-        "semi-automatic",
-        "spinner",
-        "dryer",
-        "hwm",
-        "dwt",
-        "wm",
-    )
-    if any(kw in text for kw in washer_kw):
-        wm_cfg = table.get("washing_machine", {})
-        # A. Determine Sub-type: twin_tub vs single_tub vs automatic
-        if any(
-            tt in text
-            for tt in (
-                "twin tub",
-                "twin-tub",
-                "twin",
-                "semi auto",
-                "semi-auto",
-                "semi automatic",
-                "semi-automatic",
-            )
-        ):
-            sub_type = "twin_tub"
-            label = "Twin Tub Washer"
-        elif any(st in text for st in ("single tub", "single-tub", "single", "washer only")):
-            sub_type = "single_tub"
-            label = "Single Tub Washer"
-        else:
-            sub_type = "automatic"
-            label = "Automatic Washer"
+    for cat in table.get("categories", []):
+        cat_keywords: list[str] = cat.get("keywords", [])
+        cat_pattern: str | None = cat.get("pattern")
+        cat_name: str = cat.get("name", cat.get("id", "Appliance"))
 
-        # B. Extract Capacity in KG
-        kg_match = re.search(r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b", text)
-        capacity_kg: float | None = None
-        if kg_match:
-            with contextlib.suppress(ValueError, TypeError):
-                capacity_kg = float(kg_match.group(1))
-        else:
-            # Model code extraction: e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg, 150- -> 15kg
-            model_match = re.search(r"\b(?:hwm|hw|wm|dwt)?[- ]?(\d{2,3})(?:[- ]|\b)", text)
-            if model_match:
-                with contextlib.suppress(ValueError, TypeError):
-                    raw_num = float(model_match.group(1))
-                    if 50 <= raw_num <= 250:
-                        capacity_kg = raw_num / 10.0
+        is_match = bool(
+            (cat_pattern and re.search(cat_pattern, text))
+            or any(kw in text for kw in cat_keywords)
+        )
 
-        # C. Match Capacity Bracket
-        bracket_list = wm_cfg.get(sub_type, [])
-        if capacity_kg is not None and isinstance(bracket_list, list):
-            for bracket in bracket_list:
-                if capacity_kg <= bracket.get("max_kg", 999.0):
-                    rate = float(bracket.get("rate", wm_cfg.get("default", 3500.0)))
-                    return rate, f"{label} ({capacity_kg:g}kg)"
+        if not is_match:
+            continue
 
-        # Fallback within category
-        return float(wm_cfg.get("default", 3500.0)), label
+        # Category matched! Check sub-types
+        sub_types = cat.get("sub_types", [])
+        chosen_sub: dict[str, Any] | None = None
+        default_sub: dict[str, Any] | None = None
 
-    # 2. Air Conditioner Detection
-    ac_kw = ("split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo")
-    if any(kw in text for kw in ac_kw):
-        ac_cfg = table.get("air_conditioner", {})
-        if re.search(r"\b(?:24|24000|2(?:\.0)?\s*ton)\b", text):
-            return float(ac_cfg.get("2.0_ton", 4500.0)), "Air Conditioner (2.0 Ton)"
-        if re.search(r"\b(?:18|18000|1\.5\s*ton)\b", text):
-            return float(ac_cfg.get("1.5_ton", 3500.0)), "Air Conditioner (1.5 Ton)"
-        if re.search(r"\b(?:12|12000|1(?:\.0)?\s*ton)\b", text):
-            return float(ac_cfg.get("1.0_ton", 3000.0)), "Air Conditioner (1.0 Ton)"
-        return float(ac_cfg.get("default", 3500.0)), "Air Conditioner"
+        for sub in sub_types:
+            if sub.get("is_default"):
+                default_sub = sub
+            sub_pat = sub.get("pattern")
+            sub_kws = sub.get("keywords", [])
+            if sub_pat and re.search(sub_pat, text):
+                chosen_sub = sub
+                break
+            if any(kw in text for kw in sub_kws):
+                chosen_sub = sub
+                break
 
-    # 3. Refrigerator Detection
-    fridge_kw = ("refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer")
-    if any(kw in text for kw in fridge_kw):
-        rf_cfg = table.get("refrigerator", {})
-        if any(s in text for s in ("mini bar", "mini-bar", "small", "single door", "bedside")):
-            return float(rf_cfg.get("small", 4000.0)), "Refrigerator (Small / Mini Bar)"
-        if any(s in text for s in ("side by side", "4 door", "four door", "french door", "large", "500l")):
-            return float(rf_cfg.get("large", 7500.0)), "Refrigerator (Large / Side-by-Side)"
-        return float(rf_cfg.get("default", 5500.0)), "Refrigerator"
+        sub_to_use = chosen_sub or default_sub
+        if sub_to_use:
+            sub_label = sub_to_use.get("name", cat_name)
+            # Direct fixed rate on sub-type
+            if "rate" in sub_to_use:
+                return float(sub_to_use["rate"]), sub_label
 
-    # 4. General Default
-    return float(table.get("default", 3000.0)), "General Appliance"
+            # Capacity bracket matching
+            brackets = sub_to_use.get("brackets", [])
+            if brackets:
+                unit = cat.get("capacity_unit", "kg")
+                cap_val = _extract_numeric_capacity(text, unit=unit)
+                if cap_val is not None:
+                    for b in brackets:
+                        max_limit = b.get("max", b.get("max_kg", 999.0))
+                        if cap_val <= max_limit:
+                            rate = float(b.get("rate", cat.get("default", 3500.0)))
+                            return rate, f"{sub_label} ({cap_val:g}{unit})"
+
+            # Default rate on sub-type
+            if "default" in sub_to_use:
+                return float(sub_to_use["default"]), sub_label
+
+        # Default rate on category
+        cat_default = cat.get("default", cat.get("default_rate", 3500.0))
+        return float(cat_default), cat_name
+
+    # Global fallback if no category matched
+    global_default = table.get("default", table.get("default_rate", 3000.0))
+    return float(global_default), "General Appliance"
 
 
 def calculate_volumetric_weight(

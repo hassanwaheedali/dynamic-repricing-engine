@@ -66,38 +66,127 @@ VOLUMETRIC_DIVISOR: float = 5000.0
 # ==============================================================================
 # 5. DEFAULT FALLBACK SHIPPING ESTIMATES (PKR)
 # Used when Length x Width x Height dimensions are not provided or 0 in catalog CSV
+# Fully data-driven: add any new category or edit brackets directly here without
+# touching engine code!
 # ==============================================================================
 DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
-    "washing_machine": {
-        "single_tub": [
-            {"max_kg": 8.5, "rate": 2500.0},
-            {"max_kg": 11.0, "rate": 3000.0},
-            {"max_kg": 999.0, "rate": 3500.0},  # 12 to 15kg+
-        ],
-        "twin_tub": [
-            {"max_kg": 8.5, "rate": 3000.0},
-            {"max_kg": 11.0, "rate": 3500.0},
-            {"max_kg": 13.5, "rate": 3800.0},
-            {"max_kg": 999.0, "rate": 4500.0},  # 15kg+
-        ],
-        "automatic": [
-            {"max_kg": 10.0, "rate": 3500.0},  # 8kg se 10kg
-            {"max_kg": 999.0, "rate": 4500.0},  # 10kg se 15kg+
-        ],
-        "default": 3500.0,
-    },
-    "air_conditioner": {
-        "1.0_ton": 3000.0,
-        "1.5_ton": 3500.0,
-        "2.0_ton": 4500.0,
-        "default": 3500.0,
-    },
-    "refrigerator": {
-        "small": 4000.0,   # mini bar / under 10 cu ft
-        "medium": 5500.0,  # 10 - 15 cu ft
-        "large": 7500.0,   # 15+ cu ft / side-by-side
-        "default": 5500.0,
-    },
+    # --------------------------------------------------------------------------
+    # CATEGORIES LIST (Top-to-bottom evaluation order)
+    # --------------------------------------------------------------------------
+    "categories": [
+        # --- 1. WASHING MACHINES ---
+        {
+            "id": "washing_machine",
+            "name": "Washing Machine",
+            "keywords": [
+                "washing machine", "washer", "single tub", "twin tub",
+                "spinner", "dryer", "hwm", "dwt", "wm", "front load", "top load",
+            ],
+            "capacity_unit": "kg",
+            "sub_types": [
+                {
+                    "name": "Twin Tub Washer",
+                    "keywords": [
+                        "twin tub", "twin-tub", "twin", "semi auto",
+                        "semi-auto", "semi automatic", "semi-automatic",
+                    ],
+                    "brackets": [
+                        {"max_kg": 8.5, "rate": 3000.0},
+                        {"max_kg": 11.0, "rate": 3500.0},
+                        {"max_kg": 13.5, "rate": 3800.0},
+                        {"max_kg": 999.0, "rate": 4500.0},
+                    ],
+                },
+                {
+                    "name": "Single Tub Washer",
+                    "keywords": ["single tub", "single-tub", "single", "washer only"],
+                    "brackets": [
+                        {"max_kg": 8.5, "rate": 2500.0},
+                        {"max_kg": 11.0, "rate": 3000.0},
+                        {"max_kg": 999.0, "rate": 3500.0},
+                    ],
+                },
+                {
+                    "name": "Automatic Washer",
+                    "keywords": ["automatic", "front load", "top load", "inverter", "fully automatic"],
+                    "is_default": True,
+                    "brackets": [
+                        {"max_kg": 10.0, "rate": 3500.0},
+                        {"max_kg": 999.0, "rate": 4500.0},
+                    ],
+                },
+            ],
+            "default": 3500.0,
+        },
+        # --- 2. AIR CONDITIONERS ---
+        {
+            "id": "air_conditioner",
+            "name": "Air Conditioner",
+            "keywords": ["split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo"],
+            "sub_types": [
+                {
+                    "name": "Air Conditioner (2.0 Ton)",
+                    "pattern": r"\b(?:24|24000|2(?:\.0)?\s*ton)\b",
+                    "rate": 4500.0,
+                },
+                {
+                    "name": "Air Conditioner (1.5 Ton)",
+                    "pattern": r"\b(?:18|18000|1\.5\s*ton)\b",
+                    "rate": 3500.0,
+                },
+                {
+                    "name": "Air Conditioner (1.0 Ton)",
+                    "pattern": r"\b(?:12|12000|1(?:\.0)?\s*ton)\b",
+                    "rate": 3000.0,
+                },
+            ],
+            "default": 3500.0,
+        },
+        # --- 3. REFRIGERATORS & FREEZERS ---
+        {
+            "id": "refrigerator",
+            "name": "Refrigerator",
+            "keywords": ["refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer"],
+            "sub_types": [
+                {
+                    "name": "Refrigerator (Small / Mini Bar)",
+                    "keywords": ["mini bar", "mini-bar", "small", "single door", "bedside"],
+                    "rate": 4000.0,
+                },
+                {
+                    "name": "Refrigerator (Large / Side-by-Side)",
+                    "keywords": ["side by side", "4 door", "four door", "french door", "large", "500l"],
+                    "rate": 7500.0,
+                },
+            ],
+            "default": 5500.0,
+        },
+        # ----------------------------------------------------------------------
+        # HOW TO ADD NEW CATEGORIES (EXAMPLES):
+        #
+        # A. Flat Rate Category (e.g. Microwave Oven):
+        # {
+        #     "id": "microwave",
+        #     "name": "Microwave Oven",
+        #     "keywords": ["microwave", "oven", "mwo"],
+        #     "default": 1500.0,
+        # },
+        #
+        # B. Bracket/Size Category (e.g. LED TV):
+        # {
+        #     "id": "led_tv",
+        #     "name": "LED TV",
+        #     "keywords": ["led", "tv", "smart tv", "google tv"],
+        #     "sub_types": [
+        #         {"name": "LED TV (32-43 Inch)", "pattern": r"\b(?:32|40|42|43)\b", "rate": 2000.0},
+        #         {"name": "LED TV (50-65 Inch)", "pattern": r"\b(?:50|55|65)\b", "rate": 3500.0},
+        #         {"name": "LED TV (75+ Inch)", "pattern": r"\b(?:75|85|98)\b", "rate": 6000.0},
+        #     ],
+        #     "default": 2500.0,
+        # },
+        # ----------------------------------------------------------------------
+    ],
+    # Global fallback if product matches none of the categories above
     "default": 3000.0,
 }
 

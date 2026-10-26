@@ -119,6 +119,44 @@ class TestResolveFallbackShipping:
         assert rate == 3000.0
         assert label == "General Appliance"
 
+    # 8. Dynamic Custom Category Extensibility (Zero Code Changes in calculator.py)
+    def test_user_defined_custom_category_without_code_changes(self) -> None:
+        custom_config = {
+            "categories": [
+                {
+                    "id": "microwave",
+                    "name": "Microwave Oven",
+                    "keywords": ["microwave", "oven", "mwo"],
+                    "default": 1500.0,
+                },
+                {
+                    "id": "led_tv",
+                    "name": "LED TV",
+                    "keywords": ["led", "tv", "smart tv"],
+                    "sub_types": [
+                        {"name": "LED TV (32-43 Inch)", "pattern": r"\b(?:32|40|42|43)\b", "rate": 2000.0},
+                        {"name": "LED TV (50-65 Inch)", "pattern": r"\b(?:50|55|65)\b", "rate": 3500.0},
+                    ],
+                    "default": 2500.0,
+                },
+            ],
+            "default": 3000.0,
+        }
+
+        # Flat category resolution
+        rate, label = resolve_fallback_shipping("Dawlance Microwave Oven 20L", brand="Dawlance", config_table=custom_config)
+        assert rate == 1500.0
+        assert label == "Microwave Oven"
+
+        # Bracket category resolution
+        rate, label = resolve_fallback_shipping("TCL 43 Inch 4K Smart Google TV LED", brand="TCL", config_table=custom_config)
+        assert rate == 2000.0
+        assert label == "LED TV (32-43 Inch)"
+
+        rate, label = resolve_fallback_shipping("Samsung 55 Inch QLED 4K TV", brand="Samsung", config_table=custom_config)
+        assert rate == 3500.0
+        assert label == "LED TV (50-65 Inch)"
+
 
 class TestResolveShippingEstimate:
     """Test resolution priority: CSV override > LxWxH volumetric > category fallback."""
