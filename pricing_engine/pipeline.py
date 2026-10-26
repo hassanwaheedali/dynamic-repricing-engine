@@ -1,9 +1,7 @@
 import asyncio
-import inspect
 import logging
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1080,48 +1078,6 @@ def render_audit_card(
     console.print(card)
 
 
-class InOrderCardDispatcher:
-    """Dispatches terminal audit cards strictly in ascending row sequence.
-
-    Allows workers to scrape and process products with full concurrency,
-    buffering completed render functions and releasing them in 100% deterministic
-    0, 1, 2, 3... order with zero performance loss.
-    """
-
-    def __init__(self, lock: asyncio.Lock | None = None) -> None:
-        self._next_idx: int = 0
-        self._buffer: dict[int, Callable[[], None]] = {}
-        self._lock: asyncio.Lock = lock if lock is not None else asyncio.Lock()
-
-    async def dispatch(self, idx: int, render_fn: Callable[[], None]) -> None:
-        """Buffer render function for row idx and print all contiguous ready cards."""
-        async with self._lock:
-            self._buffer[idx] = render_fn
-            while self._next_idx in self._buffer:
-                fn = self._buffer.pop(self._next_idx)
-                if fn:
-                    fn()
-                self._next_idx += 1
-
-    async def skip(self, idx: int) -> None:
-        """Skip an index if a worker fails, preventing downstream buffer blockage."""
-        async with self._lock:
-            self._buffer[idx] = lambda: None
-            while self._next_idx in self._buffer:
-                fn = self._buffer.pop(self._next_idx)
-                if fn:
-                    fn()
-                self._next_idx += 1
-
-    async def flush(self) -> None:
-        """Flush any remaining buffered cards in ascending row order."""
-        async with self._lock:
-            for idx in sorted(self._buffer.keys()):
-                fn = self._buffer.pop(idx)
-                if fn:
-                    fn()
-
-
 async def process_item_async(
     product: ProductInput,
     session: AsyncSession,
@@ -1130,8 +1086,6 @@ async def process_item_async(
     verbose: bool = True,
     platform: str = "all",
     personal_comm_pct: float = 0.0,
-    dispatcher: InOrderCardDispatcher | None = None,
-    row_idx: int | None = None,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
     plat = platform.lower().strip()
@@ -1235,7 +1189,22 @@ async def process_item_async(
                     )
 
     if verbose:
-        def _render() -> None:
+        if render_lock is not None:
+            async with render_lock:
+                render_audit_card(
+                    product=product,
+                    shipping=shipping,
+                    floors=floors,
+                    baseline_calc=baseline_calc,
+                    target_model=target_model,
+                    alfa_offers=alfa_offers,
+                    digi_offers=digi_offers,
+                    alfa_res=alfa_res,
+                    digi_res=digi_res,
+                    personal_comm_pct=personal_comm_pct,
+                    is_shipping_fallback=is_shipping_fallback,
+                )
+        else:
             render_audit_card(
                 product=product,
                 shipping=shipping,
@@ -1249,14 +1218,6 @@ async def process_item_async(
                 personal_comm_pct=personal_comm_pct,
                 is_shipping_fallback=is_shipping_fallback,
             )
-
-        if dispatcher is not None and row_idx is not None:
-            await dispatcher.dispatch(row_idx, _render)
-        elif render_lock is not None:
-            async with render_lock:
-                _render()
-        else:
-            _render()
 
     return build_output_record(
         product=product,
@@ -1275,7 +1236,6 @@ async def _process_item_worker(
     session: AsyncSession,
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock,
-    dispatcher: InOrderCardDispatcher | None = None,
     verbose: bool = True,
     platform: str = "all",
     personal_comm_pct: float = 0.0,
@@ -1286,28 +1246,15 @@ async def _process_item_worker(
         extra_kwargs["platform"] = platform
     if personal_comm_pct > 0:
         extra_kwargs["personal_comm_pct"] = personal_comm_pct
-    if dispatcher is not None:
-        sig = inspect.signature(process_item_async)
-        if "dispatcher" in sig.parameters or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        ):
-            extra_kwargs["dispatcher"] = dispatcher
-            extra_kwargs["row_idx"] = idx
 
-    try:
-        record = await process_item_async(
-            product=product,
-            session=session,
-            semaphore=semaphore,
-            render_lock=render_lock,
-            verbose=verbose,
-            **extra_kwargs,
-        )
-    except Exception as exc:
-        if dispatcher is not None:
-            await dispatcher.skip(idx)
-        raise exc
-
+    record = await process_item_async(
+        product=product,
+        session=session,
+        semaphore=semaphore,
+        render_lock=render_lock,
+        verbose=verbose,
+        **extra_kwargs,
+    )
     record["_original_idx"] = idx
     return record
 
@@ -1654,7 +1601,6 @@ async def run_pipeline(
 
     semaphore = asyncio.Semaphore(concurrency)
     render_lock = asyncio.Lock()
-    dispatcher = InOrderCardDispatcher(lock=render_lock) if verbose else None
     tasks: list[asyncio.Task[dict[str, Any]]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
@@ -1667,7 +1613,6 @@ async def run_pipeline(
                     session=session,
                     semaphore=semaphore,
                     render_lock=render_lock,
-                    dispatcher=dispatcher,
                     verbose=verbose,
                     platform=plat,
                     personal_comm_pct=personal_comm_pct,
@@ -1679,9 +1624,6 @@ async def run_pipeline(
                 await asyncio.sleep(0.4)
 
         raw_records = await asyncio.gather(*tasks)
-
-    if dispatcher is not None:
-        await dispatcher.flush()
 
     # Guarantee deterministic 1:1 original CSV row sorting
     raw_records.sort(key=lambda r: int(r.get("_original_idx", 0)))
