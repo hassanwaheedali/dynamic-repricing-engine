@@ -30,6 +30,12 @@ PRICE_INT_COLUMNS: list[str] = [
     "Final Price Digi",
     "Alfa Real Profit",
     "Digi Real Profit",
+    "My 5% Commission",
+    "Min Profit Target (5% + 500)",
+    "Alfa Active Sellers",
+    "Digi Active Sellers",
+    "Alfa Company Profit",
+    "Digi Company Profit",
 ]
 
 
@@ -85,7 +91,9 @@ class ExportManifest:
     latest_xlsx_path: Path | None = None
 
 
-def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
+def export_excel_workbook(
+    df: pd.DataFrame, file_path: Path, personal_comm_pct: float = 5.0
+) -> None:
     """Export DataFrame to a styled Excel workbook with live dynamic formulas.
 
     Dynamically binds Excel formulas for:
@@ -141,6 +149,12 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
         "Final Price Digi",
         "Alfa Real Profit",
         "Digi Real Profit",
+        "My 5% Commission",
+        "Min Profit Target (5% + 500)",
+        "Alfa Active Sellers",
+        "Digi Active Sellers",
+        "Alfa Company Profit",
+        "Digi Company Profit",
     }
 
     # Populate data rows
@@ -220,6 +234,32 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
                     f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
                 )
 
+        # 8. Personal 5% Commission & Company Profit Breakdown
+        my_comm_col = col_map.get("My 5% Commission")
+        min_target_col = col_map.get("Min Profit Target (5% + 500)")
+        co_alfa_col = col_map.get("Alfa Company Profit")
+        co_digi_col = col_map.get("Digi Company Profit")
+
+        if my_comm_col:
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            if prof_alfa and prof_digi:
+                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))*{comm_mult:g}, 0)'
+            elif prof_alfa:
+                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0)'
+            elif prof_digi:
+                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0)'
+            else:
+                ws[f"{my_comm_col}{r}"] = f'=ROUND(0*{comm_mult:g}, 0)'
+        if min_target_col:
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            ws[f"{min_target_col}{r}"] = f"=ROUND(500/(1-{comm_mult:g}), 0)"
+        if co_alfa_col and prof_alfa:
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            ws[f"{co_alfa_col}{r}"] = f'=IF(ISBLANK({prof_alfa}{r}), "", {prof_alfa}{r}-ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0))'
+        if co_digi_col and prof_digi:
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            ws[f"{co_digi_col}{r}"] = f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
+
         # Apply cell formats & borders
         for c_idx, col_name in enumerate(headers, start=1):
             cell = ws.cell(row=r, column=c_idx)
@@ -227,7 +267,15 @@ def export_excel_workbook(df: pd.DataFrame, file_path: Path) -> None:
             if col_name in price_cols_set:
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")
-            elif col_name in {"Commision", "Digi Effective Commision", "S.NO", "Alfa Status", "Digi Status"}:
+            elif col_name in {
+                "Commision",
+                "Digi Effective Commision",
+                "S.NO",
+                "Alfa Status",
+                "Digi Status",
+                "Alfa 5% Goal",
+                "Digi 5% Goal",
+            }:
                 cell.alignment = Alignment(horizontal="center")
 
     # Freeze top row
@@ -277,6 +325,7 @@ def export_results(
     output_dir: str | Path = "data/outputs",
     timestamp: datetime | None = None,
     render_panel: bool = True,
+    personal_comm_pct: float = 5.0,
 ) -> ExportManifest:
     """Format and export results DataFrame to timestamped and latest CSV and XLSX files.
 
@@ -320,7 +369,7 @@ def export_results(
 
     # 1. Export Excel workbook with dynamic formulas first (from full precision numbers)
     try:
-        export_excel_workbook(export_df, timestamped_xlsx_path)
+        export_excel_workbook(export_df, timestamped_xlsx_path, personal_comm_pct=personal_comm_pct)
         shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
     except Exception as exc:
         console.print(f"[bold yellow]⚠️  Excel export warning:[/] {exc}")
@@ -348,6 +397,90 @@ def export_results(
         render_export_panel(manifest)
 
     return manifest
+
+
+def export_winning_5pct_results(
+    df: pd.DataFrame,
+    source_filename: str | Path,
+    output_dir: str | Path = "data/outputs",
+    timestamp: datetime | None = None,
+    personal_comm_pct: float = 5.0,
+) -> tuple[Path | None, Path | None, int]:
+    """Filter and export only high-demand Winning + Full 5% Commission products to CSV and Excel.
+
+    Winning Condition:
+    - Product has active competitors in the market (proven demand)
+    - Our Final Price strictly beats the lowest market competitor (WIN / CAPPED win)
+    - Real Profit covers BOTH 5% Personal Commission on Net Price AND Rs. 500 Company Profit
+      (i.e. 'Alfa 5% Goal' == 'WIN + 5% ACHIEVED' or 'Digi 5% Goal' == 'WIN + 5% ACHIEVED')
+
+    Rows are sorted by total active sellers (highest market demand first) and 5% commission descending.
+    """
+    if "Alfa 5% Goal" not in df.columns and "Digi 5% Goal" not in df.columns:
+        return None, None, 0
+
+    alfa_win = (
+        df["Alfa 5% Goal"] == "WIN + 5% ACHIEVED"
+        if "Alfa 5% Goal" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    digi_win = (
+        df["Digi 5% Goal"] == "WIN + 5% ACHIEVED"
+        if "Digi 5% Goal" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    win_mask = alfa_win | digi_win
+    winners_df = df[win_mask].copy()
+
+    if winners_df.empty:
+        return None, None, 0
+
+    # Sort by highest market demand (total active sellers) then highest 5% commission
+    alfa_sellers = pd.to_numeric(winners_df.get("Alfa Active Sellers", 0), errors="coerce").fillna(0)
+    digi_sellers = pd.to_numeric(winners_df.get("Digi Active Sellers", 0), errors="coerce").fillna(0)
+    my_comm = pd.to_numeric(winners_df.get("My 5% Commission", 0), errors="coerce").fillna(0)
+    winners_df["_total_sellers"] = alfa_sellers + digi_sellers
+    winners_df["_my_comm"] = my_comm
+    winners_df = winners_df.sort_values(
+        by=["_total_sellers", "_my_comm"], ascending=[False, False]
+    ).drop(columns=["_total_sellers", "_my_comm"])
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    dt = timestamp or datetime.now()
+    ts_str = dt.strftime("%Y%m%d_%H%M%S")
+
+    stem = Path(source_filename).stem
+    if stem.endswith("_repriced_latest"):
+        stem = stem[: -len("_repriced_latest")]
+    elif stem.endswith("_repriced"):
+        stem = stem[: -len("_repriced")]
+
+    ts_csv = out_dir / f"{stem}_winning_5pct_{ts_str}.csv"
+    latest_csv = out_dir / f"{stem}_winning_5pct_latest.csv"
+    ts_xlsx = out_dir / f"{stem}_winning_5pct_{ts_str}.xlsx"
+    latest_xlsx = out_dir / f"{stem}_winning_5pct_latest.xlsx"
+
+    export_df = winners_df.copy()
+    if "S.NO" in export_df.columns:
+        export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
+
+    saved_xlsx: Path | None = latest_xlsx
+    try:
+        export_excel_workbook(export_df, ts_xlsx, personal_comm_pct=personal_comm_pct)
+        shutil.copyfile(ts_xlsx, latest_xlsx)
+    except Exception:
+        saved_xlsx = None
+
+    for col in PRICE_INT_COLUMNS:
+        if col in export_df.columns:
+            export_df[col] = export_df[col].apply(format_export_price)
+
+    export_df.to_csv(ts_csv, index=False)
+    shutil.copyfile(ts_csv, latest_csv)
+
+    return latest_csv, saved_xlsx, len(export_df)
 
 
 RANGE_NUMERIC_COLUMNS: list[str] = [
@@ -414,6 +547,7 @@ def export_range_results(
     output_dir: str | Path = "data/outputs/range",
     timestamp: datetime | None = None,
     render_panel: bool = True,
+    personal_comm_pct: float = 5.0,
 ) -> RangeExportManifest:
     """Export Market Range results to ``csv/`` and ``xlsx/`` (timestamped + latest each).
 

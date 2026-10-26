@@ -142,9 +142,15 @@ def _evaluate_alfa_core(
     min_p: float | None = market.min_price
     max_p: float | None = market.max_price
 
+    floor_profit_alfa = (cost_floors.floor_alfa * 0.90) - cost_floors.cost_base
+    extra_personal_comm_alfa = (
+        float(cost_floors.personal_comm)
+    )
+
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
-        raw_target = (cost_floors.cost_base + monopoly_profit) / 0.90
+        eff_monopoly_alfa = max(monopoly_profit, floor_profit_alfa + 1000.0) if extra_personal_comm_alfa > 0 else monopoly_profit
+        raw_target = (cost_floors.cost_base + eff_monopoly_alfa) / 0.90
         monopoly_p = get_monopoly_psychological_price(raw_target)
         profit = round((monopoly_p * 0.90) - cost_floors.cost_base)
         return PlatformPricingResult(
@@ -153,7 +159,7 @@ def _evaluate_alfa_core(
             final_price=monopoly_p,
             real_profit=profit,
             status="Monopoly Win",
-            reason=f"No competitors found in market. Applied Monopoly pricing (+Rs. {monopoly_profit:,.0f} target margin).",
+            reason=f"No competitors found in market. Applied Monopoly pricing (+Rs. {eff_monopoly_alfa:,.0f} target margin).",
             dropped=[],
             active_pool=[],
             effective_comm="10.00%",
@@ -171,7 +177,7 @@ def _evaluate_alfa_core(
             cost_base=cost_floors.cost_base,
             floor_min=cost_floors.floor_alfa,
             payout_rate=0.90,
-            profit_target=FALLBACK_PROFIT,
+            profit_target=FALLBACK_PROFIT + extra_personal_comm_alfa,
         )
         profit = round((final_fallback_p * 0.90) - cost_floors.cost_base)
         return PlatformPricingResult(
@@ -192,7 +198,9 @@ def _evaluate_alfa_core(
 
     # Scenario 3: Undercut lowest viable seller
     lowest_viable = min(viable, key=lambda x: x.price)
-    large_cap_alfa = max_profit_cap if max_profit_cap is not None else 10000.0
+    large_cap_alfa = (
+        max_profit_cap if max_profit_cap is not None else (10000.0 + extra_personal_comm_alfa)
+    )
     target_adaptive_alfa = calculate_adaptive_target_price(
         floor_min=cost_floors.floor_alfa,
         competitor_price=lowest_viable.price,
@@ -351,9 +359,15 @@ def _evaluate_digi_core(
     min_p: float | None = market.min_price
     max_p: float | None = market.max_price
 
+    floor_profit_digi = (cost_floors.floor_digi_10 * 0.90) - cost_floors.cost_base
+    extra_personal_comm_digi = (
+        float(cost_floors.personal_comm)
+    )
+
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
-        raw_target = (cost_floors.cost_base + monopoly_profit) / 0.90
+        eff_monopoly_digi = max(monopoly_profit, floor_profit_digi + 1000.0) if extra_personal_comm_digi > 0 else monopoly_profit
+        raw_target = (cost_floors.cost_base + eff_monopoly_digi) / 0.90
         monopoly_p = get_monopoly_psychological_price(raw_target)
         profit = round((monopoly_p * 0.92) - cost_floors.cost_base)
         return PlatformPricingResult(
@@ -369,7 +383,9 @@ def _evaluate_digi_core(
         )
 
     lowest_offer = min(active_offers, key=lambda x: x.price)
-    large_cap = max_profit_cap if max_profit_cap is not None else 10000.0
+    large_cap = (
+        max_profit_cap if max_profit_cap is not None else (10000.0 + extra_personal_comm_digi)
+    )
 
     # Step A: Check Default 10% Tier
     if lowest_offer.price > cost_floors.floor_digi_10:
@@ -569,7 +585,7 @@ def _evaluate_digi_core(
         cost_base=cost_floors.cost_base,
         floor_min=cost_floors.floor_digi_8,
         payout_rate=0.92,
-        profit_target=FALLBACK_PROFIT,
+        profit_target=FALLBACK_PROFIT + extra_personal_comm_digi,
     )
     profit = round((final_fallback_p * 0.92) - cost_floors.cost_base)
     return PlatformPricingResult(

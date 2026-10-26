@@ -77,6 +77,39 @@ def parse_args() -> argparse.Namespace:
             "AlfaMall & DigiMall (CSV + XLSX in data/outputs/range/), no final prices"
         ),
     )
+    parser.add_argument(
+        "-p",
+        "--platform",
+        type=str.lower,
+        choices=["all", "alfa", "digi"],
+        default="all",
+        help="Target platform: 'all' (default), 'alfa' (AlfaMall only), or 'digi' (DigiMall only)",
+    )
+    parser.add_argument(
+        "--alfa-only",
+        action="store_true",
+        help="Run repricing only for AlfaMall (alias for --platform alfa)",
+    )
+    parser.add_argument(
+        "--digi-only",
+        action="store_true",
+        help="Run repricing only for DigiMall (alias for --platform digi)",
+    )
+    parser.add_argument(
+        "-m",
+        "--personal-comm",
+        dest="personal_comm",
+        type=float,
+        default=0.0,
+        help="Personal commission percentage on Net Price (e.g. 5 for 5%% + Rs. 500 Floor + Winners export)",
+    )
+    parser.add_argument(
+        "--5pct",
+        "--my-5pct",
+        dest="five_pct",
+        action="store_true",
+        help="Shortcut for --personal-comm 5.0 (5%% Personal Commission + Rs. 500 Floor + Winning Products export)",
+    )
     return parser.parse_args()
 
 
@@ -132,18 +165,22 @@ def interactive_catalog_picker(catalogs: list[Path]) -> list[Path] | None:
 
 
 def prompt_run_mode() -> str | None:
-    """Ask which mode to run. Returns 'reprice', 'range', or None to quit."""
+    """Ask which mode to run. Returns 'reprice', 'range', 'reprice_5pct', or None to quit."""
     table = Table(show_header=False, box=None)
     table.add_column(style="bold yellow", width=6)
     table.add_column(style="green")
-    table.add_row("[1]", "Full Repricing (final winning prices)")
+    table.add_row("[1]", "Full Repricing (Standard +Rs. 500 Floor)")
     table.add_row("[2]", "Market Range Only (Min/Max per mall, Brand+Name list)")
+    table.add_row(
+        "[3]",
+        "5% Personal Commission + Winning Products Finder (5% Net Price + Rs. 500 Floor)",
+    )
     table.add_row("[Q]", "Quit")
     console.print(
         Panel(table, title="[bold cyan]Select Mode[/bold cyan]", border_style="cyan", expand=False)
     )
     try:
-        choice = input("Select mode [1/2, Q] (default 1): ").strip().lower()
+        choice = input("Select mode [1/2/3, Q] (default 1): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         console.print("\n[yellow]Operation cancelled.[/yellow]")
         return None
@@ -151,6 +188,8 @@ def prompt_run_mode() -> str | None:
         return None
     if choice in ("2", "r", "range"):
         return "range"
+    if choice in ("3", "5", "5%", "5pct", "comm"):
+        return "reprice_5pct"
     return "reprice"
 
 
@@ -161,12 +200,16 @@ async def main() -> int:
     output_path: Path | None = args.output
     target_catalogs: list[Path] = []
     range_mode: bool = args.range_only
+    personal_comm_pct: float = 5.0 if args.five_pct else float(args.personal_comm or 0.0)
 
-    if not range_mode and sys.stdin.isatty():
+    if not range_mode and personal_comm_pct <= 0 and sys.stdin.isatty():
         chosen_mode = prompt_run_mode()
         if chosen_mode is None:
             return 0
-        range_mode = chosen_mode == "range"
+        if chosen_mode == "range":
+            range_mode = True
+        elif chosen_mode == "reprice_5pct":
+            personal_comm_pct = 5.0
     if range_mode and output_path is not None:
         console.print(
             "[yellow]ℹ️  -o/--output is ignored in range mode; "
@@ -224,6 +267,12 @@ async def main() -> int:
                 target_catalogs = [catalogs[0]]
 
     had_errors = False
+    target_platform = args.platform
+    if args.alfa_only:
+        target_platform = "alfa"
+    elif args.digi_only:
+        target_platform = "digi"
+
     for cat in target_catalogs:
         try:
             if range_mode:
@@ -231,15 +280,21 @@ async def main() -> int:
                     input_path=cat,
                     concurrency=args.concurrency,
                     verbose=not args.quiet,
+                    platform=target_platform,
                 )
                 continue
             effective_out = output_path if len(target_catalogs) == 1 else None
+            extra_pipe_kwargs: dict[str, float] = {}
+            if personal_comm_pct > 0:
+                extra_pipe_kwargs["personal_comm_pct"] = personal_comm_pct
             await run_pipeline(
                 input_path=cat,
                 output_path=effective_out,
                 concurrency=args.concurrency,
                 verbose=not args.quiet,
                 use_structured_export=(effective_out is None),
+                platform=target_platform,
+                **extra_pipe_kwargs,
             )
         except Exception as exc:
             console.print(

@@ -203,7 +203,21 @@ python index.py -a
 python index.py -i data/inputs/Gree_AC.csv
 ```
 
-#### Option D: Background / Cron Mode (Legacy)
+#### Option D: Run for AlfaMall Only (or DigiMall Only)
+Skip DigiMall scraping to run faster and reprice exclusively for AlfaMall:
+```bash
+python index.py -i data/inputs/Gree_AC.csv --alfa-only
+# or
+python index.py -i data/inputs/Gree_AC.csv -p alfa
+```
+To run for DigiMall only:
+```bash
+python index.py -i data/inputs/Gree_AC.csv --digi-only
+# or
+python index.py -i data/inputs/Gree_AC.csv -p digi
+```
+
+#### Option E: Background / Cron Mode (Legacy)
 ```bash
 python index.py -i input.csv -o output.csv --concurrency 5 --quiet
 ```

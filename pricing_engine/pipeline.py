@@ -15,13 +15,15 @@ from rich.table import Table
 from pricing_engine.calculator import (
     calculate_baseline,
     calculate_cost_base,
+    calculate_effective_target_profit,
     calculate_floors,
     calculate_shipping_estimate,
     calculate_volumetric_weight,
+    split_real_profit,
 )
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
-from pricing_engine.exporter import export_results
+from pricing_engine.exporter import export_results, export_winning_5pct_results
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
@@ -84,22 +86,47 @@ def format_export_price(val: Any) -> str:
         return ""
 
 
-def determine_risk_alert(res: PlatformPricingResult) -> str:
+def create_skipped_platform_result(platform_name: str) -> PlatformPricingResult:
+    """Create an empty PlatformPricingResult representing an unselected/skipped platform.
+
+    Args:
+        platform_name: Name of the skipped platform (e.g. 'AlfaMall', 'DigiMall').
+
+    Returns:
+        PlatformPricingResult with status 'SKIPPED', None prices/profit, and empty commission.
+    """
+    return PlatformPricingResult(
+        min_price=None,
+        max_price=None,
+        final_price=None,
+        real_profit=None,
+        status="SKIPPED",
+        reason=f"{platform_name} repricing skipped",
+        dropped=[],
+        active_pool=[],
+        effective_comm="",
+    )
+
+
+def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> str:
     """Determine standardized commercial risk alert code following priority hierarchy.
 
     Priority hierarchy:
-    1. SERVER_DOWN: Connection failed, portal down, or final price/profit missing.
-    2. NEGATIVE_MARGIN: Defensive check in case profit is zero or negative.
-    3. SAFE_FALLBACK: Competitors are dumping below floor, price is uncompetitive.
-    4. THIN_BUFFER: Profit is between Rs. 1 and Rs. 699 (courier re-weighing risk).
-    5. NONE: Healthy optimal margin (profit >= Rs. 700).
+    1. SKIPPED: Platform was skipped via CLI filter (empty alert).
+    2. SERVER_DOWN: Connection failed, portal down, or final price/profit missing.
+    3. NEGATIVE_MARGIN: Defensive check in case profit is zero or negative.
+    4. SAFE_FALLBACK: Competitors are dumping below floor, price is uncompetitive.
+    5. THIN_BUFFER: Profit is between Rs. 1 and Rs. 699 (courier re-weighing risk).
+    6. NONE: Healthy optimal margin (profit >= Rs. 700).
 
     Args:
         res: PlatformPricingResult from platform evaluation.
 
     Returns:
-        One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE'.
+        One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE', or '' if skipped.
     """
+    if res.status == "SKIPPED":
+        return ""
     if (
         res.status == STATUS_SERVER_DOWN
         or res.final_price is None
@@ -110,7 +137,7 @@ def determine_risk_alert(res: PlatformPricingResult) -> str:
         return "NEGATIVE_MARGIN"
     if res.status == "Safe Fallback":
         return "SAFE_FALLBACK"
-    if res.real_profit < 700:
+    if (res.real_profit - personal_comm) < 700:
         return "THIN_BUFFER"
     return "NONE"
 
@@ -248,6 +275,38 @@ def determine_platform_status(
     return ""
 
 
+def determine_5pct_goal_status(
+    status_badge: str,
+    real_profit: int | None,
+    target_profit_5pct: int,
+    active_sellers: int,
+    is_skipped: bool = False,
+) -> str:
+    """Determine whether a product achieves WIN + Full 5% Personal Commission + Rs. 500 Company Profit.
+
+    Strict Goal Condition:
+    1. Active sellers exist in market (active_sellers > 0 -> proven market demand).
+    2. Status badge starts with 'WIN' or 'CAPPED' (our price beats the lowest market competitor).
+    3. Real profit covers both 5% personal commission on Net Price AND Rs. 500 company profit.
+    """
+    if is_skipped:
+        return ""
+    if status_badge == "SERVER_DOWN":
+        return "SERVER_DOWN"
+    if (
+        active_sellers > 0
+        and (status_badge.startswith("WIN") or status_badge.startswith("CAPPED"))
+        and real_profit is not None
+        and real_profit >= target_profit_5pct
+    ):
+        return "WIN + 5% ACHIEVED"
+    if status_badge == "SOLO" and real_profit is not None and real_profit >= target_profit_5pct:
+        return "SOLO (5% COVERED)"
+    if status_badge == "FALLBACK":
+        return "FALLBACK (UNCOMPETITIVE)"
+    return "BELOW 5% FLOOR"
+
+
 def build_output_record(
     product: ProductInput,
     shipping: float,
@@ -255,6 +314,7 @@ def build_output_record(
     baseline_calc: float,
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
+    personal_comm_pct: float = 0.0,
 ) -> dict[str, Any]:
     """Combine input row data and calculated platform results into final output dictionary.
 
@@ -265,6 +325,7 @@ def build_output_record(
         baseline_calc: Standard baseline catalog price.
         alfa_res: PlatformPricingResult for AlfaMall.
         digi_res: PlatformPricingResult for DigiMall.
+        personal_comm_pct: Optional personal commission percentage on Net Price (e.g. 5.0).
 
     Returns:
         Dictionary adhering to the target CSV schema.
@@ -280,37 +341,88 @@ def build_output_record(
 
     out_record["Shipping Estimate"] = shipping
     out_record["Commision"] = "10.00%"
-    out_record["Digi Effective Commision"] = digi_res.effective_comm
+    out_record["Digi Effective Commision"] = (
+        digi_res.effective_comm if digi_res.status != "SKIPPED" else ""
+    )
 
     # Total Without Profit: If Digi uses 8%, record 8% breakeven (cost_base / 0.92)
-    # If 10%, record 10% breakeven (cost_base / 0.90)
-    if digi_res.effective_comm == "8.00%":
+    # If 10% (or Digi skipped), record 10% breakeven (cost_base / 0.90)
+    if digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
         out_record["Total Without Profit"] = round(floors.zero_margin_8)
     else:
         out_record["Total Without Profit"] = round(floors.zero_margin_10)
 
     out_record["Calculation"] = round(baseline_calc)
 
-    out_record["Minimum Price Alfa"] = alfa_res.min_price
-    out_record["Maximum Price Alfa"] = alfa_res.max_price
-    out_record["Minimum Price Digi"] = digi_res.min_price
-    out_record["Maximum Price Digi"] = digi_res.max_price
+    out_record["Minimum Price Alfa"] = alfa_res.min_price if alfa_res.status != "SKIPPED" else None
+    out_record["Maximum Price Alfa"] = alfa_res.max_price if alfa_res.status != "SKIPPED" else None
+    out_record["Minimum Price Digi"] = digi_res.min_price if digi_res.status != "SKIPPED" else None
+    out_record["Maximum Price Digi"] = digi_res.max_price if digi_res.status != "SKIPPED" else None
 
-    alfa_alert = determine_risk_alert(alfa_res)
-    digi_alert = determine_risk_alert(digi_res)
+    alfa_priced = (alfa_res.status != "SKIPPED" and alfa_res.final_price is not None)
+    digi_priced = (digi_res.status != "SKIPPED" and digi_res.final_price is not None)
 
-    out_record["Final Price Alfa"] = alfa_res.final_price
-    out_record["Alfa Status"] = determine_platform_status(
-        alfa_res.final_price, alfa_res.min_price, alfa_res.reason, alfa_alert
+    alfa_my_comm, alfa_co_profit = split_real_profit(
+        alfa_res.real_profit if alfa_priced else None, personal_comm_pct
     )
-    out_record["Final Price Digi"] = digi_res.final_price
-    out_record["Digi Status"] = determine_platform_status(
-        digi_res.final_price, digi_res.min_price, digi_res.reason, digi_alert
+    digi_my_comm, digi_co_profit = split_real_profit(
+        digi_res.real_profit if digi_priced else None, personal_comm_pct
     )
-    out_record["Alfa Real Profit"] = alfa_res.real_profit
-    out_record["Digi Real Profit"] = digi_res.real_profit
-    out_record["Alfa Reason"] = alfa_res.reason
-    out_record["Digi Reason"] = digi_res.reason
+    alfa_alert = determine_risk_alert(alfa_res, personal_comm=alfa_my_comm)
+    digi_alert = determine_risk_alert(digi_res, personal_comm=digi_my_comm)
+
+
+    alfa_status = (
+        determine_platform_status(
+            alfa_res.final_price, alfa_res.min_price, alfa_res.reason, alfa_alert
+        )
+        if alfa_res.status != "SKIPPED"
+        else ""
+    )
+    digi_status = (
+        determine_platform_status(
+            digi_res.final_price, digi_res.min_price, digi_res.reason, digi_alert
+        )
+        if digi_res.status != "SKIPPED"
+        else ""
+    )
+
+    out_record["Final Price Alfa"] = alfa_res.final_price if alfa_res.status != "SKIPPED" else None
+    out_record["Alfa Status"] = alfa_status
+    out_record["Final Price Digi"] = digi_res.final_price if digi_res.status != "SKIPPED" else None
+    out_record["Digi Status"] = digi_status
+    out_record["Alfa Real Profit"] = alfa_res.real_profit if alfa_res.status != "SKIPPED" else None
+    out_record["Digi Real Profit"] = digi_res.real_profit if digi_res.status != "SKIPPED" else None
+    out_record["Alfa Reason"] = alfa_res.reason if alfa_res.status != "SKIPPED" else ""
+    out_record["Digi Reason"] = digi_res.reason if digi_res.status != "SKIPPED" else ""
+
+    if personal_comm_pct > 0:
+        min_target_profit = calculate_effective_target_profit(personal_comm_pct=personal_comm_pct)
+        alfa_sellers = len(alfa_res.active_pool) + len(alfa_res.dropped)
+        digi_sellers = len(digi_res.active_pool) + len(digi_res.dropped)
+
+        my_comm = max(alfa_my_comm, digi_my_comm)
+        out_record["My 5% Commission"] = my_comm
+        out_record["Min Profit Target (5% + 500)"] = min_target_profit
+        out_record["Alfa Active Sellers"] = alfa_sellers if alfa_res.status != "SKIPPED" else None
+        out_record["Digi Active Sellers"] = digi_sellers if digi_res.status != "SKIPPED" else None
+        out_record["Alfa Company Profit"] = alfa_co_profit
+        out_record["Digi Company Profit"] = digi_co_profit
+        out_record["Alfa 5% Goal"] = determine_5pct_goal_status(
+            alfa_status,
+            alfa_res.real_profit,
+            min_target_profit,
+            alfa_sellers,
+            is_skipped=(alfa_res.status == "SKIPPED"),
+        )
+        out_record["Digi 5% Goal"] = determine_5pct_goal_status(
+            digi_status,
+            digi_res.real_profit,
+            min_target_profit,
+            digi_sellers,
+            is_skipped=(digi_res.status == "SKIPPED"),
+        )
+
     out_record["Alfa Risk Alert"] = alfa_alert
     out_record["Digi Risk Alert"] = digi_alert
 
@@ -321,6 +433,7 @@ def process_product_with_offers(
     product: ProductInput,
     alfa_offers: list[ScrapedOffer] | ScrapeResult,
     digi_offers: list[ScrapedOffer] | ScrapeResult,
+    personal_comm_pct: float = 0.0,
 ) -> dict[str, Any]:
     """Execute complete cost math and pricing decisions given fetched competitor offers.
 
@@ -328,6 +441,7 @@ def process_product_with_offers(
         product: ProductInput instance.
         alfa_offers: Offers scraped from AlfaMall (or ScrapeResult).
         digi_offers: Offers scraped from DigiMall (or ScrapeResult).
+        personal_comm_pct: Optional personal commission percentage on Net Price (e.g. 5.0).
 
     Returns:
         Repriced output dictionary.
@@ -335,8 +449,14 @@ def process_product_with_offers(
     shipping = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
-    floors = calculate_floors(cost_base, min_profit=500.0)
-    baseline_calc = calculate_baseline(cost_base, target_profit=product.profit)
+    floors = calculate_floors(
+        cost_base,
+        min_profit=500.0,
+        net_price=product.net_price,
+        personal_comm_pct=personal_comm_pct,
+    )
+    effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
+    baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
 
     alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
     digi_res = evaluate_digi_pricing(floors, digi_offers)
@@ -348,6 +468,7 @@ def process_product_with_offers(
         baseline_calc=baseline_calc,
         alfa_res=alfa_res,
         digi_res=digi_res,
+        personal_comm_pct=personal_comm_pct,
     )
 
 
@@ -356,6 +477,8 @@ def render_start_banner(
     output_path: Path,
     total_items: int,
     concurrency: int,
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
 ) -> None:
     """Render executive startup banner with operational parameters."""
     grid = Table.grid(padding=(0, 2))
@@ -364,9 +487,29 @@ def render_start_banner(
     grid.add_row("Source Catalog:", f"{input_path.name} ({total_items} items loaded)")
     grid.add_row("Output Target:", f"{output_path.name}")
     grid.add_row("Scraper Workers:", f"Direct JSON Search APIs ({concurrency} concurrent workers)")
-    grid.add_row(
-        "Pricing Strategy:", "AlfaMall 10% Floor | DigiMall Two-Tier (10% -> 8% Bank Switch)"
+    plat_lower = platform.lower().strip()
+    floor_desc = (
+        f" (+{personal_comm_pct:g}% Personal Comm on Real Profit + Rs. 500 Company Floor)"
+        if personal_comm_pct > 0
+        else " (+Rs. 500 guarantee)"
     )
+    if plat_lower == "alfa":
+        grid.add_row("Target Platform:", "[bold #2c4699]AlfaMall Only[/]")
+        grid.add_row("Pricing Strategy:", f"AlfaMall 10% Floor{floor_desc}")
+    elif plat_lower == "digi":
+        grid.add_row("Target Platform:", "[bold #229693]DigiMall Only[/]")
+        grid.add_row("Pricing Strategy:", f"DigiMall Two-Tier (10% -> 8% Bank Switch){floor_desc}")
+    else:
+        grid.add_row("Target Platform:", "[bold]AlfaMall & DigiMall[/]")
+        grid.add_row(
+            "Pricing Strategy:",
+            f"AlfaMall 10% Floor | DigiMall Two-Tier (10% -> 8% Bank Switch){floor_desc}",
+        )
+    if personal_comm_pct > 0:
+        grid.add_row(
+            "Personal Earning:",
+            f"[bold yellow]{personal_comm_pct:g}% of Real Net Profit[/] + [bold green]Rs. 500 Company Profit[/] + [bold cyan]Winners Export[/]",
+        )
 
     console.print()
     console.print(
@@ -387,6 +530,9 @@ def render_finish_banner(
     total_processed: int,
     elapsed_seconds: float,
     xlsx_path: Path | None = None,
+    winners_csv_path: Path | None = None,
+    winners_xlsx_path: Path | None = None,
+    winners_count: int = 0,
 ) -> None:
     """Render clean executive completion banner."""
     grid = Table.grid(padding=(0, 2))
@@ -397,6 +543,13 @@ def render_finish_banner(
     grid.add_row("Portal Upload CSV:", f"[bold white]{output_path.resolve()}[/]")
     if xlsx_path:
         grid.add_row("Dynamic Excel (.xlsx):", f"[bold green]{xlsx_path.resolve()}[/]")
+    if winners_csv_path:
+        grid.add_row(
+            "5% Winners CSV:",
+            f"[bold yellow]{winners_csv_path.resolve()}[/] ({winners_count} winning items)",
+        )
+    if winners_xlsx_path:
+        grid.add_row("5% Winners Excel:", f"[bold yellow]{winners_xlsx_path.resolve()}[/]")
     grid.add_row("Elapsed Time:", f"{elapsed_seconds:.2f} seconds")
 
     console.print()
@@ -573,29 +726,31 @@ def build_scraped_sellers_table(
     tbl.add_column("Status", ratio=1)
 
     # 1. AlfaMall Scraped Competitors
-    _render_platform_offers_to_table(
-        tbl=tbl,
-        platform_tag="[bold #2c4699]AlfaMall[/]",
-        offers=alfa_offers,
-        res=alfa_res,
-        floor_price=floors.floor_alfa,
-        floor_label=f"Floor Rs. {floors.floor_alfa:,.0f}",
-        empty_label="[bold cyan]Monopoly Pricing (+Rs. 4,000 margin)[/]",
-        target_undercut_label="[bold green]Target Undercut (Lowest Viable)[/]",
-    )
+    if alfa_res.status != "SKIPPED":
+        _render_platform_offers_to_table(
+            tbl=tbl,
+            platform_tag="[bold #2c4699]AlfaMall[/]",
+            offers=alfa_offers,
+            res=alfa_res,
+            floor_price=floors.floor_alfa,
+            floor_label=f"Floor Rs. {floors.floor_alfa:,.0f}",
+            empty_label="[bold cyan]Monopoly Pricing (+Rs. 4,000 margin)[/]",
+            target_undercut_label="[bold green]Target Undercut (Lowest Viable)[/]",
+        )
 
     # 2. DigiMall Scraped Competitors
-    digi_comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
-    _render_platform_offers_to_table(
-        tbl=tbl,
-        platform_tag="[bold #229693]DigiMall[/]",
-        offers=digi_offers,
-        res=digi_res,
-        floor_price=floors.floor_digi_8,
-        floor_label=f"8% Floor Rs. {floors.floor_digi_8:,.0f}",
-        empty_label="[bold cyan]Baseline Undercut (+2% margin)[/]",
-        target_undercut_label=f"[bold green]Target Undercut ({digi_comm_note})[/]",
-    )
+    if digi_res.status != "SKIPPED":
+        digi_comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
+        _render_platform_offers_to_table(
+            tbl=tbl,
+            platform_tag="[bold #229693]DigiMall[/]",
+            offers=digi_offers,
+            res=digi_res,
+            floor_price=floors.floor_digi_8,
+            floor_label=f"8% Floor Rs. {floors.floor_digi_8:,.0f}",
+            empty_label="[bold cyan]Baseline Undercut (+2% margin)[/]",
+            target_undercut_label=f"[bold green]Target Undercut ({digi_comm_note})[/]",
+        )
 
     return tbl
 
@@ -610,6 +765,7 @@ def render_audit_card(
     digi_offers: list[ScrapedOffer] | ScrapeResult,
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
+    personal_comm_pct: float = 0.0,
 ) -> None:
     """Print a polished, executive-grade audit card enclosed in a rounded box."""
     tot_10 = round(floors.zero_margin_10)
@@ -632,7 +788,11 @@ def render_audit_card(
     specs.add_row(
         "Courier Shipping:",
         f"Rs. {shipping:,.2f}",
-        "[bold #2c4699]Alfa 10% Floor (+500):[/]",
+        (
+            f"[bold #2c4699]Alfa 10% Floor (+{floors.personal_comm:,} Comm + 500):[/]"
+            if floors.personal_comm > 0
+            else "[bold #2c4699]Alfa 10% Floor (+500):[/]"
+        ),
         f"[bold #2c4699]Rs. {floors.floor_alfa:,.0f}[/]",
     )
     specs.add_row(
@@ -644,7 +804,11 @@ def render_audit_card(
     specs.add_row(
         "Dimensions:",
         dim_str,
-        "[bold #229693]Digi 8% Floor (+500):[/]",
+        (
+            f"[bold #229693]Digi 8% Floor (+{floors.personal_comm:,} Comm + 500):[/]"
+            if floors.personal_comm > 0
+            else "[bold #229693]Digi 8% Floor (+500):[/]"
+        ),
         f"[bold #229693]Rs. {floors.floor_digi_8:,.0f}[/]",
     )
 
@@ -677,7 +841,9 @@ def render_audit_card(
         isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
     )
 
-    if is_alfa_down:
+    if alfa_res.status == "SKIPPED":
+        alfa_offers_str = "[dim]Skipped[/]"
+    elif is_alfa_down:
         alfa_offers_str = "[bold red]Connection Failed (Down)[/]"
     else:
         alfa_active_count = len([o for o in alfa_offers if not o.is_sold_out])
@@ -686,7 +852,9 @@ def render_audit_card(
         if alfa_drop_count > 0:
             alfa_offers_str += f" ({alfa_drop_count} dropped)"
 
-    if is_digi_down:
+    if digi_res.status == "SKIPPED":
+        digi_offers_str = "[dim]Skipped[/]"
+    elif is_digi_down:
         digi_offers_str = "[bold red]Connection Failed (Down)[/]"
     else:
         digi_active_count = len([o for o in digi_offers if not o.is_sold_out])
@@ -698,14 +866,19 @@ def render_audit_card(
     plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
 
     # Commission tier applied
-    if digi_res.effective_comm == "8.00%":
+    if digi_res.status == "SKIPPED":
+        digi_comm_badge = "[dim]N/A (Skipped)[/]"
+    elif digi_res.effective_comm == "8.00%":
         digi_comm_badge = "[bold blue]8.00% Emergency Switch[/]"
     else:
         digi_comm_badge = "[#229693]8% + 2% Spread[/]"
-    plat_tbl.add_row("Bank Commission", "10.00% Standard", digi_comm_badge)
+    alfa_comm_badge = "10.00% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
+    plat_tbl.add_row("Bank Commission", alfa_comm_badge, digi_comm_badge)
 
     # Final Price
-    if alfa_res.status == STATUS_SERVER_DOWN:
+    if alfa_res.status == "SKIPPED":
+        alfa_p_str = "[dim]Skipped[/]"
+    elif alfa_res.status == STATUS_SERVER_DOWN:
         alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif alfa_res.final_price is not None:
         if alfa_res.status == "Safe Fallback":
@@ -719,7 +892,9 @@ def render_audit_card(
     else:
         alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
-    if digi_res.status == STATUS_SERVER_DOWN:
+    if digi_res.status == "SKIPPED":
+        digi_p_str = "[dim]Skipped[/]"
+    elif digi_res.status == STATUS_SERVER_DOWN:
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif digi_res.final_price is not None:
         if digi_res.status == "Safe Fallback":
@@ -736,35 +911,59 @@ def render_audit_card(
     plat_tbl.add_row("Final Price", alfa_p_str, digi_p_str)
 
     # Real Profit
-    if alfa_res.status == STATUS_SERVER_DOWN:
+    if alfa_res.status == "SKIPPED":
+        alfa_prof_str = "[dim]-[/]"
+    elif alfa_res.status == STATUS_SERVER_DOWN:
         alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif alfa_res.final_price is not None:
-        if alfa_res.real_profit <= 0:
+        if alfa_res.real_profit is not None and alfa_res.real_profit <= 0:
             alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif alfa_res.real_profit < 700:
+        elif alfa_res.real_profit is not None and alfa_res.real_profit < 700:
             alfa_prof_str = (
                 f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
             )
-        else:
+        elif alfa_res.real_profit is not None:
             alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
+        else:
+            alfa_prof_str = "[dim]Rs. 0[/]"
     else:
         alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
-    if digi_res.status == STATUS_SERVER_DOWN:
+    if digi_res.status == "SKIPPED":
+        digi_prof_str = "[dim]-[/]"
+    elif digi_res.status == STATUS_SERVER_DOWN:
         digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
     elif digi_res.final_price is not None:
-        if digi_res.real_profit <= 0:
+        if digi_res.real_profit is not None and digi_res.real_profit <= 0:
             digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif digi_res.real_profit < 700:
+        elif digi_res.real_profit is not None and digi_res.real_profit < 700:
             digi_prof_str = (
                 f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
             )
-        else:
+        elif digi_res.real_profit is not None:
             digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
+        else:
+            digi_prof_str = "[dim]Rs. 0[/]"
     else:
         digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
     plat_tbl.add_row("Real Net Profit", alfa_prof_str, digi_prof_str)
+    if floors.personal_comm > 0:
+        a_priced = alfa_res.status != "SKIPPED" and alfa_res.final_price is not None
+        d_priced = digi_res.status != "SKIPPED" and digi_res.final_price is not None
+        a_comm, a_co = split_real_profit(alfa_res.real_profit if a_priced else None, personal_comm_pct)
+        d_comm, d_co = split_real_profit(digi_res.real_profit if d_priced else None, personal_comm_pct)
+        alfa_split_str = (
+            f"[bold yellow]My Comm: +Rs. {a_comm:,}[/] | [bold green]Company: +Rs. {a_co:,}[/]"
+            if a_co is not None and alfa_res.real_profit is not None and alfa_res.real_profit > 0
+            else "[dim]-[/]"
+        )
+        digi_split_str = (
+            f"[bold yellow]My Comm: +Rs. {d_comm:,}[/] | [bold green]Company: +Rs. {d_co:,}[/]"
+            if d_co is not None and digi_res.real_profit is not None and digi_res.real_profit > 0
+            else "[dim]-[/]"
+        )
+        plat_tbl.add_row("Profit Split", alfa_split_str, digi_split_str)
     plat_tbl.add_row("Strategy Reason", alfa_res.reason, digi_res.reason)
 
     # 1b. Search Query & Waterfall Fallback Telemetry
@@ -870,18 +1069,33 @@ async def process_item_async(
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock | None = None,
     verbose: bool = True,
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
+    plat = platform.lower().strip()
+    if plat not in ("all", "alfa", "digi"):
+        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
     shipping = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
-    floors = calculate_floors(cost_base, min_profit=500.0)
-    baseline_calc = calculate_baseline(cost_base, target_profit=product.profit)
+    floors = calculate_floors(
+        cost_base,
+        min_profit=500.0,
+        net_price=product.net_price,
+        personal_comm_pct=personal_comm_pct,
+    )
+    effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
+    baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
 
-    async with semaphore:
+    alfa_task = None
+    digi_task = None
+
+    if plat in ("all", "alfa"):
         alfa_task = scrape_alfamall(
             session,
             patterns,
@@ -890,6 +1104,7 @@ async def process_item_async(
             brand=product.brand,
             target_desc=product.name,
         )
+    if plat in ("all", "digi"):
         digi_task = scrape_digimall(
             session,
             patterns,
@@ -898,10 +1113,29 @@ async def process_item_async(
             brand=product.brand,
             target_desc=product.name,
         )
-        alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
 
-    alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
-    digi_res = evaluate_digi_pricing(floors, digi_offers)
+    async with semaphore:
+        if alfa_task and digi_task:
+            alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
+        elif alfa_task:
+            alfa_offers = await alfa_task
+            digi_offers = []
+        elif digi_task:
+            alfa_offers = []
+            digi_offers = await digi_task
+        else:
+            alfa_offers = []
+            digi_offers = []
+
+    if plat in ("all", "alfa"):
+        alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
+    else:
+        alfa_res = create_skipped_platform_result("AlfaMall")
+
+    if plat in ("all", "digi"):
+        digi_res = evaluate_digi_pricing(floors, digi_offers)
+    else:
+        digi_res = create_skipped_platform_result("DigiMall")
 
     # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
     target_slots = extract_product_slots(product.name, brand=product.brand)
@@ -952,6 +1186,7 @@ async def process_item_async(
                     digi_offers=digi_offers,
                     alfa_res=alfa_res,
                     digi_res=digi_res,
+                    personal_comm_pct=personal_comm_pct,
                 )
         else:
             render_audit_card(
@@ -964,6 +1199,7 @@ async def process_item_async(
                 digi_offers=digi_offers,
                 alfa_res=alfa_res,
                 digi_res=digi_res,
+                personal_comm_pct=personal_comm_pct,
             )
 
     return build_output_record(
@@ -973,6 +1209,7 @@ async def process_item_async(
         baseline_calc=baseline_calc,
         alfa_res=alfa_res,
         digi_res=digi_res,
+        personal_comm_pct=personal_comm_pct,
     )
 
 
@@ -983,14 +1220,23 @@ async def _process_item_worker(
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock,
     verbose: bool = True,
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
 ) -> dict[str, Any]:
     """Helper worker to execute an item and attach its original row index for deterministic sorting."""
+    extra_kwargs: dict[str, Any] = {}
+    if platform != "all":
+        extra_kwargs["platform"] = platform
+    if personal_comm_pct > 0:
+        extra_kwargs["personal_comm_pct"] = personal_comm_pct
+
     record = await process_item_async(
         product=product,
         session=session,
         semaphore=semaphore,
         render_lock=render_lock,
         verbose=verbose,
+        **extra_kwargs,
     )
     record["_original_idx"] = idx
     return record
@@ -1150,6 +1396,121 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
     console.print()
 
 
+def render_winning_5pct_summary(
+    records: list[dict[str, Any]],
+    personal_comm_pct: float = 5.0,
+) -> None:
+    """Render a dedicated executive summary table of high-demand Winning + 5% Commission products."""
+    winners = [
+        r
+        for r in records
+        if r.get("Alfa 5% Goal") == "WIN + 5% ACHIEVED"
+        or r.get("Digi 5% Goal") == "WIN + 5% ACHIEVED"
+    ]
+
+    if not winners:
+        console.print(
+            Panel(
+                f"[bold yellow]No products achieved WIN + Full {personal_comm_pct:g}% Personal Commission + Rs. 500 Company Profit against active market competitors.[/]",
+                title=f"[bold yellow]🏆 {personal_comm_pct:g}% PERSONAL COMMISSION WINNERS (0 / {len(records)} ITEMS)[/]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        console.print()
+        return
+
+    # Sort by total active sellers descending, then personal commission descending
+    def _sort_key(r: dict[str, Any]) -> tuple[int, int]:
+        a_s = int(_safe_float(r.get("Alfa Active Sellers"), 0))
+        d_s = int(_safe_float(r.get("Digi Active Sellers"), 0))
+        c_v = int(_safe_float(r.get("My 5% Commission"), 0))
+        return (a_s + d_s, c_v)
+
+    sorted_winners = sorted(winners, key=_sort_key, reverse=True)
+
+    table = Table(
+        title=(
+            f"[bold green]🏆 HIGH-DEMAND WINNING + {personal_comm_pct:g}% PERSONAL COMMISSION PRODUCTS "
+            f"({len(winners)} / {len(records)} ITEMS)[/]"
+        ),
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        padding=(0, 1),
+        expand=False,
+    )
+    table.add_column("S#", justify="right", style="bold yellow")
+    table.add_column("Brand", style="cyan", no_wrap=True)
+    table.add_column("Model / Product", style="bold white", no_wrap=True)
+    table.add_column("Net Price", justify="right", style="dim")
+    table.add_column(f"My {personal_comm_pct:g}% Comm", justify="right", style="bold yellow")
+    table.add_column("Alfa Win (Demand)", justify="right", no_wrap=True)
+    table.add_column("Alfa Co. Net", justify="right", style="green")
+    table.add_column("Digi Win (Demand)", justify="right", no_wrap=True)
+    table.add_column("Digi Co. Net", justify="right", style="green")
+
+    total_my_comm = 0
+    alfa_win_count = 0
+    digi_win_count = 0
+
+    for rec in sorted_winners:
+        sno = str(rec.get("S.NO", ""))
+        brand = str(rec.get("Brand", ""))[:10]
+        name = str(rec.get("Name ", rec.get("Name", "Product")))
+        if len(name) > 22:
+            name = name[:20] + ".."
+
+        net_p = int(_safe_float(rec.get("Net Price"), 0))
+        my_comm = int(_safe_float(rec.get("My 5% Commission"), 0))
+        total_my_comm += my_comm
+
+        alfa_goal = str(rec.get("Alfa 5% Goal", ""))
+        alfa_sellers = int(_safe_float(rec.get("Alfa Active Sellers"), 0))
+        if alfa_goal == "WIN + 5% ACHIEVED":
+            alfa_win_count += 1
+            ap = int(_safe_float(rec.get("Final Price Alfa"), 0))
+            aco = int(_safe_float(rec.get("Alfa Company Profit"), 0))
+            alfa_cell = f"[bold green]{ap:,}[/] [dim]({alfa_sellers} sellers)[/]"
+            alfa_co_cell = f"[bold green]+{aco:,}[/]"
+        else:
+            alfa_cell = f"[dim]- ({alfa_sellers} sellers)[/]"
+            alfa_co_cell = "[dim]-[/]"
+
+        digi_goal = str(rec.get("Digi 5% Goal", ""))
+        digi_sellers = int(_safe_float(rec.get("Digi Active Sellers"), 0))
+        if digi_goal == "WIN + 5% ACHIEVED":
+            digi_win_count += 1
+            dp = int(_safe_float(rec.get("Final Price Digi"), 0))
+            dco = int(_safe_float(rec.get("Digi Company Profit"), 0))
+            digi_cell = f"[bold green]{dp:,}[/] [dim]({digi_sellers} sellers)[/]"
+            digi_co_cell = f"[bold green]+{dco:,}[/]"
+        else:
+            digi_cell = f"[dim]- ({digi_sellers} sellers)[/]"
+            digi_co_cell = "[dim]-[/]"
+
+        table.add_row(
+            sno,
+            brand,
+            name,
+            f"{net_p:,}",
+            f"+Rs. {my_comm:,}",
+            alfa_cell,
+            alfa_co_cell,
+            digi_cell,
+            digi_co_cell,
+        )
+
+    console.print()
+    console.print(table)
+    console.print(
+        f"[bold green]💰 EARNINGS SUMMARY:[/] Found [bold yellow]{len(winners)}[/] winning products "
+        f"(AlfaMall Wins: [bold cyan]{alfa_win_count}[/], DigiMall Wins: [bold cyan]{digi_win_count}[/]) | "
+        f"Total {personal_comm_pct:g}% Personal Commission (1 unit each): [bold yellow]Rs. {total_my_comm:,}[/]"
+    )
+    console.print()
+
+
 async def run_pipeline(
     input_path: str | Path,
     output_path: str | Path | None = None,
@@ -1157,6 +1518,8 @@ async def run_pipeline(
     verbose: bool = True,
     use_structured_export: bool = False,
     export_dir: str | Path = "data/outputs",
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Run dynamic repricing pipeline on an input CSV and export results to output CSV.
 
@@ -1166,6 +1529,8 @@ async def run_pipeline(
     - Atomic terminal audit rendering protected by asyncio.Lock.
     - 100% deterministic output row sorting preserving original CSV row sequence.
     - Optional structured export to data/outputs/ with timestamp and latest copy.
+    - Target platform filtering ('all', 'alfa', or 'digi').
+    - Optional personal commission percentage floor (e.g. 5.0% on Net Price + Rs. 500) & Winners export.
 
     Args:
         input_path: Path to the source CSV file.
@@ -1174,10 +1539,16 @@ async def run_pipeline(
         verbose: Print visual terminal audit cards if True.
         use_structured_export: If True or output_path is None, exports structured files.
         export_dir: Directory where structured outputs are saved (default: data/outputs).
+        platform: Target e-commerce platform ('all', 'alfa', or 'digi', default: 'all').
+        personal_comm_pct: Personal commission percentage on Net Price (default: 0.0).
 
     Returns:
         Processed DataFrame with repriced data.
     """
+    plat = platform.lower().strip()
+    if plat not in ("all", "alfa", "digi"):
+        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+
     input_path = Path(input_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found at: {input_path}")
@@ -1207,6 +1578,8 @@ async def run_pipeline(
             output_path=banner_output_path,
             total_items=len(df),
             concurrency=concurrency,
+            platform=plat,
+            personal_comm_pct=personal_comm_pct,
         )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -1224,6 +1597,8 @@ async def run_pipeline(
                     semaphore=semaphore,
                     render_lock=render_lock,
                     verbose=verbose,
+                    platform=plat,
+                    personal_comm_pct=personal_comm_pct,
                 )
             )
             tasks.append(task)
@@ -1253,6 +1628,12 @@ async def run_pipeline(
         "Final Price Digi",
         "Alfa Real Profit",
         "Digi Real Profit",
+        "My 5% Commission",
+        "Min Profit Target (5% + 500)",
+        "Alfa Active Sellers",
+        "Digi Active Sellers",
+        "Alfa Company Profit",
+        "Digi Company Profit",
     ]
     for col in price_int_cols:
         if col in out_df.columns:
@@ -1260,21 +1641,40 @@ async def run_pipeline(
 
     effective_finish_path: Path
     effective_xlsx_path: Path | None = None
+    winners_csv_path: Path | None = None
+    winners_xlsx_path: Path | None = None
+    winners_count: int = 0
+
     if output_path is not None:
         target_out = Path(output_path)
         if target_out.parent and not target_out.parent.exists():
             target_out.parent.mkdir(parents=True, exist_ok=True)
         out_df.to_csv(target_out, index=False)
         effective_finish_path = target_out
+        if personal_comm_pct > 0:
+            winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
+                df=out_df,
+                source_filename=input_path,
+                output_dir=target_out.parent,
+                personal_comm_pct=personal_comm_pct,
+            )
     else:
         manifest = export_results(
             df=out_df,
             source_filename=input_path,
             output_dir=export_dir,
             render_panel=False,
+            personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
         )
         effective_finish_path = manifest.timestamped_path
         effective_xlsx_path = manifest.latest_xlsx_path
+        if personal_comm_pct > 0:
+            winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
+                df=out_df,
+                source_filename=input_path,
+                output_dir=export_dir,
+                personal_comm_pct=personal_comm_pct,
+            )
 
     if supabase_client.is_configured and default_learner.buffer_size > 0:
         flushed_count = await default_learner.flush_observations(supabase_client)
@@ -1285,6 +1685,8 @@ async def run_pipeline(
 
     if verbose and records:
         render_summary_table(records)
+        if personal_comm_pct > 0:
+            render_winning_5pct_summary(records, personal_comm_pct=personal_comm_pct)
 
     elapsed = time.perf_counter() - start_time
     if verbose:
@@ -1293,6 +1695,9 @@ async def run_pipeline(
             total_processed=len(records),
             elapsed_seconds=elapsed,
             xlsx_path=effective_xlsx_path,
+            winners_csv_path=winners_csv_path,
+            winners_xlsx_path=winners_xlsx_path,
+            winners_count=winners_count,
         )
 
     return out_df

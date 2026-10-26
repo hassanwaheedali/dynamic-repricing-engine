@@ -1,5 +1,6 @@
 import math
 
+import config
 from pricing_engine.models import CostFloors
 
 # Standard psychological price endings ordered from highest to lowest margin
@@ -7,7 +8,7 @@ PSYCHOLOGICAL_ENDINGS: tuple[int, ...] = (999, 899, 799, 499, 299, 199, 99)
 
 
 def calculate_volumetric_weight(
-    length: float, width: float, height: float, divisor: float = 5000.0
+    length: float, width: float, height: float, divisor: float | None = None
 ) -> float:
     """Calculate volumetric weight in kilograms.
 
@@ -15,27 +16,31 @@ def calculate_volumetric_weight(
         length: Package length in centimeters.
         width: Package width in centimeters.
         height: Package height in centimeters.
-        divisor: Courier volumetric divisor (default 5000.0).
+        divisor: Courier volumetric divisor (defaults to config.VOLUMETRIC_DIVISOR).
 
     Returns:
         Volumetric weight in kilograms.
     """
-    if divisor <= 0:
+    eff_divisor = config.VOLUMETRIC_DIVISOR if divisor is None else divisor
+    if eff_divisor <= 0:
         raise ValueError("Divisor must be greater than zero.")
-    return (length * width * height) / divisor
+    return (length * width * height) / eff_divisor
 
 
-def calculate_shipping_estimate(volumetric_weight: float, rate_per_kg: float = 70.0) -> float:
+def calculate_shipping_estimate(
+    volumetric_weight: float, rate_per_kg: float | None = None
+) -> float:
     """Calculate courier shipping estimate based on volumetric weight.
 
     Args:
         volumetric_weight: Volumetric weight in KG.
-        rate_per_kg: Courier rate per KG (default 70.0 PKR).
+        rate_per_kg: Courier rate per KG (defaults to config.COURIER_RATE_PER_KG).
 
     Returns:
         Estimated shipping cost rounded to 2 decimal places.
     """
-    return round(volumetric_weight * rate_per_kg, 2)
+    eff_rate = config.COURIER_RATE_PER_KG if rate_per_kg is None else rate_per_kg
+    return round(volumetric_weight * eff_rate, 2)
 
 
 def calculate_cost_base(net_price: float, shipping: float) -> float:
@@ -51,21 +56,153 @@ def calculate_cost_base(net_price: float, shipping: float) -> float:
     return round(net_price + shipping, 2)
 
 
-def calculate_floors(cost_base: float, min_profit: float = 500.0) -> CostFloors:
+def calculate_personal_commission(
+    amount: float, personal_comm_pct: float | None = None
+) -> int:
+    """Calculate personal commission strictly on Real Net Profit.
+
+    Args:
+        amount: Real Net Profit amount in PKR.
+        personal_comm_pct: Personal commission percentage (defaults to config.DEFAULT_PERSONAL_COMM_PCT).
+
+    Returns:
+        Rounded integer personal commission in PKR.
+    """
+    eff_pct = config.DEFAULT_PERSONAL_COMM_PCT if personal_comm_pct is None else personal_comm_pct
+    if amount <= 0 or eff_pct <= 0:
+        return 0
+    return round(amount * (eff_pct / 100.0))
+
+
+def calculate_effective_min_profit(
+    base_min_profit: float | None = None,
+    personal_comm_pct: float = 0.0,
+) -> float:
+    """Calculate the minimum total net profit required so that the company receives at least base_min_profit.
+
+    Formula: base_min_profit / (1.0 - (personal_comm_pct / 100.0))
+    For 5% commission and Rs. 500 company floor: 500 / 0.95 = 526.315... PKR.
+
+    Args:
+        base_min_profit: Minimum company net profit guarantee (defaults to config.COMPANY_MIN_PROFIT_PKR).
+        personal_comm_pct: Personal commission percentage on Real Net Profit.
+
+    Returns:
+        Float effective gross profit target in PKR before rounding.
+    """
+    base = config.COMPANY_MIN_PROFIT_PKR if base_min_profit is None else base_min_profit
+    if personal_comm_pct <= 0:
+        return float(base)
+    rate = personal_comm_pct / 100.0
+    if rate >= 1.0:
+        return float(base)
+    return float(base / (1.0 - rate))
+
+
+def calculate_effective_target_profit(
+    catalog_profit: float | None = None,
+    personal_comm_pct: float = 0.0,
+    base_min_profit: float | None = None,
+) -> int:
+    """Calculate effective target profit for catalog repricing under personal commission.
+
+    Ensures target profit is at least ceil(effective_min_profit) so that the company's
+    net profit after personal commission deduction remains >= base_min_profit.
+
+    Args:
+        catalog_profit: Profit target specified in input catalog (defaults to config.COMPANY_MIN_PROFIT_PKR).
+        personal_comm_pct: Personal commission percentage on Real Net Profit.
+        base_min_profit: Minimum company floor profit (defaults to config.COMPANY_MIN_PROFIT_PKR).
+
+    Returns:
+        Integer target profit in PKR.
+    """
+    base = config.COMPANY_MIN_PROFIT_PKR if base_min_profit is None else base_min_profit
+    eff_min = math.ceil(calculate_effective_min_profit(base, personal_comm_pct))
+    if catalog_profit is None:
+        return eff_min
+    return max(math.ceil(catalog_profit), eff_min)
+
+
+def split_real_profit(
+    real_profit: float | None,
+    personal_comm_pct: float = 0.0,
+) -> tuple[int, int | None]:
+    """Split real net profit into personal commission and company profit.
+
+    Args:
+        real_profit: Total real net profit in PKR (None if unpriced or skipped).
+        personal_comm_pct: Personal commission percentage on real profit.
+
+    Returns:
+        Tuple of (my_commission: int, company_profit: int | None).
+        - If real_profit is None -> (0, None)
+        - If real_profit <= 0 -> (0, round(real_profit))
+        - If real_profit > 0 -> (round(real_profit * (comm_pct / 100)), round(real_profit) - my_commission)
+    """
+    if real_profit is None:
+        return 0, None
+    if real_profit <= 0 or personal_comm_pct <= 0:
+        return 0, round(real_profit)
+    my_comm = round(real_profit * (personal_comm_pct / 100.0))
+    company_profit = round(real_profit) - my_comm
+    return my_comm, company_profit
+
+
+def calculate_floors(
+    cost_base: float,
+    min_profit: float | None = None,
+    net_price: float = 0.0,
+    personal_comm_pct: float = 0.0,
+) -> CostFloors:
     """Calculate breakeven costs and absolute minimum profit floors.
+
+    When personal_comm_pct > 0, the hard floor guarantees that the company receives at least
+    min_profit (default config.COMPANY_MIN_PROFIT_PKR) as its (100 - personal_comm_pct)% share
+    of Total Real Profit.
+
+    Formula: Total Min Profit = min_profit / (1.0 - (personal_comm_pct / 100.0)).
+    For 5% commission and Rs. 500 company floor: 500 / 0.95 = Rs. 526.32.
 
     Args:
         cost_base: Total landed cost base.
-        min_profit: Minimum profit guarantee in PKR (default 500.0).
+        min_profit: Minimum company profit guarantee in PKR (defaults to config.COMPANY_MIN_PROFIT_PKR).
+        net_price: Kept for backwards compatibility.
+        personal_comm_pct: Personal commission percentage on Real Net Profit (default 0.0).
 
     Returns:
-        CostFloors object with 0% margin and hard floors (+500 PKR) for Alfa and Digi.
+        CostFloors object with 0% margin and hard floors for Alfa and Digi.
     """
-    zero_margin_10 = cost_base / 0.90
-    zero_margin_8 = cost_base / 0.92
-    floor_alfa = (cost_base + min_profit) / 0.90
-    floor_digi_10 = (cost_base + min_profit) / 0.90
-    floor_digi_8 = (cost_base + min_profit) / 0.92
+    base_min_profit = config.COMPANY_MIN_PROFIT_PKR if min_profit is None else min_profit
+
+    if personal_comm_pct > 0:
+        eff_pct = personal_comm_pct
+        alfa_comm_pct = config.ALFA_PERSONAL_COMM_PCT if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT else eff_pct
+        digi_comm_pct = config.DIGI_PERSONAL_COMM_PCT if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT else eff_pct
+
+        alfa_eff_profit = calculate_effective_min_profit(base_min_profit, alfa_comm_pct)
+        digi_eff_profit = calculate_effective_min_profit(base_min_profit, digi_comm_pct)
+        global_eff_profit = calculate_effective_min_profit(base_min_profit, eff_pct)
+
+        alfa_personal_comm = round(alfa_eff_profit - base_min_profit)
+        digi_personal_comm = round(digi_eff_profit - base_min_profit)
+        personal_comm = round(global_eff_profit - base_min_profit)
+    else:
+        alfa_eff_profit = base_min_profit
+        digi_eff_profit = base_min_profit
+        alfa_personal_comm = 0
+        digi_personal_comm = 0
+        personal_comm = 0
+
+    alfa_rate = config.get_alfa_payout_rate()
+    digi_std_rate = config.get_digi_standard_payout_rate()
+    digi_lev_rate = config.get_digi_leverage_payout_rate()
+
+    zero_margin_10 = cost_base / alfa_rate
+    zero_margin_8 = cost_base / digi_lev_rate
+    floor_alfa = (cost_base + alfa_eff_profit) / alfa_rate
+    floor_digi_10 = (cost_base + digi_eff_profit) / digi_std_rate
+    floor_digi_8 = (cost_base + digi_eff_profit) / digi_lev_rate
 
     return CostFloors(
         cost_base=cost_base,
@@ -74,6 +211,9 @@ def calculate_floors(cost_base: float, min_profit: float = 500.0) -> CostFloors:
         floor_alfa=floor_alfa,
         floor_digi_10=floor_digi_10,
         floor_digi_8=floor_digi_8,
+        personal_comm=personal_comm,
+        alfa_personal_comm=alfa_personal_comm,
+        digi_personal_comm=digi_personal_comm,
     )
 
 
@@ -85,9 +225,9 @@ def calculate_baseline(cost_base: float, target_profit: float) -> float:
         target_profit: Target profit margin from input catalog.
 
     Returns:
-        Baseline catalog price at standard 10% commission.
+        Baseline catalog price at standard AlfaMall commission.
     """
-    return (cost_base + target_profit) / 0.90
+    return (cost_base + target_profit) / config.get_alfa_payout_rate()
 
 
 def find_winning_psychological_price(
