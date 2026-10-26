@@ -27,71 +27,6 @@ def _extract_numeric_capacity(text: str, unit: str = "kg") -> float | None:
     return None
 
 
-def _normalize_shipping_config(table: dict[str, Any]) -> dict[str, Any]:
-    """Ensure configuration dictionary adheres to the generic 'categories' list contract."""
-    if "categories" in table and isinstance(table["categories"], list):
-        return table
-
-    # Legacy nested dict adapter for backwards compatibility
-    categories: list[dict[str, Any]] = []
-    if "washing_machine" in table:
-        wm = table["washing_machine"]
-        categories.append({
-            "id": "washing_machine",
-            "name": "Washing Machine",
-            "keywords": ["washing machine", "washer", "single tub", "twin tub", "spinner", "dryer", "hwm", "dwt", "wm"],
-            "capacity_unit": "kg",
-            "sub_types": [
-                {
-                    "name": "Twin Tub Washer",
-                    "keywords": ["twin tub", "twin-tub", "twin", "semi auto", "semi-auto", "semi automatic", "semi-automatic"],
-                    "brackets": wm.get("twin_tub", []),
-                },
-                {
-                    "name": "Single Tub Washer",
-                    "keywords": ["single tub", "single-tub", "single", "washer only"],
-                    "brackets": wm.get("single_tub", []),
-                },
-                {
-                    "name": "Automatic Washer",
-                    "keywords": ["automatic", "front load", "top load", "inverter", "fully automatic"],
-                    "is_default": True,
-                    "brackets": wm.get("automatic", []),
-                },
-            ],
-            "default": wm.get("default", 3500.0),
-        })
-
-    if "air_conditioner" in table:
-        ac = table["air_conditioner"]
-        categories.append({
-            "id": "air_conditioner",
-            "name": "Air Conditioner",
-            "keywords": ["split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo"],
-            "sub_types": [
-                {"name": "Air Conditioner (2.0 Ton)", "pattern": r"\b(?:24|24000|2(?:\.0)?\s*ton)\b", "rate": ac.get("2.0_ton", 4500.0)},
-                {"name": "Air Conditioner (1.5 Ton)", "pattern": r"\b(?:18|18000|1\.5\s*ton)\b", "rate": ac.get("1.5_ton", 3500.0)},
-                {"name": "Air Conditioner (1.0 Ton)", "pattern": r"\b(?:12|12000|1(?:\.0)?\s*ton)\b", "rate": ac.get("1.0_ton", 3000.0)},
-            ],
-            "default": ac.get("default", 3500.0),
-        })
-
-    if "refrigerator" in table:
-        rf = table["refrigerator"]
-        categories.append({
-            "id": "refrigerator",
-            "name": "Refrigerator",
-            "keywords": ["refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer"],
-            "sub_types": [
-                {"name": "Refrigerator (Small / Mini Bar)", "keywords": ["mini bar", "mini-bar", "small", "single door", "bedside"], "rate": rf.get("small", 4000.0)},
-                {"name": "Refrigerator (Large / Side-by-Side)", "keywords": ["side by side", "4 door", "four door", "french door", "large", "500l"], "rate": rf.get("large", 7500.0)},
-            ],
-            "default": rf.get("default", 5500.0),
-        })
-
-    return {"categories": categories, "default": table.get("default", 3000.0)}
-
-
 def resolve_fallback_shipping(
     product_name: str,
     brand: str = "",
@@ -111,8 +46,7 @@ def resolve_fallback_shipping(
     Returns:
         Tuple of (shipping_amount: float, fallback_label: str).
     """
-    raw_table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
-    table = _normalize_shipping_config(raw_table)
+    table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
     text = f"{brand} {product_name}".lower()
 
     for cat in table.get("categories", []):
@@ -164,9 +98,9 @@ def resolve_fallback_shipping(
                             rate = float(b.get("rate", cat.get("default", 3500.0)))
                             return rate, f"{sub_label} ({cap_val:g}{unit})"
 
-            # Default rate on sub-type
-            if "default" in sub_to_use:
-                return float(sub_to_use["default"]), sub_label
+            # Default rate on sub-type or category
+            sub_default = sub_to_use.get("default", cat.get("default", cat.get("default_rate", 3500.0)))
+            return float(sub_default), sub_label
 
         # Default rate on category
         cat_default = cat.get("default", cat.get("default_rate", 3500.0))

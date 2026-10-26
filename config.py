@@ -81,6 +81,7 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
             "keywords": [
                 "washing machine", "washer", "single tub", "twin tub",
                 "spinner", "dryer", "hwm", "dwt", "wm", "front load", "top load",
+                "automatic", "fully automatic", "semi automatic", "semi-automatic", "semi auto", "semi-auto",
             ],
             "capacity_unit": "kg",
             "sub_types": [
