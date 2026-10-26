@@ -380,6 +380,12 @@ def test_is_non_competitor_vendor() -> None:
     assert is_non_competitor_vendor("Haier Official Store") is True
     assert is_non_competitor_vendor("HAIER OFFICIAL STORE") is True
     assert is_non_competitor_vendor("haierofficialstore") is True
+    assert is_non_competitor_vendor("KiaChahiye") is True
+    assert is_non_competitor_vendor("kia-chahiye") is True
+    assert is_non_competitor_vendor("KIA CHAHIYE") is True
+    assert is_non_competitor_vendor("Ajmer") is True
+    assert is_non_competitor_vendor("Ajmer Electronics") is True
+    assert is_non_competitor_vendor("ajmer-electronics") is True
     assert is_non_competitor_vendor("Umar Electronics") is False
     assert is_non_competitor_vendor("Ezzi traders") is False
     assert is_non_competitor_vendor("") is False

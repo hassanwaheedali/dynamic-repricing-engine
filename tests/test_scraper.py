@@ -509,7 +509,7 @@ def test_scraper_subfloor_probe_fetches_page_2_when_page_1_is_all_subfloor() -> 
                     "title": "Haier 120-316S6",
                     "sold_out": False,
                     "variant_detail": {"discounted_price": "88,599"},
-                    "vendor": {"name": "Kia Chahiye"},
+                    "vendor": {"name": "Electro World"},
                 }
             ],
             "count": 75,
@@ -530,7 +530,7 @@ def test_scraper_subfloor_probe_fetches_page_2_when_page_1_is_all_subfloor() -> 
         # Viable competitor from page 2 should be in offers
         viable = [o for o in result.offers if o.price == 88599]
         assert len(viable) == 1
-        assert viable[0].vendor_name == "Kia Chahiye"
+        assert viable[0].vendor_name == "Electro World"
 
     asyncio.run(_test())
 
@@ -552,7 +552,7 @@ def test_scraper_subfloor_probe_skips_page_2_when_viable_seller_found_on_page_1(
                     "title": "Haier 120-316S6",
                     "sold_out": False,
                     "variant_detail": {"discounted_price": "88,599"},
-                    "vendor": {"name": "Kia Chahiye"},
+                    "vendor": {"name": "Electro World"},
                 },
             ],
             "count": 100,  # Even though count is 100, viable seller is already found!
