@@ -1326,3 +1326,61 @@ def test_parse_product_input_invalid_brand_raises_error() -> None:
         )
         with pytest.raises(ValueError, match="Brand.*empty or invalid"):
             parse_product_input(0, row)
+
+
+def test_in_order_card_dispatcher_sequence() -> None:
+    """Verify that InOrderCardDispatcher outputs in strictly ascending sequence even when workers finish out of order."""
+    from pricing_engine.pipeline import InOrderCardDispatcher
+
+    printed_order: list[int] = []
+
+    def make_renderer(val: int):
+        return lambda: printed_order.append(val)
+
+    async def _test() -> None:
+        dispatcher = InOrderCardDispatcher()
+        # Simulate workers finishing in random/reverse order: 3, 1, 0, 2
+        await dispatcher.dispatch(3, make_renderer(3))
+        assert printed_order == []  # 0 not ready yet
+
+        await dispatcher.dispatch(1, make_renderer(1))
+        assert printed_order == []  # 0 still not ready
+
+        await dispatcher.dispatch(0, make_renderer(0))
+        # 0 is dispatched, triggering 0 and 1! (2 is not ready, so 3 waits)
+        assert printed_order == [0, 1]
+
+        await dispatcher.dispatch(2, make_renderer(2))
+        # 2 is dispatched, which immediately triggers 2 and the waiting 3!
+        assert printed_order == [0, 1, 2, 3]
+
+    asyncio.run(_test())
+
+
+def test_in_order_card_dispatcher_skip_on_error() -> None:
+    """Verify that dispatcher.skip prevents deadlocks when an intermediate worker fails."""
+    from pricing_engine.pipeline import InOrderCardDispatcher
+
+    printed_order: list[int] = []
+
+    def make_renderer(val: int):
+        return lambda: printed_order.append(val)
+
+    async def _test() -> None:
+        dispatcher = InOrderCardDispatcher()
+        # 0 finishes
+        await dispatcher.dispatch(0, make_renderer(0))
+        assert printed_order == [0]
+
+        # 2 and 3 finish, but 1 has an error
+        await dispatcher.dispatch(2, make_renderer(2))
+        await dispatcher.dispatch(3, make_renderer(3))
+        assert printed_order == [0]
+
+        # 1 fails and calls skip(1)
+        await dispatcher.skip(1)
+        # Sequence should cleanly continue: 2, 3
+        assert printed_order == [0, 2, 3]
+
+    asyncio.run(_test())
+
