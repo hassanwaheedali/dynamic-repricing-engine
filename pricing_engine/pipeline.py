@@ -27,7 +27,11 @@ from pricing_engine.calculator import (
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
 from pricing_engine.exporter import export_results, export_winning_5pct_results
-from pricing_engine.ingestion import COLUMN_ALIASES, INVALID_BRAND_VALUES
+from pricing_engine.ingestion import (
+    INVALID_BRAND_VALUES,
+    INVALID_NAME_VALUES,
+    normalize_catalog_columns,
+)
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
     extract_product_slots,
@@ -205,9 +209,11 @@ def _extract_name(row: pd.Series | dict[str, Any]) -> str:
         "model",
     ):
         val = row.get(key)
+        if isinstance(val, pd.Series):
+            val = val.dropna().iloc[0] if not val.dropna().empty else None
         if val is not None and not pd.isna(val) and str(val).strip() != "":
             candidate = str(val).strip()
-            if candidate.lower() not in ("nan", "none", "-", "--", "n/a"):
+            if candidate.lower() not in INVALID_NAME_VALUES:
                 return candidate
     return ""
 
@@ -1327,10 +1333,10 @@ async def _process_item_worker(
             verbose=verbose,
             **extra_kwargs,
         )
-    except Exception as exc:
+    except BaseException:
         if dispatcher is not None:
             await dispatcher.skip(idx)
-        raise exc
+        raise
 
     record["_original_idx"] = idx
     return record
@@ -1653,14 +1659,8 @@ async def run_pipeline(
     except Exception:
         df = pd.read_csv(input_path)
 
-    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name)
-    has_legacy_name_space = "Name " in df.columns
-    df.columns = [
-        "Name "
-        if c == "Name " and has_legacy_name_space
-        else COLUMN_ALIASES.get(str(c).strip().lower(), str(c).strip())
-        for c in df.columns
-    ]
+    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name) without collision
+    df.columns = normalize_catalog_columns(list(df.columns), preserve_name_space=True)
     start_time = time.perf_counter()
 
     supabase_client = SupabaseClient()
@@ -1709,10 +1709,11 @@ async def run_pipeline(
                 # Micro-stagger launch by 400ms to eliminate burst wave against WAF
                 await asyncio.sleep(0.4)
 
-        raw_records = await asyncio.gather(*tasks)
-
-    if dispatcher is not None:
-        await dispatcher.flush()
+        try:
+            raw_records = await asyncio.gather(*tasks)
+        finally:
+            if dispatcher is not None:
+                await dispatcher.flush()
 
     # Guarantee deterministic 1:1 original CSV row sorting
     raw_records.sort(key=lambda r: int(r.get("_original_idx", 0)))

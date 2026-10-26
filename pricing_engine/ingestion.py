@@ -41,6 +41,46 @@ INVALID_BRAND_VALUES: frozenset[str] = frozenset(
     {"", "-", "--", "---", "_", ".", "/", "\\", "n/a", "na", "nan", "none", "null", "?"}
 )
 
+INVALID_NAME_VALUES: frozenset[str] = frozenset(
+    {"", "-", "--", "---", "_", ".", "/", "\\", "n/a", "na", "nan", "none", "null", "?"}
+)
+
+
+def normalize_catalog_columns(
+    columns: list[Any],
+    preserve_name_space: bool = False,
+) -> list[str]:
+    """Normalize catalog column headers using canonical aliases without collision.
+
+    If a target canonical column (e.g. 'Name' or 'Net Price') is already present
+    in the headers, alias columns (e.g. 'Title' or 'Cost') are preserved as-is to
+    prevent duplicate column name collisions in Pandas.
+
+    Args:
+        columns: List of raw column headers from CSV.
+        preserve_name_space: If True and 'Name ' is present, preserve trailing space for legacy exports.
+    """
+    cleaned = [str(c).strip() for c in columns]
+    has_legacy_name_space = "Name " in columns
+
+    existing = set(cleaned)
+    result: list[str] = []
+    for raw, clean in zip(columns, cleaned, strict=True):
+        if raw == "Name " and has_legacy_name_space and preserve_name_space:
+            result.append("Name ")
+            continue
+        lower = clean.lower()
+        if lower in COLUMN_ALIASES:
+            target = COLUMN_ALIASES[lower]
+            if target not in existing:
+                result.append(target)
+                existing.add(target)
+            else:
+                result.append(clean)
+        else:
+            result.append(clean)
+    return result
+
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Safely convert arbitrary values to float, handling strings with commas or NaNs."""
@@ -125,8 +165,8 @@ def ingest_catalog(
     except Exception:
         df = pd.read_csv(path)
 
-    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name)
-    df.columns = [COLUMN_ALIASES.get(str(c).strip().lower(), str(c).strip()) for c in df.columns]
+    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name) without collision
+    df.columns = normalize_catalog_columns(list(df.columns))
 
     # Validate required columns
     missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]

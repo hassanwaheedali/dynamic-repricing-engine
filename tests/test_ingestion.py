@@ -209,3 +209,37 @@ def test_ingest_catalog_tab_separated(tmp_path: Path) -> None:
     assert products[0].name == "GREE SPLIT AC 1.5 TON"
     assert products[0].net_price == 185000.0
 
+
+def test_normalize_catalog_columns_prevents_duplicate_collisions() -> None:
+    from pricing_engine.ingestion import normalize_catalog_columns
+
+    # Case 1: Only Title present -> mapped to Name
+    assert normalize_catalog_columns(["Brand", "Title", "Net Price"]) == ["Brand", "Name", "Net Price"]
+
+    # Case 2: Both Name and Title present -> Title is NOT renamed to Name (avoids collision!)
+    assert normalize_catalog_columns(["Brand", "Name", "Title", "Net Price"]) == ["Brand", "Name", "Title", "Net Price"]
+
+    # Case 3: Both Net Price and Cost present -> Cost is NOT renamed to Net Price
+    assert normalize_catalog_columns(["Brand", "Name", "Net Price", "Cost"]) == ["Brand", "Name", "Net Price", "Cost"]
+
+    # Case 4: Legacy Name with space stripped by default for ingestion
+    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"]) == ["Brand", "Name", "Net Price"]
+
+    # Case 5: Legacy Name with space preserved when preserve_name_space=True
+    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"], preserve_name_space=True) == ["Brand", "Name ", "Net Price"]
+
+
+def test_ingest_catalog_with_both_name_and_title(tmp_path: Path) -> None:
+    csv_file = tmp_path / "dual_col.csv"
+    csv_file.write_text(
+        "Brand,Name,Title,Net Price\n"
+        "Dawlance,DWT 9057 EZ,Dawlance DWT 9057 EZ Washing Machine,48000\n",
+        encoding="utf-8",
+    )
+    products, report = ingest_catalog(csv_file, render_banner=False)
+    assert len(products) == 1
+    assert products[0].brand == "Dawlance"
+    assert products[0].name == "DWT 9057 EZ"
+    assert products[0].net_price == 48000.0
+
+
