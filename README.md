@@ -1,6 +1,6 @@
 # ⚡ Dynamic Repricing Engine
 
-[![Tests](https://img.shields.io/badge/pytest-168%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/pytest-346%20passed-brightgreen.svg)](tests/)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)](pyproject.toml)
 [![Code Style](https://img.shields.io/badge/code%20style-ruff-000000.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/status-active%20testing%20phase%20%28WIP%29-orange.svg)](#)
@@ -9,7 +9,7 @@
 An automated, high-speed, enterprise-grade dynamic repricing pipeline built specifically for Pakistani e-commerce platforms (**AlfaMall** and **DigiMall / Faysal Bank**). It queries direct backend search APIs, cleanly eliminates variant mismatches and out-of-stock items, calculates landed courier shipping from volumetric dimensions, and sets winning psychological prices under guaranteed net profit floors.
 
 > ⚠️ **Project Status: Active Testing Phase (Work In Progress)**  
-> **Note:** This project is currently in an **active testing and development phase** and is **not yet a finished, ready-for-market SaaS product**. While the core mathematical algorithms, variant matching, and scrapers are functional and pass 168 rigorous automated tests, the system is actively undergoing stress-testing, database integration, and UI improvements. Always review generated repricing CSVs before uploading to live merchant stores!
+> **Note:** This project is currently in an **active testing and development phase** and is **not yet a finished, ready-for-market SaaS product**. While the core mathematical algorithms, variant matching, and scrapers are functional and pass 346 rigorous automated tests, the system is actively undergoing stress-testing, database integration, and UI improvements. Always review generated repricing CSVs before uploading to live merchant stores!
 
 ---
 
@@ -53,8 +53,10 @@ The system is built as a modular async pipeline with clear boundaries:
                                     │
                                     ▼
        1. Ingestion (`pricing_engine/ingestion.py`)
-       • Scans `data/inputs/` for CSV catalogs
-       • Validates 6 core columns + optional Profit
+       • Scans `data/inputs/` for CSV catalogs (supports Title, Product Name, Cost aliases)
+       • Auto-detects delimiter (comma vs tab) and prevents duplicate column collisions
+       • Validates core columns (Brand, Name, Net Price) & rejects placeholder strings
+       • Resolves category-based fallback shipping if dimensions are missing
        • Normalizes S.NO, trims whitespace, renders Rich pre-flight banner
                                     │
                                     ▼
@@ -71,19 +73,22 @@ The system is built as a modular async pipeline with clear boundaries:
                                     │
                                     ▼
        4. Pricing & Margin Evaluator (`pricing_engine/evaluator.py`)
-       • Volumetric shipping estimation: (L × W × H / 5000) × Rs. 70/kg
+       • Courier shipping: Volumetric formula or declarative category fallback rate
        • Cost base calculation: Net Price + Shipping
        • AlfaMall: Strict 10% undercutting above hard floor (+Rs. 500)
        • DigiMall: Two-Tier switch (10% standard -> 8% emergency rate)
+       • Optional Personal Commission floor (-m <pct>) with winning candidate filter
        • Monopoly pricing (+Rs. 4,000) when zero competitors exist
        • Psychological threshold rounding (.999, .899, etc.)
                                     │
                                     ▼
-       5. Exporter (`pricing_engine/exporter.py`)
+       5. Concurrency & Exporter (`pricing_engine/pipeline.py` & `exporter.py`)
+       • InOrderCardDispatcher: strictly sequential terminal audit cards (1 -> 2 -> 3...)
        • Guaranteed Column 1 `S.NO` sequence
        • Pure integer price formatting (zero `.0` float drift)
        • Timestamped audit file: `data/outputs/{stem}_repriced_{timestamp}.csv`
        • Latest upload file: `data/outputs/{stem}_repriced_latest.csv`
+       • Dynamic Excel file: `data/outputs/{stem}_repriced_latest.xlsx`
        • Terminal audit cards & executive summary via Rich
 ```
 
@@ -93,28 +98,34 @@ The system is built as a modular async pipeline with clear boundaries:
 
 ```
 Pricing Script/
-├── index.py                     # CLI Entrypoint (Interactive picker, Batch mode, Single file)
+├── index.py                     # CLI Entrypoint (Interactive picker, Batch mode, Single file, Range mode)
 ├── pyproject.toml               # Project metadata, dependencies, and pytest/ruff config
 ├── requirements.txt             # Core runtime dependencies
 ├── data/
-│   ├── inputs/                  # Catalogs to reprice
-│   │   ├── template.csv         # Clean 6+1 column starting template
+│   ├── inputs/                  # Catalogs to reprice (supports CSV, TSV, Title aliases)
+│   │   ├── template.csv         # Clean starting template
 │   │   ├── Gree_AC.csv          # Sample catalog
 │   │   └── Haier_Washers.csv    # Sample catalog
 │   └── outputs/                 # Repriced catalogs
 │       ├── {name}_repriced_{timestamp}.csv  # Audit history
-│       └── {name}_repriced_latest.csv       # Ready to upload
+│       ├── {name}_repriced_latest.csv       # Ready to upload
+│       └── {name}_repriced_latest.xlsx      # Dynamic Excel workbook with formulas
 ├── docs/
 │   └── decisions/               # Architecture Decision Records (ADRs)
 │       ├── ADR-001-multi-pattern-waterfall-candidate-retrieval.md
 │       ├── ADR-002-four-slot-attribute-extraction-and-negative-collision.md
 │       ├── ADR-003-autonomous-cooccurrence-learning-and-cloud-sync.md
-│       └── ADR-004-catalog-ingestion-and-timestamped-export.md
+│       ├── ADR-004-catalog-ingestion-and-timestamped-export.md
+│       ├── ADR-005-declarative-category-fallback-shipping.md
+│       ├── ADR-006-in-order-buffered-card-dispatcher.md
+│       └── ADR-007-robust-column-alias-normalization-and-zero-fallback.md
 ├── pricing_engine/
-│   ├── ingestion.py             # CSV catalog validator and pre-flight audit reporter
-│   ├── exporter.py              # Timestamped output manager & pure-integer formatter
-│   ├── pipeline.py              # Async execution pipeline, concurrency & UI cards
-│   ├── calculator.py            # Cost base, shipping, and profit floor formulas
+│   ├── ingestion.py             # CSV catalog validator and collision-free alias normalizer
+│   ├── config.py                # Declarative category & capacity fallback shipping tables
+│   ├── exporter.py              # Timestamped output manager & pure-integer formatter (CSV & XLSX)
+│   ├── pipeline.py              # Async execution pipeline, InOrderCardDispatcher, Rich cards
+│   ├── range_pipeline.py        # Market Range mode pipeline (Alfa/Digi Min/Max discovery)
+│   ├── calculator.py            # Cost base, volumetric & category fallback shipping formulas
 │   ├── matcher.py               # Fuzzy-resistant SKU model extraction & variant protection
 │   ├── scraper.py               # Fast async JSON scraper for AlfaMall & DigiMall
 │   ├── evaluator.py             # Buy-box winning logic & 2-tier bank commission switch
@@ -122,11 +133,13 @@ Pricing Script/
 │   ├── learner.py               # Autonomous search query pattern learner
 │   ├── registry.py              # Pattern registry (in-memory + Supabase)
 │   └── db.py                    # Async Supabase persistence client
-└── tests/                       # 168 comprehensive unit, simulation & resilience tests
+└── tests/                       # 346 comprehensive unit, simulation & resilience tests
     ├── fixtures/                # Benchmark test datasets
     ├── test_ingestion.py        # Ingestion tests
     ├── test_exporter.py         # Exporter tests
     ├── test_pipeline_resilience.py # S.NO permutations & edge-case tests
+    ├── test_range_mode.py       # Market range mode test suite
+    ├── test_shipping_fallback.py# Declarative category shipping tests
     ├── test_cli.py              # CLI interactive & batch mode tests
     └── ...
 ```
@@ -253,7 +266,7 @@ $$\text{Cost Base} = \text{Net Price} + \text{Shipping Estimate}$$
 The engine is engineered under strict **Test-Driven Development (TDD)** discipline:
 
 ```bash
-# Run all 168 automated tests
+# Run all 346 automated tests
 pytest
 
 # Run with verbose output
@@ -263,11 +276,11 @@ pytest -v
 ruff check .
 ```
 
-All 168 tests pass with 100% green status across:
+All 346 tests pass with 100% green status across:
 - **Resilience**: Casing variations (`S.NO`, `S.No`, `sno`), alphanumeric serials, NaN fallbacks, and `.0` float drift elimination.
 - **Simulation**: Replays historical live catalog benchmarks (Gree, Haier, Stock Holding reports).
-- **Calculations**: Verifies mathematical floors, psychological roundings, and shipping cost lookups.
-- **CLI & I/O**: Validates folder scanning, tty interactive checks, and batch recovery.
+- **Calculations**: Verifies mathematical floors, psychological roundings, volumetric & category fallback shipping formulas.
+- **CLI & I/O**: Validates folder scanning, tty interactive checks, batch recovery, and Market Range mode.
 
 ---
 

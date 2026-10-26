@@ -87,13 +87,15 @@ Prices must end strictly in standard retail psychological endings:
 
 ```
 pricing_engine/
-├── calculator.py       # Pure math: volumetric weight, shipping, floors, psychological endings
+├── calculator.py       # Pure math: volumetric weight, shipping, floors, psychological endings, fallback rates
+├── config.py           # Declarative category & capacity fallback shipping tables (single source of truth)
 ├── matcher.py          # 4-slot model extraction, brand stripping, negative variant filtering
 ├── scraper.py          # Async JSON endpoints via curl_cffi, 3-tier waterfall, in-memory cache
 ├── evaluator.py        # AlfaMall & DigiMall decision logic, sweet-spot capping, profit calculations
-├── ingestion.py        # CSV catalog loader, 6-column contract validation, S.NO normalization, pre-flight banner
-├── exporter.py         # Timestamped + latest CSV dual export, pure-integer formatting, panel rendering
-├── pipeline.py         # Concurrency orchestration, asyncio semaphore, Rich terminal cards, S.NO column guarantee
+├── ingestion.py        # CSV catalog loader, 3+1 column validation, collision-free alias normalization, banner
+├── exporter.py         # Timestamped + latest CSV/XLSX dual export, pure-integer formatting, panel rendering
+├── pipeline.py         # Concurrency orchestration, InOrderCardDispatcher, Rich cards, S.NO column guarantee
+├── range_pipeline.py   # Market Range mode pipeline (Alfa/Digi Min/Max discovery)
 ├── models.py           # Strongly typed dataclasses (ProductInput, PlatformPricingResult, ScrapedOffer, etc.)
 ├── learner.py          # Autonomous search query pattern extraction engine
 ├── registry.py         # Regex pattern registry (in-memory + Supabase sync)
@@ -104,29 +106,34 @@ pricing_engine/
 
 - **`pricing_engine/ingestion.py`**:
   - Function: `ingest_catalog(file_path: Path, render_banner: bool = True) -> tuple[list[ProductInput], IngestionReport]`
+  - Function: `normalize_catalog_columns(columns: list[Any], preserve_name_space: bool = False) -> list[str]`
   - Strips whitespace globally across headers and string values.
-  - Enforces 6 required columns: `Brand`, `Name`, `Net Price`, `Length`, `Width`, `Height`.
-  - Supports optional 7th column: `Profit` (defaults to 500.0).
+  - Enforces 3 core required columns: `Brand`, `Name` (or aliases), `Net Price`. Dimensions (`Length`, `Width`, `Height`) are optional; if omitted, automatically resolved via category fallback shipping.
+  - Normalizes common column aliases (`Title`, `Product Name`, `Product Title`, `Model`, `Cost`, `NetPrice`) non-destructively without causing duplicate column collisions in Pandas.
+  - Rejects empty, missing, or placeholder product names/brands (`INVALID_NAME_VALUES`, `INVALID_BRAND_VALUES`) at pre-flight with zero silent fallbacks.
+  - Supports optional `Profit` (defaults to 500.0).
   - Normalizes `S.NO` from all casings (`S.NO`, `S.No`, `sno`, `Serial No`), handles float drift (`1.0` -> `1`), and auto-generates 1-indexed integers if missing.
-  - Ignores custom extra columns silently during validation and preserves them in output.
+  - Auto-detects delimiters (comma vs tab) via `pd.read_csv(sep=None, engine='python')`.
 
 - **`pricing_engine/exporter.py`**:
   - Function: `export_results(df, source_filename, output_dir="data/outputs", timestamp=None, render_panel=True) -> ExportManifest`
   - Creates two output artifacts:
     - `{stem}_repriced_{YYYYMMDD_HHMMSS}.csv` (permanent audit history).
     - `{stem}_repriced_latest.csv` (always-current upload copy).
+    - `{stem}_repriced_latest.xlsx` (dynamic Excel workbook with formulas).
   - Sanitizes price columns (`PRICE_INT_COLUMNS`) and `S.NO` using `format_export_price()` and `format_export_sno()` to eliminate `.0` float drift.
 
 - **`pricing_engine/pipeline.py`**:
-  - Function: `run_pipeline(input_path, output_path=None, concurrency=3, verbose=True, use_structured_export=False, export_dir=Path("data/outputs"))`
+  - Function: `run_pipeline(input_path, output_path=None, concurrency=3, verbose=True, use_structured_export=False, export_dir=Path("data/outputs"), platform="all", personal_comm_pct=0.0)`
   - Reconstructs `out_record` guaranteeing `S.NO` is Column 1.
   - Binds concurrency via `asyncio.Semaphore(concurrency)`.
+  - Employs `InOrderCardDispatcher` for strictly deterministic ascending terminal card rendering (`1 -> 2 -> 3...`) with zero concurrency loss.
   - Renders live Rich execution cards and executive summary tables.
 
 - **`index.py`**:
   - CLI entrypoint. Scans `data/inputs/` for CSVs.
   - Guarded with `sys.stdin.isatty()`: Interactive Rich menu when human terminal is detected; automatic non-blocking selection in headless/cron mode.
-  - Flags: `-i / --input`, `-o / --output`, `-b / --batch / -a`, `-c / --concurrency`, `-q / --quiet`.
+  - Flags: `-i / --input`, `-o / --output`, `-b / --batch / -a`, `-c / --concurrency`, `-q / --quiet`, `-r / --range-only`, `-p / --platform`, `-m / --personal-comm`.
 
 ---
 
@@ -135,12 +142,12 @@ pricing_engine/
 ### Input Catalog Contract (`data/inputs/`)
 | Column | Type | Required? | Fallback / Behavior |
 | :--- | :--- | :--- | :--- |
-| `Brand` | `str` | **Required** | Stripped of whitespace |
-| `Name` | `str` | **Required** | Product model extracted from title |
-| `Net Price` | `float` | **Required** | Purchase price (commas auto-stripped) |
-| `Length` | `float` | **Required** | Box length in cm |
-| `Width` | `float` | **Required** | Box width in cm |
-| `Height` | `float` | **Required** | Box height in cm |
+| `Brand` | `str` | **Required** | Valid brand name (empty or placeholder strings rejected) |
+| `Name` / `Title` | `str` | **Required** | Model name extracted from title (`Title`, `Product Name`, `Model` aliases accepted) |
+| `Net Price` | `float` | **Required** | Purchase price (commas auto-stripped; `Cost`, `NetPrice` aliases accepted) |
+| `Length` | `float` | Optional | Box length in cm (if missing, category fallback rate is resolved) |
+| `Width` | `float` | Optional | Box width in cm (if missing, category fallback rate is resolved) |
+| `Height` | `float` | Optional | Box height in cm (if missing, category fallback rate is resolved) |
 | `Profit` | `float` | Optional | Defaults to `500.0` if empty or missing |
 | `S.NO` / `S.No` | `int/str`| Optional | Auto-generates `1, 2, 3...` if omitted |
 | *Custom Cols* | `Any` | Optional | Preserved intact in output CSV |
@@ -185,7 +192,7 @@ Standardized output column ordering:
 ## 7. Testing Discipline & Quality Gates
 
 The codebase enforces strict test-driven development:
-- **Test Suite**: Located in `tests/` (168 passing tests).
+- **Test Suite**: Located in `tests/` (346 passing tests, 0 failures).
 - **Test Fixtures**: Isolated in `tests/fixtures/` (`Gree_Uploading_on_DigiMall_and_Price.csv`, `Haier_Washing_Machines_Uploading_and_Price.csv`, `Stock Holding Report 25-Feb-2026.csv`).
 - **Commands**:
   ```bash
@@ -219,7 +226,6 @@ When implementing Phase 2, follow these exact requirements:
    - If run without flags in an interactive terminal, display an interactive Rich query menu.
    - Render results in styled Rich tables with model, date, prices, profits, and risk alert badges.
 
-
 ---
 
 ## 9. Market Range Mode (`pricing_engine/range_pipeline.py`)
@@ -230,3 +236,35 @@ When implementing Phase 2, follow these exact requirements:
 - Output columns follow section 5, with cost/decision columns blank, plus `Alfa Offers Found` / `Digi Offers Found` between `Maximum Price Digi` and `Final Price Alfa`. Risk alerts: `NONE | NO_OFFERS | SERVER_DOWN`.
 - Exports via `export_range_results(...)` to `data/outputs/range/{csv,xlsx}/` (timestamped + latest). XLSX failures never abort the run.
 - Tests: `tests/test_range_mode.py`, plus range cases in `tests/test_cli.py`.
+
+---
+
+## 10. In-Order Buffered Terminal Output (`pricing_engine/pipeline.py`)
+
+- **Class**: `InOrderCardDispatcher(lock=render_lock)`
+- **Mechanism**:
+  - Workers scrape asynchronously in parallel bounded by `asyncio.Semaphore(concurrency=3)`.
+  - When worker finishes item `idx`, it buffers a render closure in `_buffer[idx]`.
+  - Contiguous ascending sequence `0, 1, 2, 3...` is flushed strictly in order to the terminal.
+  - Zero performance slowdown (0.00% throughput regression).
+  - Deadlock-free: `skip(idx)` handles worker failures, while `flush()` inside `try...finally` guarantees complete buffer release.
+- Tests: `test_in_order_card_dispatcher_sequence` and `test_in_order_card_dispatcher_skip_on_error` in `tests/test_pipeline.py`.
+
+---
+
+## 11. Personal Commission Arbitrage Mode (`-m / --personal-comm`)
+
+- Entry: `python index.py -m <percentage>` (e.g. `-m 5` for 5% personal commission floor).
+- In addition to standard platform bank floors, enforces merchant commission floor:
+  $$\text{Personal Floor} = \frac{\text{Net Price} \times (1 + \text{comm}\%) + 500 + \text{Shipping}}{1 - \text{platform\_comm}}$$
+- Winning items meeting merchant profit floor are highlighted with personal commission profit breakdown.
+- Automatically exports winning 5% candidates to `data/outputs/winners_personal_{comm}pct_{timestamp}.csv`.
+
+---
+
+## 12. Declarative Category Fallback Shipping (`pricing_engine/config.py`)
+
+- **Single Source of Truth**: `FALLBACK_SHIPPING_TABLE` in `config.py`.
+- **Zero Static Logic**: Eliminates category conditionals in code. Declaratively matches appliance categories and capacity sub-types (e.g. Twin Tub, Single Tub, Automatic Washers: 8kg -> Rs. 2,500/3,000/3,500, 10kg -> Rs. 3,000/3,500, 12-15kg -> Rs. 3,500/4,500).
+- Seamlessly resolves landed shipping for catalogs providing only `Brand, Title, Net Price` without box measurements.
+
