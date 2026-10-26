@@ -1,61 +1,39 @@
-# Implementation Plan: 3-Tier Multi-Pattern Search & Robust Unified Referee Engine
+# Implementation Plan: Centralized Pricing & Commission Configuration (`config.py`)
 
-## Overview & Executive Summary
+## Overview
+Extract all hardcoded marketplace commissions, personal commission percentages, profit floors, and courier logistics constants from `calculator.py`, `evaluator.py`, `exporter.py`, `pipeline.py`, and `index.py` into a single, human-editable root configuration module (`config.py`). This enables changing AlfaMall and DigiMall bank commissions, personal commission rates (global or per-platform), profit targets, and shipping rates from one place while maintaining 100% backward compatibility with all existing tests and CLI flags.
 
-Address false monopolies and unmatched "solo" products across brands (especially Dawlance ACs, Refrigerators, Washing Machines, Deep Freezers, and Small Domestic Appliances) by transforming the search and matching architecture into a true **Two-Stage Funnel**:
-1. **Stage 1 (Exhaustive 3-Tier Pattern Search & Deduplicated Pooling)**: Remove the premature waterfall early-exit (`break` on $\ge 2$ offers) so all tiered query patterns (exact SKU, bare numeric stem, space/hyphen/prefix permutations, and brand-prefixed variants) execute and merge into an expansive, deduplicated raw candidate pool.
-2. **Stage 2 (Unified Centralized Strict Referee)**: Run a robust, noise-resilient referee over the combined candidate pool with clean token normalization (stripping merchant noise, installment text, promo phrases), parenthesis handling, dynamic prefix decoupling (`DWT11467ES` -> `11467`), slash-separated alias tolerance (`Sprinter / Powercon`), and strict guarded facet enforcement (T3, IoT, Capacity, Hardware Tub `WB`/`GB`, Color optionality).
+## RIPER Phase Summary
+1. **Research (Complete):** Audited `calculator.py`, `evaluator.py`, `exporter.py`, `pipeline.py`, `models.py`, and `index.py` to catalog every hardcoded pricing constant (`0.90`, `0.92`, `500.0`, `5.0`, `70.0`, `5000.0`, `4000.0`, `1500.0`, `10000.0`, `700`).
+2. **Innovate (Complete):** Evaluated 3 approaches:
+   - *Approach A:* JSON/YAML config file with runtime file I/O on every call (Rejected: unnecessary I/O overhead in hot loops).
+   - *Approach B:* Root `config.py` with top-level human-editable constants + a typed `PricingConfig` helper dataclass (Selected: zero I/O overhead, IDE autocomplete, type-safe, obeys `AGENTS.md` Single Source of Truth).
+   - *Approach C:* `.env` environment variables only (Rejected: less discoverable for quick local tuning).
+3. **Plan:** Vertical task breakdown below.
 
----
+## Architecture Decisions
+- **Single Source of Truth (`config.py`):** Placed in project root (`D:\Pricing Script\config.py`) for immediate user access, with typed constants and payout rate helpers (`alfa_payout_rate()`, `digi_standard_payout_rate()`, `digi_leverage_payout_rate()`).
+- **Per-Platform Personal Commission Support:** `config.py` exposes `DEFAULT_PERSONAL_COMM_PCT = 5.0` as well as platform-specific `ALFA_PERSONAL_COMM_PCT = 5.0` and `DIGI_PERSONAL_COMM_PCT = 5.0`. `CostFloors` tracks both `alfa_personal_comm` and `digi_personal_comm` (keeping `personal_comm` as the primary property/field for backward compatibility).
+- **Zero Breaking Changes:** Default values in `config.py` match existing production constants (`10.0%` Alfa, `10.0% / 8.0%` Digi, `5.0%` personal commission, `Rs. 500` company floor, `Rs. 70/kg` courier rate).
 
-## Root Cause Analysis from Empirical Testing (38 Dawlance Products)
+## Task List
 
-Our empirical diagnostic against live AlfaMall & DigiMall APIs on the 38 user-provided Dawlance models revealed:
-- **Only 8 of 38 products matched** in the existing implementation, while **30 products became false "solo" (Monopoly priced)**, despite valid listings existing on both portals!
-- **Root Cause 1 (Waterfall Premature Exit)**: `scraper.py` terminates query generation as soon as $\ge 2$ offers return for Tier 1, skipping cheaper competitors in Tier 2 and Tier 3 who omitted variant tags or used spaced formats.
-- **Root Cause 2 (Noise Pollution in Series Matching)**: Merchant marketing noise (`ElectroEase`, `HomeCart`, `On Installment`, `With Free Delivery`, `Heat & Cool`, `ISPK-0577`) is treated as unmatched "extra series tokens", causing `referee_match` to falsely reject 100% genuine listings (e.g. `Suave+ 30`, `GLACIER 2 Ton FLOOR`).
-- **Root Cause 3 (Parenthesis & Punctuation Leakage)**: Punctuation like `(Milky White Textured)` or `Sprinter / Powercon` leaves literal parentheses `(MILKY` or un-split slashes `SPRINTER/POWERCON` in extracted tokens, failing string comparisons.
-- **Root Cause 4 (Glued Prefix Extraction)**: Glued catalog SKU codes like `AWM DWT11467ES` or `DW3013AF` fail to decompose into `[Prefix] + [Stem] + [Suffix]` (`DWT` + `11467` + `ES`), searching unindexed strings that return 0 hits.
-- **Root Cause 5 (Color Optionality Asymmetry)**: Lack of clear handling when sellers omit the color name on single-color listings versus when sellers list competing color variants (e.g., White target rejecting Silver/Black, but accepting unmentioned color when model matches).
+### Phase 1: Foundation (`config.py` + `models.py` + Unit Tests)
+- [ ] **Task 1:** Create root `config.py` with typed constants and `tests/test_config.py` (TDD Red -> Green).
+- [ ] **Task 2:** Wire `pricing_engine/calculator.py` and `pricing_engine/models.py` to use `config.py` constants and support per-platform personal commission rates.
 
----
+### Checkpoint: Foundation
+- [ ] `pytest tests/test_config.py tests/test_calculator.py` passes, `ruff check .` clean.
 
-## Architectural Decisions
+### Phase 2: Core Engine Integration (`evaluator.py`, `pipeline.py`, `exporter.py`, `index.py`)
+- [ ] **Task 3:** Wire `pricing_engine/evaluator.py` to read monopoly profit, fallback profit, large-gap profit cap, and payout rates from `config.py`.
+- [ ] **Task 4:** Wire `pricing_engine/pipeline.py`, `pricing_engine/exporter.py`, and `index.py` to use `config.py` defaults for personal commission, company floor, and thin-buffer risk alerts.
 
-| Decision | Rationale |
-| :--- | :--- |
-| **Full 3-Tier Query Search (No Early Break)** | Collects all candidate listings from Tier 1 (exact), Tier 2 (bare stem), and Tier 3 (space/prefix permutations) without early exit, ensuring zero hidden competitors are missed. |
-| **Comprehensive Merchant & Promo Noise Filtration** | Dynamically strip marketplace junk (merchant signatures, installment terms, warranties, delivery tags, `Heat & Cool`, `DC Inverter`) before computing series token subtraction. |
-| **Parenthesis & Punctuation Token Cleaning** | Strip parentheses, brackets, and normalize slashes so `(Milky White Textured)` cleanly maps to `Milky White Textured` color/facets and `Sprinter / Powercon` allows either `Sprinter` or `Powercon`. |
-| **Generic Dynamic SKU De-gluing** | Apply generic regex `^([A-Za-z]{2,4})[- ]?(\d+)[- ]?([A-Za-z0-9]*)$` to dynamically break glued codes (e.g. `DWT11467ES` $\to$ Prefix: `DWT`, Stem: `11467`, Suffix: `ES`). |
-| **Strict Color Family Collision vs Optional Unmentioned Color** | If target specifies color (e.g. White), reject opposing color families (Silver/Black). If candidate listing does not mention color at all and model matches, accept as unmentioned color. |
+### Checkpoint: Complete
+- [ ] Full test suite (`pytest -q`) and linter (`ruff check .`) pass with 0 errors.
 
----
-
-## Phased Implementation Roadmap
-
-### Phase 1: Exhaustive 3-Tier Pattern Generation & Waterfall Search
-- Remove early exit in `pricing_engine/scraper.py` so all tiers query and pool offers.
-- Enhance `pricing_engine/matcher.py:generate_search_patterns` to generate glued/de-glued permutations for appliance codes.
-- Ensure all queries are collected and deduplicated by `(vendor_name.lower(), round(price, 2))`.
-
-### Phase 2: Title Normalization & Marketing Noise Stripping
-- Expand token normalization to strip merchant signatures (`ElectroEase`, `HomeCart`, `ISPK-\d+`, `SNS\d+`, `ET`, `UE\d+`).
-- Strip transaction/promo noise (`On Installment`, `Upto \d+ Months`, `0% Markup`, `Free Delivery`, `Special Gift`, `Best Price`).
-- Strip common HVAC/appliance operation terms (`Heat & Cool`, `Heat and Cool`, `DC Inverter`) from the Series slot so they don't trigger false "sub-series mismatch".
-
-### Phase 3: Punctuation, Slashes, and Dynamic Initialism Normalization
-- Strip parentheses and brackets before slot extraction so `(Milky White Textured)` extracts cleanly.
-- Handle slash-separated series names (`Sprinter / Powercon`) by treating them as alternative valid series keywords (OR logic).
-- Verify dynamic initialisms (`SD` $\iff$ `Single Door`, `FL` $\iff$ `Front Load`, `TL` $\iff$ `Top Load`).
-
-### Phase 4: Strict Guarded Facets & Color Optionality Enforcement
-- Enforce strict T3 compressor guard (T3 target rejects non-T3, non-T3 rejects T3).
-- Enforce IoT guard (IoT target rejects non-IoT, non-IoT rejects IoT).
-- Enforce Hardware Tub guard (`WB` vs `GB`).
-- Enforce Color Family logic: cross-family mismatch rejects; unmentioned color accepted.
-
-### Phase 5: Verification & Benchmark Suite
-- Run regression tests on all 38 Dawlance models.
-- Run complete test suite (`180+ tests`) ensuring 100% green pass.
-- Verify zero float drift and zero ANSI leakage in outputs.
+## Risks and Mitigations
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Mutating `config.py` constants in tests could leak state | Med | Use `unittest.mock.patch` in `tests/test_config.py` when testing custom config overrides |
+| Existing 286 tests expect exact default numbers | High | Keep default values in `config.py` identical to current production constants |
