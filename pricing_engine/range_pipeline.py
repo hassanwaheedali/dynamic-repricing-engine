@@ -157,34 +157,66 @@ async def process_range_item_async(
     verbose: bool = False,
     item_index: int = 1,
     total_items: int = 1,
+    platform: str = "all",
 ) -> dict[str, Any]:
-    """Scrape both malls (all query tiers) and build the range record."""
+    """Scrape selected mall(s) (all query tiers) and build the range record."""
+    plat = platform.lower().strip()
+    if plat not in ("all", "alfa", "digi"):
+        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
-    async with semaphore:
-        alfa_offers, digi_offers = await asyncio.gather(
-            scrape_alfamall(
-                session,
-                patterns,
-                target_model,
-                floor_price=None,
-                brand=product.brand,
-                target_desc=product.name,
-            ),
-            scrape_digimall(
-                session,
-                patterns,
-                target_model,
-                floor_price=None,
-                brand=product.brand,
-                target_desc=product.name,
-            ),
+    alfa_task = None
+    digi_task = None
+    if plat in ("all", "alfa"):
+        alfa_task = scrape_alfamall(
+            session,
+            patterns,
+            target_model,
+            floor_price=None,
+            brand=product.brand,
+            target_desc=product.name,
+        )
+    if plat in ("all", "digi"):
+        digi_task = scrape_digimall(
+            session,
+            patterns,
+            target_model,
+            floor_price=None,
+            brand=product.brand,
+            target_desc=product.name,
         )
 
-    rec = build_range_record(
-        product, evaluate_market_range(alfa_offers), evaluate_market_range(digi_offers)
+    async with semaphore:
+        if alfa_task and digi_task:
+            alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
+        elif alfa_task:
+            alfa_offers = await alfa_task
+            digi_offers = []
+        elif digi_task:
+            alfa_offers = []
+            digi_offers = await digi_task
+        else:
+            alfa_offers = []
+            digi_offers = []
+
+    alfa_range = (
+        evaluate_market_range(alfa_offers)
+        if plat in ("all", "alfa")
+        else MarketRange(min_price=None, max_price=None, offer_count=0)
     )
+    digi_range = (
+        evaluate_market_range(digi_offers)
+        if plat in ("all", "digi")
+        else MarketRange(min_price=None, max_price=None, offer_count=0)
+    )
+
+    rec = build_range_record(product, alfa_range, digi_range)
+    if plat == "alfa":
+        rec["Digi Risk Alert"] = ""
+    elif plat == "digi":
+        rec["Alfa Risk Alert"] = ""
 
     if verbose and render_lock is not None:
         alfa_str = _fmt_range(
@@ -307,6 +339,7 @@ async def run_range_pipeline(
     concurrency: int = 3,
     verbose: bool = True,
     export_dir: str | Path = "data/outputs/range",
+    platform: str = "all",
 ) -> pd.DataFrame:
     """Run Market Range Mode on a Brand+Name catalog and export CSV + XLSX.
 
@@ -315,10 +348,15 @@ async def run_range_pipeline(
         concurrency: Max simultaneous product lookups.
         verbose: Render summary table and finish banner.
         export_dir: Root of the range output tree (``csv/`` and ``xlsx/`` inside).
+        platform: Target e-commerce platform ('all', 'alfa', or 'digi', default: 'all').
 
     Returns:
         DataFrame in original row order following the range column contract.
     """
+    plat = platform.lower().strip()
+    if plat not in ("all", "alfa", "digi"):
+        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+
     path = Path(input_path)
     if not path.exists():
         raise FileNotFoundError(f"Input file not found at: {path}")
@@ -335,19 +373,28 @@ async def run_range_pipeline(
 
     async with AsyncSession(impersonate="chrome120") as session:
         for i, product in enumerate(products):
-            tasks.append(
-                asyncio.create_task(
-                    process_range_item_async(
-                        product,
-                        session,
-                        semaphore,
-                        render_lock=render_lock,
-                        verbose=verbose,
-                        item_index=i + 1,
-                        total_items=len(products),
-                    )
+            if plat != "all":
+                coro = process_range_item_async(
+                    product,
+                    session,
+                    semaphore,
+                    render_lock=render_lock,
+                    verbose=verbose,
+                    item_index=i + 1,
+                    total_items=len(products),
+                    platform=plat,
                 )
-            )
+            else:
+                coro = process_range_item_async(
+                    product,
+                    session,
+                    semaphore,
+                    render_lock=render_lock,
+                    verbose=verbose,
+                    item_index=i + 1,
+                    total_items=len(products),
+                )
+            tasks.append(asyncio.create_task(coro))
             if i < concurrency - 1 and RANGE_STAGGER_SECONDS > 0:
                 await asyncio.sleep(RANGE_STAGGER_SECONDS)
         records = await asyncio.gather(*tasks)  # gather preserves submission order
