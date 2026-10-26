@@ -107,10 +107,25 @@ def ingest_catalog(
     if not path.is_file():
         raise FileNotFoundError(f"Input catalog CSV not found: {path}")
 
-    df = pd.read_csv(path)
+    try:
+        # Auto-detect delimiter (comma or tab)
+        df = pd.read_csv(path, sep=None, engine="python")
+    except Exception:
+        df = pd.read_csv(path)
 
-    # Clean and strip whitespace from all column headers
-    df.columns = [str(c).strip() for c in df.columns]
+    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name)
+    alias_map = {
+        "title": "Name",
+        "product name": "Name",
+        "product title": "Name",
+        "product": "Name",
+        "model": "Name",
+        "netprice": "Net Price",
+        "net_price": "Net Price",
+        "purchase price": "Net Price",
+        "cost": "Net Price",
+    }
+    df.columns = [alias_map.get(str(c).strip().lower(), str(c).strip()) for c in df.columns]
 
     # Validate required columns
     missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]

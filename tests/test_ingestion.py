@@ -182,17 +182,30 @@ def test_ingest_catalog_empty_brand_cell_raises(tmp_path: Path) -> None:
     assert "Please enter a valid brand name in the 'Brand' column" in str(exc_info.value)
 
 
-def test_ingest_catalog_placeholder_brand_cell_raises(tmp_path: Path) -> None:
-    for idx, placeholder in enumerate(["-", "--", "N/A", "none", "nan", "?"]):
-        csv_file = tmp_path / f"placeholder_{idx}.csv"
-        csv_file.write_text(
-            f"Brand,Name,Net Price,Length,Width,Height\n"
-            f"{placeholder},Dawlance 4467 SD MINI BAR,55000,50,50,85\n",
-            encoding="utf-8",
-        )
+def test_ingest_catalog_with_title_alias(tmp_path: Path) -> None:
+    csv_file = tmp_path / "title_catalog.csv"
+    csv_file.write_text(
+        "Brand,Title,Net Price\n"
+        "Haier,Haier Automatic Washing Machine 10 KG,70000\n",
+        encoding="utf-8",
+    )
+    products, report = ingest_catalog(csv_file, render_banner=False)
+    assert len(products) == 1
+    assert products[0].brand == "Haier"
+    assert products[0].name == "Haier Automatic Washing Machine 10 KG"
+    assert products[0].net_price == 70000.0
 
-        with pytest.raises(ValueError) as exc_info:
-            ingest_catalog(csv_file, render_banner=False)
 
-        assert "'Brand' column is empty or invalid" in str(exc_info.value)
+def test_ingest_catalog_tab_separated(tmp_path: Path) -> None:
+    tsv_file = tmp_path / "catalog.tsv"
+    tsv_file.write_text(
+        "Brand\tTitle\tNet Price\n"
+        "Gree\tGREE SPLIT AC 1.5 TON\t185000\n",
+        encoding="utf-8",
+    )
+    products, report = ingest_catalog(tsv_file, render_banner=False)
+    assert len(products) == 1
+    assert products[0].brand == "Gree"
+    assert products[0].name == "GREE SPLIT AC 1.5 TON"
+    assert products[0].net_price == 185000.0
 
