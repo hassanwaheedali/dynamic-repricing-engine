@@ -1,10 +1,127 @@
+import contextlib
 import math
+import re
+from typing import Any
 
 import config
 from pricing_engine.models import CostFloors
 
 # Standard psychological price endings ordered from highest to lowest margin
 PSYCHOLOGICAL_ENDINGS: tuple[int, ...] = (999, 899, 799, 499, 299, 199, 99)
+
+
+def resolve_fallback_shipping(
+    product_name: str,
+    brand: str = "",
+    config_table: dict[str, Any] | None = None,
+) -> tuple[float, str]:
+    """Resolve default fallback shipping rate when LxWxH dimensions are missing or 0.
+
+    Inspects product title and model keywords to determine appliance category,
+    sub-type (e.g. single tub vs twin tub vs automatic for washers), and capacity
+    to match user-defined brackets in config.DEFAULT_CATEGORY_SHIPPING.
+
+    Args:
+        product_name: Product title or description from input catalog.
+        brand: Brand name.
+        config_table: Optional custom configuration dictionary (defaults to config.DEFAULT_CATEGORY_SHIPPING).
+
+    Returns:
+        Tuple of (shipping_amount: float, fallback_label: str).
+    """
+    table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
+    text = f"{brand} {product_name}".lower()
+
+    # 1. Washing Machine Detection
+    washer_kw = (
+        "washing machine",
+        "washer",
+        "single tub",
+        "twin tub",
+        "front load",
+        "top load",
+        "semi automatic",
+        "semi-automatic",
+        "spinner",
+        "dryer",
+        "hwm",
+        "dwt",
+        "wm",
+    )
+    if any(kw in text for kw in washer_kw):
+        wm_cfg = table.get("washing_machine", {})
+        # A. Determine Sub-type: twin_tub vs single_tub vs automatic
+        if any(
+            tt in text
+            for tt in (
+                "twin tub",
+                "twin-tub",
+                "twin",
+                "semi auto",
+                "semi-auto",
+                "semi automatic",
+                "semi-automatic",
+            )
+        ):
+            sub_type = "twin_tub"
+            label = "Twin Tub Washer"
+        elif any(st in text for st in ("single tub", "single-tub", "single", "washer only")):
+            sub_type = "single_tub"
+            label = "Single Tub Washer"
+        else:
+            sub_type = "automatic"
+            label = "Automatic Washer"
+
+        # B. Extract Capacity in KG
+        kg_match = re.search(r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b", text)
+        capacity_kg: float | None = None
+        if kg_match:
+            with contextlib.suppress(ValueError, TypeError):
+                capacity_kg = float(kg_match.group(1))
+        else:
+            # Model code extraction: e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg, 150- -> 15kg
+            model_match = re.search(r"\b(?:hwm|hw|wm|dwt)?[- ]?(\d{2,3})(?:[- ]|\b)", text)
+            if model_match:
+                with contextlib.suppress(ValueError, TypeError):
+                    raw_num = float(model_match.group(1))
+                    if 50 <= raw_num <= 250:
+                        capacity_kg = raw_num / 10.0
+
+        # C. Match Capacity Bracket
+        bracket_list = wm_cfg.get(sub_type, [])
+        if capacity_kg is not None and isinstance(bracket_list, list):
+            for bracket in bracket_list:
+                if capacity_kg <= bracket.get("max_kg", 999.0):
+                    rate = float(bracket.get("rate", wm_cfg.get("default", 3500.0)))
+                    return rate, f"{label} ({capacity_kg:g}kg)"
+
+        # Fallback within category
+        return float(wm_cfg.get("default", 3500.0)), label
+
+    # 2. Air Conditioner Detection
+    ac_kw = ("split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo")
+    if any(kw in text for kw in ac_kw):
+        ac_cfg = table.get("air_conditioner", {})
+        if re.search(r"\b(?:24|24000|2(?:\.0)?\s*ton)\b", text):
+            return float(ac_cfg.get("2.0_ton", 4500.0)), "Air Conditioner (2.0 Ton)"
+        if re.search(r"\b(?:18|18000|1\.5\s*ton)\b", text):
+            return float(ac_cfg.get("1.5_ton", 3500.0)), "Air Conditioner (1.5 Ton)"
+        if re.search(r"\b(?:12|12000|1(?:\.0)?\s*ton)\b", text):
+            return float(ac_cfg.get("1.0_ton", 3000.0)), "Air Conditioner (1.0 Ton)"
+        return float(ac_cfg.get("default", 3500.0)), "Air Conditioner"
+
+    # 3. Refrigerator Detection
+    fridge_kw = ("refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer")
+    if any(kw in text for kw in fridge_kw):
+        rf_cfg = table.get("refrigerator", {})
+        if any(s in text for s in ("mini bar", "mini-bar", "small", "single door", "bedside")):
+            return float(rf_cfg.get("small", 4000.0)), "Refrigerator (Small / Mini Bar)"
+        if any(s in text for s in ("side by side", "4 door", "four door", "french door", "large", "500l")):
+            return float(rf_cfg.get("large", 7500.0)), "Refrigerator (Large / Side-by-Side)"
+        return float(rf_cfg.get("default", 5500.0)), "Refrigerator"
+
+    # 4. General Default
+    return float(table.get("default", 3000.0)), "General Appliance"
 
 
 def calculate_volumetric_weight(

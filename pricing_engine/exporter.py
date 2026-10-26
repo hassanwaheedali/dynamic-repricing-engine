@@ -39,6 +39,17 @@ PRICE_INT_COLUMNS: list[str] = [
 ]
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely convert value to float handling commas and NaNs."""
+    if val is None or pd.isna(val):
+        return default
+    try:
+        clean = str(val).replace(",", "").strip()
+        return float(clean)
+    except (ValueError, TypeError):
+        return default
+
+
 def format_export_price(val: Any) -> str:
     """Format integer price values for CSV export without float drift (.0) or empty on None/NaN.
 
@@ -196,7 +207,11 @@ def export_excel_workbook(
 
         # 1. Shipping Estimate
         if ship and l_col and w_col and h_col:
-            ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 0)"
+            l_val = _safe_float(row.get("Length"), 0.0)
+            w_val = _safe_float(row.get("Width"), 0.0)
+            h_val = _safe_float(row.get("Height"), 0.0)
+            if l_val > 0 and w_val > 0 and h_val > 0:
+                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 0)"
 
         # 2. Total Without Profit
         if twop and net and ship:

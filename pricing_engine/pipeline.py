@@ -19,6 +19,7 @@ from pricing_engine.calculator import (
     calculate_floors,
     calculate_shipping_estimate,
     calculate_volumetric_weight,
+    resolve_fallback_shipping,
     split_real_profit,
 )
 from pricing_engine.db import SupabaseClient
@@ -153,15 +154,22 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
-def resolve_shipping_estimate(product: ProductInput) -> float:
-    """Resolve shipping estimate from CSV if provided, or compute from volumetric weight."""
+def resolve_shipping_estimate(product: ProductInput) -> tuple[float, bool]:
+    """Resolve shipping estimate from CSV if provided, from dimensions, or from category fallback.
+
+    Returns:
+        Tuple of (shipping_amount: float, is_fallback: bool).
+    """
     csv_shipping = product.raw_row.get("Shipping Estimate")
     if pd.notna(csv_shipping) and _safe_float(csv_shipping) > 0:
-        return round(_safe_float(csv_shipping), 2)
-    vol_weight = calculate_volumetric_weight(
-        product.length, product.width, product.height, divisor=DIVISOR
-    )
-    return calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE)
+        return round(_safe_float(csv_shipping), 2), False
+    if product.length > 0 and product.width > 0 and product.height > 0:
+        vol_weight = calculate_volumetric_weight(
+            product.length, product.width, product.height, divisor=DIVISOR
+        )
+        return calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE), False
+    fallback_rate, _ = resolve_fallback_shipping(product.name, brand=product.brand)
+    return fallback_rate, True
 
 
 
@@ -446,7 +454,7 @@ def process_product_with_offers(
     Returns:
         Repriced output dictionary.
     """
-    shipping = resolve_shipping_estimate(product)
+    shipping, _ = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(
@@ -766,6 +774,7 @@ def render_audit_card(
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
     personal_comm_pct: float = 0.0,
+    is_shipping_fallback: bool = False,
 ) -> None:
     """Print a polished, executive-grade audit card enclosed in a rounded box."""
     tot_10 = round(floors.zero_margin_10)
@@ -778,7 +787,13 @@ def render_audit_card(
     specs.add_column(style="cyan")
     specs.add_column(style="bold white")
 
-    dim_str = f"{product.length:g}x{product.width:g}x{product.height:g} cm"
+    if is_shipping_fallback:
+        dim_str = "[dim yellow]Not Provided [Default Config Shipping][/]"
+        shipping_str = f"Rs. {shipping:,.2f} [bold yellow][Default Config Shipping][/]"
+    else:
+        dim_str = f"{product.length:g}x{product.width:g}x{product.height:g} cm"
+        shipping_str = f"Rs. {shipping:,.2f}"
+
     specs.add_row(
         "Net Catalog Price:",
         f"Rs. {product.net_price:,.0f}",
@@ -787,7 +802,7 @@ def render_audit_card(
     )
     specs.add_row(
         "Courier Shipping:",
-        f"Rs. {shipping:,.2f}",
+        shipping_str,
         (
             f"[bold #2c4699]Alfa 10% Floor (+{floors.personal_comm:,} Comm + 500):[/]"
             if floors.personal_comm > 0
@@ -1080,7 +1095,7 @@ async def process_item_async(
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
-    shipping = resolve_shipping_estimate(product)
+    shipping, is_shipping_fallback = resolve_shipping_estimate(product)
 
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(
@@ -1187,6 +1202,7 @@ async def process_item_async(
                     alfa_res=alfa_res,
                     digi_res=digi_res,
                     personal_comm_pct=personal_comm_pct,
+                    is_shipping_fallback=is_shipping_fallback,
                 )
         else:
             render_audit_card(
@@ -1200,6 +1216,7 @@ async def process_item_async(
                 alfa_res=alfa_res,
                 digi_res=digi_res,
                 personal_comm_pct=personal_comm_pct,
+                is_shipping_fallback=is_shipping_fallback,
             )
 
     return build_output_record(

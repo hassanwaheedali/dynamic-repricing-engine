@@ -23,9 +23,6 @@ REQUIRED_COLUMNS: list[str] = [
     "Brand",
     "Name",
     "Net Price",
-    "Length",
-    "Width",
-    "Height",
 ]
 
 INVALID_BRAND_VALUES: frozenset[str] = frozenset(

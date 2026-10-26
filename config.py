@@ -7,6 +7,8 @@ shipping rates from a single file.
 
 from __future__ import annotations
 
+from typing import Any
+
 # ==============================================================================
 # 1. PLATFORM BANK COMMISSIONS (%)
 # ==============================================================================
@@ -59,6 +61,45 @@ COURIER_RATE_PER_KG: float = 70.0
 
 # Volumetric weight divisor: (Length * Width * Height) / VOLUMETRIC_DIVISOR
 VOLUMETRIC_DIVISOR: float = 5000.0
+
+
+# ==============================================================================
+# 5. DEFAULT FALLBACK SHIPPING ESTIMATES (PKR)
+# Used when Length x Width x Height dimensions are not provided or 0 in catalog CSV
+# ==============================================================================
+DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
+    "washing_machine": {
+        "single_tub": [
+            {"max_kg": 8.5, "rate": 2500.0},
+            {"max_kg": 11.0, "rate": 3000.0},
+            {"max_kg": 999.0, "rate": 3500.0},  # 12 to 15kg+
+        ],
+        "twin_tub": [
+            {"max_kg": 8.5, "rate": 3000.0},
+            {"max_kg": 11.0, "rate": 3500.0},
+            {"max_kg": 13.5, "rate": 3800.0},
+            {"max_kg": 999.0, "rate": 4500.0},  # 15kg+
+        ],
+        "automatic": [
+            {"max_kg": 10.0, "rate": 3500.0},  # 8kg se 10kg
+            {"max_kg": 999.0, "rate": 4500.0},  # 10kg se 15kg+
+        ],
+        "default": 3500.0,
+    },
+    "air_conditioner": {
+        "1.0_ton": 3000.0,
+        "1.5_ton": 3500.0,
+        "2.0_ton": 4500.0,
+        "default": 3500.0,
+    },
+    "refrigerator": {
+        "small": 4000.0,   # mini bar / under 10 cu ft
+        "medium": 5500.0,  # 10 - 15 cu ft
+        "large": 7500.0,   # 15+ cu ft / side-by-side
+        "default": 5500.0,
+    },
+    "default": 3000.0,
+}
 
 
 # ==============================================================================
