@@ -27,7 +27,7 @@ from pricing_engine.calculator import (
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
 from pricing_engine.exporter import export_results, export_winning_5pct_results
-from pricing_engine.ingestion import INVALID_BRAND_VALUES
+from pricing_engine.ingestion import COLUMN_ALIASES, INVALID_BRAND_VALUES
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
     extract_product_slots,
@@ -190,6 +190,28 @@ def _extract_sno(row: pd.Series | dict[str, Any], default: int) -> int | str:
     return default
 
 
+def _extract_name(row: pd.Series | dict[str, Any]) -> str:
+    """Extract product name from row checking standard keys and common aliases."""
+    for key in (
+        "Name ",
+        "Name",
+        "Title",
+        "title",
+        "Product Name",
+        "product name",
+        "Product Title",
+        "product title",
+        "Model",
+        "model",
+    ):
+        val = row.get(key)
+        if val is not None and not pd.isna(val) and str(val).strip() != "":
+            candidate = str(val).strip()
+            if candidate.lower() not in ("nan", "none", "-", "--", "n/a"):
+                return candidate
+    return ""
+
+
 def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     """Parse and sanitize a raw CSV row into a strongly typed ProductInput.
 
@@ -203,10 +225,12 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     sno = _extract_sno(row, idx + 1)
     raw_brand = row.get("Brand")
     brand = str(raw_brand).strip() if (raw_brand is not None and not pd.isna(raw_brand)) else ""
-    raw_name = row.get("Name ")
-    if raw_name is None or pd.isna(raw_name):
-        raw_name = row.get("Name", "Product")
-    name = str(raw_name).strip()
+    name = _extract_name(row)
+    if not name:
+        raise ValueError(
+            f"Row {idx + 1}: Product 'Name' or 'Title' is empty or missing in CSV. "
+            "Please provide a valid product name in the 'Name' or 'Title' column."
+        )
 
     if not brand or brand.lower() in INVALID_BRAND_VALUES:
         raise ValueError(
@@ -1623,11 +1647,18 @@ async def run_pipeline(
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found at: {input_path}")
 
-    df = pd.read_csv(input_path)
-    # Strip whitespace from column headers, preserving legacy 'Name ' key if present
+    try:
+        # Auto-detect delimiter (comma or tab)
+        df = pd.read_csv(input_path, sep=None, engine="python")
+    except Exception:
+        df = pd.read_csv(input_path)
+
+    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name)
     has_legacy_name_space = "Name " in df.columns
     df.columns = [
-        "Name " if c == "Name " and has_legacy_name_space else str(c).strip()
+        "Name "
+        if c == "Name " and has_legacy_name_space
+        else COLUMN_ALIASES.get(str(c).strip().lower(), str(c).strip())
         for c in df.columns
     ]
     start_time = time.perf_counter()

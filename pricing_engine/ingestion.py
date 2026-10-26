@@ -25,6 +25,18 @@ REQUIRED_COLUMNS: list[str] = [
     "Net Price",
 ]
 
+COLUMN_ALIASES: dict[str, str] = {
+    "title": "Name",
+    "product name": "Name",
+    "product title": "Name",
+    "product": "Name",
+    "model": "Name",
+    "netprice": "Net Price",
+    "net_price": "Net Price",
+    "purchase price": "Net Price",
+    "cost": "Net Price",
+}
+
 INVALID_BRAND_VALUES: frozenset[str] = frozenset(
     {"", "-", "--", "---", "_", ".", "/", "\\", "n/a", "na", "nan", "none", "null", "?"}
 )
@@ -114,18 +126,7 @@ def ingest_catalog(
         df = pd.read_csv(path)
 
     # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name)
-    alias_map = {
-        "title": "Name",
-        "product name": "Name",
-        "product title": "Name",
-        "product": "Name",
-        "model": "Name",
-        "netprice": "Net Price",
-        "net_price": "Net Price",
-        "purchase price": "Net Price",
-        "cost": "Net Price",
-    }
-    df.columns = [alias_map.get(str(c).strip().lower(), str(c).strip()) for c in df.columns]
+    df.columns = [COLUMN_ALIASES.get(str(c).strip().lower(), str(c).strip()) for c in df.columns]
 
     # Validate required columns
     missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]

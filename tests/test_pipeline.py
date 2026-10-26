@@ -1328,6 +1328,34 @@ def test_parse_product_input_invalid_brand_raises_error() -> None:
             parse_product_input(0, row)
 
 
+def test_parse_product_input_with_title_alias() -> None:
+    row = pd.Series(
+        {
+            "Brand": "Dawlance",
+            "Title": "Dawlance DWT 9057 EZ Fully Automatic Washing Machine - 9.5KG",
+            "Net Price": 48000,
+        }
+    )
+    product = parse_product_input(0, row)
+    assert product.brand == "Dawlance"
+    assert product.name == "Dawlance DWT 9057 EZ Fully Automatic Washing Machine - 9.5KG"
+    assert product.net_price == 48000.0
+
+
+def test_parse_product_input_missing_name_raises_error() -> None:
+    for bad_name in ["", "-", "--", "n/a", "none", "nan", None]:
+        row = pd.Series(
+            {
+                "Brand": "Dawlance",
+                "Name": bad_name,
+                "Net Price": 50000,
+            }
+        )
+        with pytest.raises(ValueError, match="Product.*empty or missing"):
+            parse_product_input(0, row)
+
+
+
 def test_in_order_card_dispatcher_sequence() -> None:
     """Verify that InOrderCardDispatcher outputs in strictly ascending sequence even when workers finish out of order."""
     from pricing_engine.pipeline import InOrderCardDispatcher
