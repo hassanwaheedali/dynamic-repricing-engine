@@ -243,3 +243,23 @@ def test_ingest_catalog_with_both_name_and_title(tmp_path: Path) -> None:
     assert products[0].net_price == 48000.0
 
 
+def test_read_catalog_csv_handles_trailing_commas_and_jagged_rows(tmp_path: Path) -> None:
+    """Verify read_catalog_csv handles stray trailing commas on jagged rows without dropping data."""
+    from pricing_engine.ingestion import read_catalog_csv
+
+    csv_file = tmp_path / "jagged.csv"
+    csv_file.write_text(
+        'Brand,Title,Net Price\n'
+        'Dawlance,Dawlance DW 10115 - 10KG,"21,500"\n'
+        'Dawlance,Dawlance DW 90100 - 9KG,"21,500",\n'  # Trailing comma causing 4 fields instead of 3
+        'Dawlance,Dawlance DW 15140 15 KG,"43,500"\n',
+        encoding="utf-8",
+    )
+    df = read_catalog_csv(csv_file)
+    assert len(df) == 3
+    assert list(df["Brand"]) == ["Dawlance", "Dawlance", "Dawlance"]
+    assert "Dawlance DW 90100 - 9KG" in list(df["Title"])
+    assert list(df["Net Price"]) == ['21,500', '21,500', '43,500']
+
+
+

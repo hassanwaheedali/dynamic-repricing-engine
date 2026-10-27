@@ -6,6 +6,7 @@ column enforcement, whitespace cleanup, and backward compatibility.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,66 @@ def render_ingestion_banner(report: IngestionReport) -> None:
     console.print(panel)
 
 
+def read_catalog_csv(csv_path: str | Path) -> pd.DataFrame:
+    """Robustly read catalog CSV handling delimiter detection, BOMs, and jagged rows with trailing commas.
+
+    First attempts standard Pandas comma-separated read (fast and avoids single-column space sniffing).
+    If a tab delimiter is detected or parsing fails due to jagged rows, stray trailing delimiters,
+    or C engine tokenization mismatches, falls back to Python engine and Python's built-in csv reader
+    with whitespace and trailing column normalization so no valid product rows are dropped.
+    """
+    path = Path(csv_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Input catalog CSV not found: {path}")
+
+    # 1. Standard comma-separated read first (prevents sniffing space on single-column files)
+    try:
+        df = pd.read_csv(path)
+        if len(df.columns) == 1 and "\t" in str(df.columns[0]):
+            return pd.read_csv(path, sep="\t")
+        return df
+    except Exception:
+        pass
+
+    # 2. Delimiter auto-detection via Python engine (e.g. tabs or custom separators)
+    try:
+        df = pd.read_csv(path, sep=None, engine="python")
+        if not (len(df.columns) == 1 and "\t" in str(df.columns[0])):
+            return df
+    except Exception:
+        pass
+
+    # 3. Resilient fallback for jagged CSVs with trailing commas / empty fields
+    for encoding in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            with open(path, encoding=encoding, errors="replace") as f:
+                sample = f.read(4096)
+                delimiter = "\t" if "\t" in sample and "," not in sample else ","
+                f.seek(0)
+                reader = csv.reader(f, delimiter=delimiter)
+                raw_rows = [r for r in reader if any(cell.strip() for cell in r)]
+
+            if not raw_rows:
+                return pd.DataFrame()
+
+            headers = [c.strip() for c in raw_rows[0]]
+            expected_cols = len(headers)
+            cleaned_rows = []
+            for r in raw_rows[1:]:
+                if len(r) > expected_cols and all(not c.strip() for c in r[expected_cols:]):
+                    cleaned_rows.append(r[:expected_cols])
+                elif len(r) < expected_cols:
+                    cleaned_rows.append(r + [""] * (expected_cols - len(r)))
+                else:
+                    cleaned_rows.append(r[:expected_cols])
+
+            return pd.DataFrame(cleaned_rows, columns=headers)
+        except Exception:
+            continue
+
+    return pd.read_csv(path, on_bad_lines="skip")
+
+
 def ingest_catalog(
     csv_path: str | Path,
     render_banner: bool = True,
@@ -156,14 +217,7 @@ def ingest_catalog(
         ValueError: If any required column is missing from the CSV.
     """
     path = Path(csv_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Input catalog CSV not found: {path}")
-
-    try:
-        # Auto-detect delimiter (comma or tab)
-        df = pd.read_csv(path, sep=None, engine="python")
-    except Exception:
-        df = pd.read_csv(path)
+    df = read_catalog_csv(path)
 
     # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name) without collision
     df.columns = normalize_catalog_columns(list(df.columns))
