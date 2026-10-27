@@ -164,8 +164,10 @@ async def _execute_waterfall(
     """
     collected_offers: list[ScrapedOffer] = []
     collected_base_offers: list[ScrapedOffer] = []
+    collected_own_offers: list[ScrapedOffer] = []
     seen_offers: set[tuple[str, float]] = set()
     seen_base_offers: set[tuple[str, float]] = set()
+    seen_own_offers: set[tuple[str, float]] = set()
     detected_missing_modifier: str | None = None
     any_success = False
     last_status: int | None = None
@@ -230,6 +232,12 @@ async def _execute_waterfall(
                         seen_base_offers.add(dedupe_key)
                         collected_base_offers.append(off)
 
+                for off in sub_res.own_offers:
+                    dedupe_key = (off.vendor_name.lower().strip(), round(off.price, 2))
+                    if dedupe_key not in seen_own_offers:
+                        seen_own_offers.add(dedupe_key)
+                        collected_own_offers.append(off)
+
                 if sub_res.active_modifier_fallback and not detected_missing_modifier:
                     detected_missing_modifier = sub_res.active_modifier_fallback
 
@@ -253,6 +261,7 @@ async def _execute_waterfall(
         offers=final_offers,
         active_modifier_fallback=active_fallback,
         base_offers=collected_base_offers,
+        own_offers=collected_own_offers,
         is_success=any_success if (any_success or not final_offers) else True,
         status_code=last_status if last_status is not None else (200 if any_success else None),
         error_detail=None if any_success else last_error,
@@ -267,10 +276,11 @@ def _parse_offers_from_raw_items(
     target_model: str,
     brand: str = "",
     target_desc: str = "",
-) -> tuple[list[ScrapedOffer], list[ScrapedOffer], str | None]:
-    """Extract and validate offers from raw API items array, segregating exact from base matches."""
+) -> tuple[list[ScrapedOffer], list[ScrapedOffer], str | None, list[ScrapedOffer]]:
+    """Extract and validate offers from raw API items array, segregating exact from base matches and own stores."""
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
+    own_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
     match_target = target_desc.strip() if target_desc and target_desc.strip() else target_model
 
@@ -294,8 +304,7 @@ def _parse_offers_from_raw_items(
         vendor_obj = item.get("vendor") or {}
         vendor = vendor_obj.get("name") or "Unknown Vendor"
         vendor_handle = vendor_obj.get("handle") or ""
-        if is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(str(vendor_handle)):
-            continue
+        is_non_comp = is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(str(vendor_handle))
 
         if price > 0:
             offer = ScrapedOffer(
@@ -304,14 +313,16 @@ def _parse_offers_from_raw_items(
                 is_sold_out=sold_out,
                 raw_title=title,
             )
-            if is_exact:
+            if is_non_comp:
+                own_offers.append(offer)
+            elif is_exact:
                 exact_offers.append(offer)
             elif is_base:
                 base_offers.append(offer)
                 if decision.missing_modifier and not detected_modifier:
                     detected_modifier = decision.missing_modifier
 
-    return exact_offers, base_offers, detected_modifier
+    return exact_offers, base_offers, detected_modifier, own_offers
 
 
 async def _scrape_platform_single_query(
@@ -339,14 +350,16 @@ async def _scrape_platform_single_query(
     cache_key = (config.platform_name, query.strip().upper(), (target_desc.strip() or target_model).upper())
     if raw_cache_key in _raw_items_cache:
         raw_cached = _raw_items_cache[raw_cache_key]
-        e_cached, b_cached, d_cached = _parse_offers_from_raw_items(
+        e_cached, b_cached, d_cached, o_cached = _parse_offers_from_raw_items(
             raw_cached, target_model, brand=brand, target_desc=target_desc
         )
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
+        o_cached = deduplicate_offers(o_cached)
         return ScrapeResult(
             offers=e_cached,
             base_offers=b_cached,
+            own_offers=o_cached,
             active_modifier_fallback=d_cached,
             is_success=True,
             status_code=200,
@@ -375,6 +388,16 @@ async def _scrape_platform_single_query(
                 )
                 for o in cached.base_offers
             ],
+            own_offers=[
+                ScrapedOffer(
+                    vendor_name=o.vendor_name,
+                    price=o.price,
+                    is_sold_out=o.is_sold_out,
+                    raw_title=o.raw_title,
+                    duplicate_count=o.duplicate_count,
+                )
+                for o in cached.own_offers
+            ],
             active_modifier_fallback=cached.active_modifier_fallback,
             is_success=cached.is_success,
             status_code=cached.status_code,
@@ -386,6 +409,7 @@ async def _scrape_platform_single_query(
 
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
+    own_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
     last_status: int | None = None
     last_error: str | None = None
@@ -422,11 +446,12 @@ async def _scrape_platform_single_query(
                     last_error = "Missing results/data array in payload"
                     continue
 
-                e_items, b_items, d_mod = _parse_offers_from_raw_items(
+                e_items, b_items, d_mod, o_items = _parse_offers_from_raw_items(
                     raw_items, target_model, brand=brand, target_desc=target_desc
                 )
                 exact_offers.extend(e_items)
                 base_offers.extend(b_items)
+                own_offers.extend(o_items)
                 if d_mod and not detected_modifier:
                     detected_modifier = d_mod
 
@@ -449,11 +474,12 @@ async def _scrape_platform_single_query(
                             data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
                             raw_p2 = data_p2.get("results") or data_p2.get("data") or []
                             if isinstance(raw_p2, list):
-                                e_p2, b_p2, d_p2 = _parse_offers_from_raw_items(
+                                e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
                                     raw_p2, target_model, brand=brand, target_desc=target_desc
                                 )
                                 exact_offers.extend(e_p2)
                                 base_offers.extend(b_p2)
+                                own_offers.extend(o_p2)
                                 if d_p2 and not detected_modifier:
                                     detected_modifier = d_p2
                     except Exception as exc_p2:
@@ -461,17 +487,19 @@ async def _scrape_platform_single_query(
 
                 exact_offers = deduplicate_offers(exact_offers)
                 base_offers = deduplicate_offers(base_offers)
+                own_offers = deduplicate_offers(own_offers)
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
                     offers=exact_offers,
                     base_offers=base_offers,
+                    own_offers=own_offers,
                     active_modifier_fallback=detected_modifier,
                     is_success=True,
                     status_code=200,
                     error_detail=None,
                 )
-                if exact_offers or base_offers:
+                if exact_offers or base_offers or own_offers:
                     _query_cache[cache_key] = result
                     if raw_items:
                         _raw_items_cache[raw_cache_key] = list(raw_items)

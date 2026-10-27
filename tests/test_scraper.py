@@ -679,4 +679,51 @@ def test_digimall_subfloor_probe_fetches_page_2_when_needed() -> None:
     asyncio.run(_test())
 
 
+def test_scraper_collects_own_offers_without_contaminating_competitor_offers() -> None:
+    async def _test() -> None:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "results": [
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "85,000"},
+                    "vendor": {"name": "KiaChahye", "handle": "kiachahye"},
+                },
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "92,000"},
+                    "vendor": {"name": "Haier Official Store", "handle": "haier-official-store"},
+                },
+                {
+                    "title": "HAIER 120-826S6 GC",
+                    "sold_out": False,
+                    "variant_detail": {"discounted_price": "83,500"},
+                    "vendor": {"name": "Fahad Electronics", "handle": "fahad-electronics"},
+                },
+            ]
+        }
+        mock_session = AsyncMock()
+        mock_session.get.return_value = resp
+
+        result = await scrape_alfamall(mock_session, "120-826S6 GC", "120-826S6 GC")
+        assert result.is_success is True
+
+        # External competitors list contains ONLY Fahad Electronics
+        assert len(result.offers) == 1
+        assert result.offers[0].vendor_name == "Fahad Electronics"
+        assert result.offers[0].price == 83500.0
+
+        # own_offers contains KiaChahye and Haier Official Store
+        assert len(result.own_offers) == 2
+        own_vendors = {o.vendor_name for o in result.own_offers}
+        assert "KiaChahye" in own_vendors
+        assert "Haier Official Store" in own_vendors
+
+    asyncio.run(_test())
+
+
+
 

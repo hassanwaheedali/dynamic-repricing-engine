@@ -51,6 +51,7 @@ from pricing_engine.models import (
     ProductInput,
     ScrapedOffer,
     ScrapeResult,
+    classify_non_competitor_vendor,
 )
 from pricing_engine.registry import InMemoryRegistry
 from pricing_engine.scraper import scrape_alfamall, scrape_digimall
@@ -634,10 +635,34 @@ def _render_platform_offers_to_table(
         )
         return
 
-    if not offers:
+    own_offers = list(res.own_offers) if res.own_offers else (list(offers.own_offers) if isinstance(offers, ScrapeResult) else [])
+    for o in own_offers:
+        kind = classify_non_competitor_vendor(o.vendor_name)
+        dupe_tag = _format_dupe_tag(o.duplicate_count)
+        if kind == "OFFICIAL_STORE":
+            status_badge = (
+                "[dim magenta]Official Flagship (Out of Stock)[/]"
+                if o.is_sold_out
+                else "[bold magenta]Official Flagship (Excluded)[/]"
+            )
+        else:
+            status_badge = (
+                "[dim cyan]★ Our Store (Out of Stock)[/]"
+                if o.is_sold_out
+                else "[bold cyan]★ Our Store (Active Listing)[/]"
+            )
         tbl.add_row(
             platform_tag,
-            "[dim]No sellers found[/]",
+            o.vendor_name[:21],
+            f"Rs. {o.price:,.0f}",
+            f"{status_badge}{dupe_tag}",
+        )
+
+    if not offers:
+        empty_seller_label = "[dim]No external sellers[/]" if own_offers else "[dim]No sellers found[/]"
+        tbl.add_row(
+            platform_tag,
+            empty_seller_label,
             "[dim]0 scraped[/]",
             empty_label,
         )

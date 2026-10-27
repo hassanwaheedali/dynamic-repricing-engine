@@ -7,14 +7,19 @@ STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
 WINNING_5PCT_GOALS: frozenset[str] = frozenset({"WIN + 5% ACHIEVED", "SOLO (5% COVERED)"})
 
 # List of vendor names/handles excluded from competitor pricing and market discovery
-# (e.g. brand-owned official flagship stores that shouldn't be competed against)
+# (e.g. brand-owned official flagship stores or own merchant stores that shouldn't be competed against)
 NON_COMPETITOR_VENDORS: set[str] = {
     "haier-official-store",
     "haier official store",
     "haierofficialstore",
+    "kiachahye",
+    "kia chahye",
+    "kia-chahye",
+    "kiachahye.com",
     "kiachahiye",
     "kia chahiye",
     "kia-chahiye",
+    "kiachahiye.com",
     "ajmer",
     "ajmer electronics",
     "ajmer-electronics",
@@ -22,15 +27,26 @@ NON_COMPETITOR_VENDORS: set[str] = {
 }
 
 
-def is_non_competitor_vendor(vendor_name: str | None) -> bool:
-    """Check if a vendor should be excluded from competitive repricing and market discovery."""
+def classify_non_competitor_vendor(vendor_name: str | None) -> str | None:
+    """Classify a vendor into 'OWN_STORE', 'OFFICIAL_STORE', or None if external competitor."""
     if not vendor_name:
-        return False
+        return None
     norm = re.sub(r"[^a-z0-9]", "", str(vendor_name).lower())
+    if any(norm.startswith(k) for k in ("kiachah", "ajmer")):
+        return "OWN_STORE"
+    if any(norm.startswith(k) for k in ("haierofficial", "haierflagship")):
+        return "OFFICIAL_STORE"
     for excluded in NON_COMPETITOR_VENDORS:
         if norm == re.sub(r"[^a-z0-9]", "", excluded.lower()):
-            return True
-    return False
+            if "haier" in norm:
+                return "OFFICIAL_STORE"
+            return "OWN_STORE"
+    return None
+
+
+def is_non_competitor_vendor(vendor_name: str | None) -> bool:
+    """Check if a vendor should be excluded from competitive repricing and market discovery."""
+    return classify_non_competitor_vendor(vendor_name) is not None
 
 
 
@@ -80,6 +96,7 @@ class ScrapeResult:
     tier_summary: dict[str, int] = field(default_factory=dict)
     active_modifier_fallback: str | None = None
     base_offers: list[ScrapedOffer] = field(default_factory=list)
+    own_offers: list[ScrapedOffer] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)
@@ -115,6 +132,7 @@ class PlatformPricingResult:
     dropped: list[str] = field(default_factory=list)
     active_pool: list[str] = field(default_factory=list)
     effective_comm: str = "10.00%"
+    own_offers: list[ScrapedOffer] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

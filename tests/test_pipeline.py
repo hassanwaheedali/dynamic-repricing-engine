@@ -1412,3 +1412,70 @@ def test_in_order_card_dispatcher_skip_on_error() -> None:
 
     asyncio.run(_test())
 
+
+def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer, ScrapeResult
+    from pricing_engine.pipeline import build_scraped_sellers_table
+
+    floors = CostFloors(
+        floor_alfa=80555.0,
+        floor_digi_10=80555.0,
+        floor_digi_8=78804.0,
+        cost_base=72000.0,
+        zero_margin_10=80000.0,
+        zero_margin_8=78260.0,
+    )
+
+    alfa_scrape = ScrapeResult(
+        offers=[],
+        own_offers=[
+            ScrapedOffer(vendor_name="KiaChahye", price=85000.0, is_sold_out=False, raw_title=""),
+        ],
+    )
+    alfa_res = PlatformPricingResult(
+        final_price=84499.0,
+        min_price=None,
+        max_price=None,
+        real_profit=4049.0,
+        reason="[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000] Applied Monopoly pricing.",
+        status="Monopoly Win",
+        effective_comm="10.00%",
+        own_offers=alfa_scrape.own_offers,
+    )
+    digi_scrape = ScrapeResult(
+        offers=[
+            ScrapedOffer(vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title=""),
+        ],
+        own_offers=[
+            ScrapedOffer(vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title=""),
+        ],
+    )
+    digi_res = PlatformPricingResult(
+        final_price=82899.0,
+        min_price=83000.0,
+        max_price=83000.0,
+        real_profit=4267.0,
+        reason="[OFFICIAL STORE: Haier Official Store @ Rs. 92,000] Undercut competitor.",
+        status="Competitive Win",
+        effective_comm="8.00%",
+        own_offers=digi_scrape.own_offers,
+    )
+
+    tbl = build_scraped_sellers_table(floors, alfa_scrape, digi_scrape, alfa_res, digi_res)
+    rows_text = []
+    for col in tbl.columns:
+        for cell in col._cells:
+            rows_text.append(str(cell))
+    full_table_text = " ".join(rows_text)
+
+    # AlfaMall shows KiaChahye with Our Store badge and No external sellers
+    assert "KiaChahye" in full_table_text
+    assert "★ Our Store (Active Listing)" in full_table_text
+    assert "No external sellers" in full_table_text
+
+    # DigiMall shows Haier Official Store with Official Flagship badge and Fahad Electronics
+    assert "Haier Official Store" in full_table_text
+    assert "Official Flagship (Excluded)" in full_table_text
+    assert "Fahad Electronics" in full_table_text
+
+

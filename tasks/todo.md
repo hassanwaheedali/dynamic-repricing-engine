@@ -1,31 +1,30 @@
-# Task Breakdown & Checklist (`tasks/todo.md`)
+# Task Checklist: Own Store & Official Store Telemetry
 
-## Task 1: Path Resolution Helper & Format Subfolders (`pricing_engine/exporter.py`)
-- [x] Implement `resolve_option_output_dir(input_path: str | Path, option: int | str = 1) -> Path`
-- [x] Update `export_results` to create `csv/` and `xlsx/` subfolders inside target directory
-- [x] Update `export_winning_5pct_results` to create `csv/` and `xlsx/` subfolders inside target directory
-- [x] Ensure `export_range_results` writes to `csv/` and `xlsx/` subfolders inside target directory
-- [x] Update existing tests in `tests/test_exporter.py` and `tests/test_exporter_formulas.py` for `csv/` and `xlsx/` paths
-- [x] Add unit tests for `resolve_option_output_dir`
+- [x] **Task 1: Models & Data Contract**
+  - [x] Implement `classify_non_competitor_vendor()` in `pricing_engine/models.py`
+  - [x] Add `own_offers` field to `ScrapeResult`
+  - [x] Add `own_offers` field to `PlatformPricingResult`
+  - [x] Unit tests for vendor classification
 
-## Task 2: Wire `run_pipeline` (Options 1 & 3)
-- [x] In `pricing_engine/pipeline.py`, change default `export_dir: str | Path | None = None`
-- [x] Resolve `export_dir` using `resolve_option_output_dir(input_path, option=3 if personal_comm_pct > 0 else 1)` when `export_dir is None`
-- [x] Update banner path calculations to reflect target option subfolder and `csv/` subfolder
+- [x] **Task 2: Scraper Offer Routing**
+  - [x] Route non-competitor items to `own_offers` in `_parse_offers_from_raw_items()` in `pricing_engine/scraper.py`
+  - [x] Update `_scrape_platform_single_query()` to deduplicate and store `own_offers`
+  - [x] Update `_execute_waterfall()` to aggregate `own_offers` across tiers
 
-## Task 3: Wire `run_range_pipeline` (Option 2)
-- [x] In `pricing_engine/range_pipeline.py`, change default `export_dir: str | Path | None = None`
-- [x] Resolve `export_dir` using `resolve_option_output_dir(input_path, option=2)` when `export_dir is None`
-- [x] Update banner and finish cards to show resolved `option_2/` paths
+- [x] **Task 3: Evaluator Isolation & Reason Annotation**
+  - [x] Keep `offers` list strictly competitive (own store never enters `active_offers`)
+  - [x] Implement `_annotate_non_competitor_reason()` in `pricing_engine/evaluator.py`
+  - [x] Verify Monopoly pricing triggers if own store is sole lister
 
-## Task 4: Ingestion Safeguards & CLI Updates (`index.py`)
-- [x] Ensure `find_input_catalogs` only matches direct files and ignores subfolders in `data/inputs/`
-- [x] Update `index.py` CLI help strings and console output
+- [x] **Task 4: Terminal Audit Card Display**
+  - [x] Update `_render_platform_offers_to_table()` in `pricing_engine/pipeline.py`
+  - [x] Add badge `★ Our Store (Active Listing)` for KiaChahye/Ajmer
+  - [x] Add badge `Official Flagship (Excluded)` for Haier Official Store
 
-## Task 5: End-to-End Verification
-- [x] Run full test suite (`pytest`) to confirm all 355 tests pass
-- [x] Run live pipeline on `data/inputs/wm.csv` for Option 1, Option 2, and Option 3
-- [x] Confirm resulting directory structure:
-  - `data/outputs/wm/option_1/{csv, xlsx}/`
-  - `data/outputs/wm/option_2/{csv, xlsx}/`
-  - `data/outputs/wm/option_3/{csv, xlsx}/`
+- [x] **Task 5: Range Mode Check**
+  - [x] Ensure `pricing_engine/range_pipeline.py` preserves own store metadata without distorting market min/max
+
+- [x] **Task 6: Verification & Quality Gate**
+  - [x] Run `pytest tests/test_evaluator.py`
+  - [x] Run `pytest -v` (full 362 test suite)
+  - [x] Run `ruff check .`

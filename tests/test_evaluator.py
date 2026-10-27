@@ -383,6 +383,10 @@ def test_is_non_competitor_vendor() -> None:
     assert is_non_competitor_vendor("KiaChahiye") is True
     assert is_non_competitor_vendor("kia-chahiye") is True
     assert is_non_competitor_vendor("KIA CHAHIYE") is True
+    assert is_non_competitor_vendor("KiaChahye") is True
+    assert is_non_competitor_vendor("kiachahye") is True
+    assert is_non_competitor_vendor("kia chahye") is True
+    assert is_non_competitor_vendor("kiachahye.com") is True
     assert is_non_competitor_vendor("Ajmer") is True
     assert is_non_competitor_vendor("Ajmer Electronics") is True
     assert is_non_competitor_vendor("ajmer-electronics") is True
@@ -390,6 +394,16 @@ def test_is_non_competitor_vendor() -> None:
     assert is_non_competitor_vendor("Ezzi traders") is False
     assert is_non_competitor_vendor("") is False
     assert is_non_competitor_vendor(None) is False
+
+    from pricing_engine.models import classify_non_competitor_vendor
+
+    assert classify_non_competitor_vendor("KiaChahye") == "OWN_STORE"
+    assert classify_non_competitor_vendor("kiachahye.com") == "OWN_STORE"
+    assert classify_non_competitor_vendor("Ajmer Electronics") == "OWN_STORE"
+    assert classify_non_competitor_vendor("Haier Official Store") == "OFFICIAL_STORE"
+    assert classify_non_competitor_vendor("haierofficialstore") == "OFFICIAL_STORE"
+    assert classify_non_competitor_vendor("Fahad Electronics") is None
+    assert classify_non_competitor_vendor(None) is None
 
 
 def test_evaluate_market_range_ignores_non_competitor() -> None:
@@ -417,4 +431,56 @@ def test_evaluator_ignores_non_competitor_as_sole_offer(sample_floors: CostFloor
     digi_res = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert digi_res.status == "Monopoly Win"
     assert digi_res.min_price is None
+
+
+def test_evaluator_own_store_annotation_and_zero_undercut_invariance(sample_floors: CostFloors) -> None:
+    # When KiaChahye is the sole seller at 85,000, engine must NOT undercut 85,000!
+    # Instead, monopoly pricing is applied and reason includes the [OWN STORE ACTIVE: ...] hint.
+    scrape_res = ScrapeResult(
+        offers=[],
+        own_offers=[
+            ScrapedOffer(vendor_name="KiaChahye", price=85000.0, is_sold_out=False, raw_title="AC"),
+        ],
+    )
+    alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
+    assert alfa_res.status == "Monopoly Win"
+    assert alfa_res.final_price == 84499  # Standard monopoly price for sample_floors (Cost Base 72,000 + 4,000 / 0.90 -> 84,444 -> 84,499)
+    assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000]" in alfa_res.reason
+    assert "Applied Monopoly pricing" in alfa_res.reason
+    assert len(alfa_res.own_offers) == 1
+
+    digi_res = evaluate_digi_pricing(cost_floors=sample_floors, offers=scrape_res)
+    assert digi_res.status == "Monopoly Win"
+    assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000]" in digi_res.reason
+
+
+def test_evaluator_own_store_with_external_competitor(sample_floors: CostFloors) -> None:
+    # Competitor is at 83,000, KiaChahye is at 84,000.
+    # Engine must undercut the competitor (83,000 -> 82,899), NOT KiaChahye, and tag both!
+    scrape_res = ScrapeResult(
+        offers=[
+            ScrapedOffer(vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title="AC"),
+        ],
+        own_offers=[
+            ScrapedOffer(vendor_name="KiaChahye", price=84000.0, is_sold_out=False, raw_title="AC"),
+            ScrapedOffer(vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title="AC"),
+        ],
+    )
+    alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
+    assert alfa_res.status == "Competitive Win"
+    assert alfa_res.final_price == 81499  # Undercuts Fahad Electronics (83,000)
+    assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 84,000]" in alfa_res.reason
+    assert "[OFFICIAL STORE: Haier Official Store @ Rs. 92,000]" in alfa_res.reason
+    assert any("Fahad Electronics" in s for s in alfa_res.active_pool)
+
+
+def test_evaluator_own_store_out_of_stock_annotation(sample_floors: CostFloors) -> None:
+    scrape_res = ScrapeResult(
+        offers=[],
+        own_offers=[
+            ScrapedOffer(vendor_name="KiaChahye", price=85000.0, is_sold_out=True, raw_title="AC"),
+        ],
+    )
+    alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
+    assert "[OWN STORE ACTIVE: KiaChahye (OUT OF STOCK) @ Rs. 85,000]" in alfa_res.reason
 

@@ -13,6 +13,7 @@ from pricing_engine.models import (
     PlatformPricingResult,
     ScrapedOffer,
     ScrapeResult,
+    classify_non_competitor_vendor,
     is_non_competitor_vendor,
 )
 
@@ -62,21 +63,57 @@ def _annotate_fallback_reason(
     return res
 
 
+def _annotate_non_competitor_reason(
+    res: PlatformPricingResult, own_offers: list[ScrapedOffer]
+) -> PlatformPricingResult:
+    """Prepend explicit notification to pricing reason when own store or official store is active."""
+    if not own_offers or res.status == STATUS_SERVER_DOWN:
+        return res
+
+    own_tags: list[str] = []
+    official_tags: list[str] = []
+
+    for o in own_offers:
+        kind = classify_non_competitor_vendor(o.vendor_name)
+        status_suffix = " (OUT OF STOCK)" if o.is_sold_out else ""
+        tag_str = f"{o.vendor_name}{status_suffix} @ Rs. {o.price:,.0f}"
+        if kind == "OFFICIAL_STORE":
+            official_tags.append(tag_str)
+        else:
+            own_tags.append(tag_str)
+
+    prefix_parts: list[str] = []
+    if own_tags:
+        prefix_parts.append(f"[OWN STORE ACTIVE: {', '.join(own_tags)}]")
+    if official_tags:
+        prefix_parts.append(f"[OFFICIAL STORE: {', '.join(official_tags)}]")
+
+    if prefix_parts:
+        combined_prefix = " ".join(prefix_parts)
+        new_reason = f"{combined_prefix} {res.reason}"
+        return replace(res, reason=new_reason)
+
+    return res
+
+
 def evaluate_alfa_pricing(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
     monopoly_profit: float = MONOPOLY_PROFIT,
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
-    """Evaluate pricing on AlfaMall with automatic fallback reason annotation."""
+    """Evaluate pricing on AlfaMall with automatic fallback and own-store reason annotations."""
     active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
+    own_offers = offers.own_offers if isinstance(offers, ScrapeResult) else []
     res = _evaluate_alfa_core(
         cost_floors=cost_floors,
         offers=offers,
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
-    return _annotate_fallback_reason(res, active_fallback)
+    res = replace(res, own_offers=own_offers)
+    res = _annotate_fallback_reason(res, active_fallback)
+    return _annotate_non_competitor_reason(res, own_offers)
 
 
 def _evaluate_alfa_core(
@@ -283,15 +320,18 @@ def evaluate_digi_pricing(
     monopoly_profit: float = MONOPOLY_PROFIT,
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
-    """Evaluate pricing on DigiMall with automatic fallback reason annotation."""
+    """Evaluate pricing on DigiMall with automatic fallback and own-store reason annotations."""
     active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
+    own_offers = offers.own_offers if isinstance(offers, ScrapeResult) else []
     res = _evaluate_digi_core(
         cost_floors=cost_floors,
         offers=offers,
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
-    return _annotate_fallback_reason(res, active_fallback)
+    res = replace(res, own_offers=own_offers)
+    res = _annotate_fallback_reason(res, active_fallback)
+    return _annotate_non_competitor_reason(res, own_offers)
 
 
 def _evaluate_digi_core(
