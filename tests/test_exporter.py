@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 import pytest
 
@@ -443,6 +444,60 @@ def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
     assert "Digi Effective Commision" in csv_df.columns
     assert "Alfa Risk Alert" in csv_df.columns
     assert "Digi Risk Alert" in csv_df.columns
+
+
+def test_export_functions_strip_unnamed_columns_from_csv_and_xlsx(tmp_path: Path) -> None:
+    """Verify export_results, export_winning_5pct_results, and export_range_results strip Unnamed columns."""
+    from pricing_engine.exporter import export_range_results, export_winning_5pct_results
+
+    out_dir = tmp_path / "strip_unnamed_test"
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 1,
+                "Brand": "Dawlance",
+                "Name": "DW-6570",
+                "Net Price": 33000,
+                "Unnamed: 3": None,
+                "   ": "stray",
+                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
+                "Digi 5% Goal": "WIN + 5% ACHIEVED",
+                "Final Price Alfa": 42499,
+                "Final Price Digi": 41899,
+                "Alfa Risk Alert": "NONE",
+                "Digi Risk Alert": "NONE",
+            }
+        ]
+    )
+
+    # 1. Test export_results
+    manifest = export_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt1")
+    res_csv = pd.read_csv(manifest.latest_path)
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in res_csv.columns)
+    wb = openpyxl.load_workbook(manifest.latest_xlsx_path)
+    ws = wb.active
+    xlsx_cols = [cell.value for cell in ws[1]]
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in xlsx_cols)
+
+    # 2. Test export_winning_5pct_results
+    w_csv, w_xlsx, count = export_winning_5pct_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt3")
+    assert count == 1
+    w_df = pd.read_csv(w_csv)
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in w_df.columns)
+    w_wb = openpyxl.load_workbook(w_xlsx)
+    w_ws = w_wb.active
+    w_xlsx_cols = [cell.value for cell in w_ws[1]]
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in w_xlsx_cols)
+
+    # 3. Test export_range_results
+    range_manifest = export_range_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt2")
+    r_df = pd.read_csv(range_manifest.csv_latest)
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in r_df.columns)
+    r_wb = openpyxl.load_workbook(range_manifest.xlsx_latest)
+    r_ws = r_wb.active
+    r_xlsx_cols = [cell.value for cell in r_ws[1]]
+    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in r_xlsx_cols)
+
 
 
 

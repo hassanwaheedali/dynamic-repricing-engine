@@ -381,11 +381,13 @@ def build_output_record(
     # Guarantee S.NO is the first column in output
     out_record: dict[str, Any] = {"S.NO": product.sno}
 
-    # Copy remaining raw_row fields, excluding any S.NO aliases
+    # Copy remaining raw_row fields, excluding any S.NO aliases and unnamed/empty columns
     sno_aliases = {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
     for k, v in product.raw_row.items():
-        if k not in sno_aliases:
-            out_record[k] = v
+        k_str = str(k).strip()
+        if k in sno_aliases or k_str.lower().startswith("unnamed:") or not k_str:
+            continue
+        out_record[k] = v
 
     out_record["Shipping Estimate"] = shipping
     out_record["Commision"] = "10.00%"
@@ -1553,15 +1555,16 @@ def render_winning_5pct_summary(
         console.print()
         return
 
-    # Sort A to Z by product name/title case-insensitively, preserving input order for ties
-    def _sort_key(r: dict[str, Any]) -> str:
-        name = str(
-            r.get(
-                "Name ",
-                r.get("Name", r.get("Title", r.get("Product Name", r.get("Model", "")))),
-            )
-        )
-        return name.strip().lower()
+    # Sort winning products strictly by Input Order / Serial Number (S# 1, 2, 5, 6, 7, 8... ascending)
+    def _sort_key(r: dict[str, Any]) -> tuple[int, float, str]:
+        sno_val = r.get("S.NO", "")
+        if sno_val is None:
+            return (2, 0.0, "")
+        s_clean = str(sno_val).replace(",", "").strip()
+        try:
+            return (0, float(s_clean), "")
+        except (ValueError, TypeError):
+            return (1, 0.0, s_clean.lower())
 
     sorted_winners = sorted(winners, key=_sort_key)
 

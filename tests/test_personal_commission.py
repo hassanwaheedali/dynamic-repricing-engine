@@ -322,11 +322,22 @@ def test_adversarial_edge_cases(tmp_path: Path) -> None:
     assert isinstance(formula, str) and "*0.035" in formula
 
 
-def test_export_winning_5pct_results_sorts_a_to_z_preserving_data(tmp_path: Path) -> None:
-    """Verify winning products sort strictly A-to-Z while preserving input order for ties and intact row data."""
+def test_export_winning_5pct_results_sorts_by_sno_ascending_preserving_data(tmp_path: Path) -> None:
+    """Verify winning products sort strictly by S.NO numeric ascending while preserving intact row data."""
     out_dir = tmp_path / "winners_test"
+    # Provide inputs out of order (104, 101, 103, 102) to verify sorting strictly orders 101, 102, 103, 104
     df = pd.DataFrame(
         [
+            {
+                "S.NO": 104,
+                "Brand": "Dawlance",
+                "Name": "Dawlance DW-6570 Washer B",
+                "Net Price": 35000,
+                "Custom Tag": "Tag-Dawlance-B",
+                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
+                "Digi 5% Goal": "WIN + 5% ACHIEVED",
+                "My 5% Commission": 1750,
+            },
             {
                 "S.NO": 101,
                 "Brand": "Haier",
@@ -336,16 +347,6 @@ def test_export_winning_5pct_results_sorts_a_to_z_preserving_data(tmp_path: Path
                 "Alfa 5% Goal": "WIN + 5% ACHIEVED",
                 "Digi 5% Goal": "WIN + 5% ACHIEVED",
                 "My 5% Commission": 3500,
-            },
-            {
-                "S.NO": 102,
-                "Brand": "Dawlance",
-                "Name": "Dawlance DW-6570 Washer",
-                "Net Price": 33000,
-                "Custom Tag": "Tag-Dawlance-A",
-                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
-                "Digi 5% Goal": "BELOW FLOOR",
-                "My 5% Commission": 1650,
             },
             {
                 "S.NO": 103,
@@ -358,14 +359,14 @@ def test_export_winning_5pct_results_sorts_a_to_z_preserving_data(tmp_path: Path
                 "My 5% Commission": 9000,
             },
             {
-                "S.NO": 104,
+                "S.NO": 102,
                 "Brand": "Dawlance",
-                "Name": "Dawlance DW-6570 Washer",  # Identical name to test stable tie-breaker
-                "Net Price": 35000,
-                "Custom Tag": "Tag-Dawlance-B",
+                "Name": "Dawlance DW-6570 Washer A",
+                "Net Price": 33000,
+                "Custom Tag": "Tag-Dawlance-A",
                 "Alfa 5% Goal": "WIN + 5% ACHIEVED",
-                "Digi 5% Goal": "WIN + 5% ACHIEVED",
-                "My 5% Commission": 1750,
+                "Digi 5% Goal": "BELOW FLOOR",
+                "My 5% Commission": 1650,
             },
             {
                 "S.NO": 105,
@@ -393,16 +394,15 @@ def test_export_winning_5pct_results_sorts_a_to_z_preserving_data(tmp_path: Path
     w_df = pd.read_csv(csv_path)
     assert len(w_df) == 4
 
-    # Verify A to Z ordering:
-    # Dawlance (102) -> Dawlance (104, stable tie preservation) -> Gree (103) -> Haier (101)
-    assert list(w_df["S.NO"]) == [102, 104, 103, 101]
+    # Verify S.NO numeric ascending ordering: 101 -> 102 -> 103 -> 104
+    assert list(w_df["S.NO"]) == [101, 102, 103, 104]
     assert list(w_df["Name"]) == [
-        "Dawlance DW-6570 Washer",
-        "Dawlance DW-6570 Washer",
-        "Gree GS-18AITH21W AC",
         "Haier HW 105 Washer",
+        "Dawlance DW-6570 Washer A",
+        "Gree GS-18AITH21W AC",
+        "Dawlance DW-6570 Washer B",
     ]
     # Verify input data and custom columns preserved completely intact:
-    assert list(w_df["Custom Tag"]) == ["Tag-Dawlance-A", "Tag-Dawlance-B", "Tag-Gree", "Tag-Haier"]
-    assert list(w_df["Net Price"]) == [33000, 35000, 180000, 70000]
+    assert list(w_df["Custom Tag"]) == ["Tag-Haier", "Tag-Dawlance-A", "Tag-Gree", "Tag-Dawlance-B"]
+    assert list(w_df["Net Price"]) == [70000, 33000, 180000, 35000]
 

@@ -262,4 +262,28 @@ def test_read_catalog_csv_handles_trailing_commas_and_jagged_rows(tmp_path: Path
     assert list(df["Net Price"]) == ['21,500', '21,500', '43,500']
 
 
+def test_read_catalog_csv_drops_unnamed_trailing_header_columns(tmp_path: Path) -> None:
+    """Verify read_catalog_csv and ingest_catalog drop stray Unnamed: columns from trailing header commas."""
+    from pricing_engine.ingestion import read_catalog_csv
+
+    # Simulate dawlance.csv header which had: 'Title,Brand,Net Price,'
+    csv_file = tmp_path / "trailing_header_comma.csv"
+    csv_file.write_text(
+        "Title,Brand,Net Price,\n"
+        "Dawlance DW 10090,Dawlance,33000,\n"
+        "Dawlance DW 10095,Dawlance,28000,\n",
+        encoding="utf-8",
+    )
+    df = read_catalog_csv(csv_file)
+    assert len(df) == 2
+    assert "Unnamed: 3" not in df.columns
+    assert list(df.columns) == ["Title", "Brand", "Net Price"]
+
+    products, report = ingest_catalog(csv_file, render_banner=False)
+    assert len(products) == 2
+    for p in products:
+        assert not any(str(k).lower().startswith("unnamed:") for k in p.raw_row)
+
+
+
 

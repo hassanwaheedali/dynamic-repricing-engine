@@ -139,6 +139,16 @@ def render_ingestion_banner(report: IngestionReport) -> None:
     console.print(panel)
 
 
+def _clean_catalog_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop any stray empty or 'Unnamed:' columns created by trailing commas."""
+    if df is None or df.empty:
+        return df
+    cols_to_keep = [
+        c for c in df.columns if not (str(c).lower().startswith("unnamed:") or not str(c).strip())
+    ]
+    return df.loc[:, cols_to_keep]
+
+
 def read_catalog_csv(csv_path: str | Path) -> pd.DataFrame:
     """Robustly read catalog CSV handling delimiter detection, BOMs, and jagged rows with trailing commas.
 
@@ -155,8 +165,8 @@ def read_catalog_csv(csv_path: str | Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(path)
         if len(df.columns) == 1 and "\t" in str(df.columns[0]):
-            return pd.read_csv(path, sep="\t")
-        return df
+            return _clean_catalog_frame(pd.read_csv(path, sep="\t"))
+        return _clean_catalog_frame(df)
     except Exception:
         pass
 
@@ -164,7 +174,7 @@ def read_catalog_csv(csv_path: str | Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(path, sep=None, engine="python")
         if not (len(df.columns) == 1 and "\t" in str(df.columns[0])):
-            return df
+            return _clean_catalog_frame(df)
     except Exception:
         pass
 
@@ -192,11 +202,11 @@ def read_catalog_csv(csv_path: str | Path) -> pd.DataFrame:
                 else:
                     cleaned_rows.append(r[:expected_cols])
 
-            return pd.DataFrame(cleaned_rows, columns=headers)
+            return _clean_catalog_frame(pd.DataFrame(cleaned_rows, columns=headers))
         except Exception:
             continue
 
-    return pd.read_csv(path, on_bad_lines="skip")
+    return _clean_catalog_frame(pd.read_csv(path, on_bad_lines="skip"))
 
 
 def ingest_catalog(

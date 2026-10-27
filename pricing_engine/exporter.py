@@ -125,6 +125,10 @@ def export_excel_workbook(
     ws = wb.active
     ws.title = "Repriced Catalog"
 
+    # Filter out any stray Unnamed or empty column headers
+    df = df.loc[:, ~df.columns.astype(str).str.lower().str.startswith("unnamed:")]
+    df = df.loc[:, df.columns.astype(str).str.strip() != ""]
+
     headers = list(df.columns)
     ws.append(headers)
 
@@ -456,6 +460,11 @@ def export_results(
     latest_xlsx_path = xlsx_dir / latest_xlsx_filename
 
     export_df = df.copy()
+    unnamed_cols = [
+        c for c in export_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
+    ]
+    if unnamed_cols:
+        export_df = export_df.drop(columns=unnamed_cols)
     if platform.lower().strip() == "alfa":
         export_df = filter_alfa_only_columns(export_df)
     if "S.NO" in export_df.columns:
@@ -464,7 +473,13 @@ def export_results(
     # 1. Export Excel workbook with dynamic formulas first (from full precision numbers)
     try:
         export_excel_workbook(export_df, timestamped_xlsx_path, personal_comm_pct=personal_comm_pct)
-        shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
+        try:
+            shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
+        except OSError as exc:
+            console.print(
+                f"[bold yellow]⚠️  {latest_xlsx_filename} is open in Excel and cannot be overwritten ({exc}). Timestamped copy saved: {timestamped_xlsx_filename}[/]"
+            )
+            latest_xlsx_path = None  # type: ignore[assignment]
     except Exception as exc:
         console.print(f"[bold yellow]⚠️  Excel export warning:[/] {exc}")
         timestamped_xlsx_path = None  # type: ignore[assignment]
@@ -531,51 +546,22 @@ def export_winning_5pct_results(
     if winners_df.empty:
         return None, None, 0
 
-    # Sort winning products A to Z by product name/title, preserving input order for ties
-    name_col = next(
-        (
-            c
-            for c in (
-                "Name ",
-                "Name",
-                "Title",
-                "title",
-                "Product Name",
-                "product name",
-                "Product Title",
-                "product title",
-                "Model",
-                "model",
+    # Sort winning products strictly by Input Order / Serial Number (S# 1, 2, 5, 6, 7... ascending)
+    if "S.NO" in winners_df.columns:
+        sno_numeric = pd.to_numeric(
+            winners_df["S.NO"].astype(str).str.replace(",", "").str.strip(),
+            errors="coerce",
+        )
+        if sno_numeric.notna().all():
+            winners_df = (
+                winners_df.assign(_sno_numeric_sort=sno_numeric)
+                .sort_values(by="_sno_numeric_sort", ascending=True, kind="stable")
+                .drop(columns=["_sno_numeric_sort"])
             )
-            if c in winners_df.columns
-        ),
-        None,
-    )
-    if name_col is None:
-        name_col = next(
-            (
-                c
-                for c in winners_df.columns
-                if c.strip().lower()
-                in {
-                    "name",
-                    "title",
-                    "product name",
-                    "product title",
-                    "product",
-                    "model",
-                }
-            ),
-            None,
-        )
-
-    if name_col is not None:
-        winners_df = winners_df.sort_values(
-            by=name_col,
-            key=lambda s: s.astype(str).str.strip().str.lower(),
-            ascending=True,
-            kind="stable",
-        )
+        else:
+            winners_df = winners_df.sort_index(kind="stable")
+    else:
+        winners_df = winners_df.sort_index(kind="stable")
 
     if output_dir is None:
         out_dir = resolve_option_output_dir(source_filename, option=3)
@@ -598,6 +584,11 @@ def export_winning_5pct_results(
     latest_xlsx = xlsx_dir / f"{stem}_winning_5pct_latest.xlsx"
 
     export_df = winners_df.copy()
+    unnamed_cols = [
+        c for c in export_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
+    ]
+    if unnamed_cols:
+        export_df = export_df.drop(columns=unnamed_cols)
     if platform.lower().strip() == "alfa":
         export_df = filter_alfa_only_columns(export_df)
     if "S.NO" in export_df.columns:
@@ -606,7 +597,13 @@ def export_winning_5pct_results(
     saved_xlsx: Path | None = latest_xlsx
     try:
         export_excel_workbook(export_df, ts_xlsx, personal_comm_pct=personal_comm_pct)
-        shutil.copyfile(ts_xlsx, latest_xlsx)
+        try:
+            shutil.copyfile(ts_xlsx, latest_xlsx)
+        except OSError as exc:
+            console.print(
+                f"[bold yellow]⚠️  {latest_xlsx.name} is open in Excel and cannot be overwritten ({exc}). Timestamped copy saved: {ts_xlsx.name}[/]"
+            )
+            saved_xlsx = ts_xlsx
     except Exception:
         saved_xlsx = None
 
@@ -664,6 +661,10 @@ def _write_range_xlsx(df: pd.DataFrame, path: Path) -> None:
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
+    # Filter out any stray Unnamed or empty column headers
+    df = df.loc[:, ~df.columns.astype(str).str.lower().str.startswith("unnamed:")]
+    df = df.loc[:, df.columns.astype(str).str.strip() != ""]
+
     df.to_excel(path, index=False, engine="openpyxl")
     wb = load_workbook(path)
     ws = wb.active
@@ -704,6 +705,11 @@ def export_range_results(
     stem = sanitize_catalog_stem(source_filename)
 
     working_df = df.copy()
+    unnamed_cols = [
+        c for c in working_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
+    ]
+    if unnamed_cols:
+        working_df = working_df.drop(columns=unnamed_cols)
     if platform.lower().strip() == "alfa":
         working_df = filter_alfa_only_columns(working_df)
 
