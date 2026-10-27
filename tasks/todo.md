@@ -1,30 +1,14 @@
-# Task Checklist: Own Store & Official Store Telemetry
+# Task Checklist: Consistent Viable Winning & Capping Status Engine
 
-- [x] **Task 1: Models & Data Contract**
-  - [x] Implement `classify_non_competitor_vendor()` in `pricing_engine/models.py`
-  - [x] Add `own_offers` field to `ScrapeResult`
-  - [x] Add `own_offers` field to `PlatformPricingResult`
-  - [x] Unit tests for vendor classification
+- [x] **Task 1: Status Engine Refactoring**
+  - [x] Update `determine_platform_status()` in `pricing_engine/pipeline.py` (consistent `CAPPED` & `WIN` for viable undercuts, zero `UNCOMPETITIVE`)
+  - [x] Update `_render_platform_decision_metric` / `build_platform_decision_table()` in `pricing_engine/pipeline.py` with explicit outcome badges: `(WINNING UNDERCUT)`, `(CAPPED SWEET-SPOT)`, `(MONOPOLY WIN)`, `(SAFE FALLBACK)`
+  - [x] Validate `determine_5pct_goal_status()` in `pricing_engine/pipeline.py`
 
-- [x] **Task 2: Scraper Offer Routing**
-  - [x] Route non-competitor items to `own_offers` in `_parse_offers_from_raw_items()` in `pricing_engine/scraper.py`
-  - [x] Update `_scrape_platform_single_query()` to deduplicate and store `own_offers`
-  - [x] Update `_execute_waterfall()` to aggregate `own_offers` across tiers
+- [x] **Task 2: Testing & Verification**
+  - [x] Unit tests for `determine_platform_status()` and `build_platform_decision_table()` in `tests/test_pipeline.py`
+  - [x] Full regression suite passing in `pytest -v` (373 passed, 0 failures)
 
-- [x] **Task 3: Evaluator Isolation & Reason Annotation**
-  - [x] Keep `offers` list strictly competitive (own store never enters `active_offers`)
-  - [x] Implement `_annotate_non_competitor_reason()` in `pricing_engine/evaluator.py`
-  - [x] Verify Monopoly pricing triggers if own store is sole lister
-
-- [x] **Task 4: Terminal Audit Card Display**
-  - [x] Update `_render_platform_offers_to_table()` in `pricing_engine/pipeline.py`
-  - [x] Add badge `★ Our Store (Active Listing)` for KiaChahye/Ajmer
-  - [x] Add badge `Official Flagship (Excluded)` for Haier Official Store
-
-- [x] **Task 5: Range Mode Check**
-  - [x] Ensure `pricing_engine/range_pipeline.py` preserves own store metadata without distorting market min/max
-
-- [x] **Task 6: Verification & Quality Gate**
-  - [x] Run `pytest tests/test_evaluator.py`
-  - [x] Run `pytest -v` (full 362 test suite)
-  - [x] Run `ruff check .`
+- [x] **Task 3: Quality Gates**
+  - [x] `ruff check .` (All checks passed)
+  - [x] `mypy pricing_engine index.py` (Success: no issues found in 14 source files)

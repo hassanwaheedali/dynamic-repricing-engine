@@ -1,33 +1,23 @@
-# Implementation Plan: Own Store & Official Store Detection & Telemetry
+# Implementation Plan: Consistent Viable Winning & Capping Status Engine
 
 ## Overview
-Enable detection of merchant's own store (`KiaChahye`, `Ajmer`) and brand official store (`Haier Official Store`) active listings on AlfaMall and DigiMall. Display hints in terminal audit cards and CSV reason columns with guaranteed mathematical isolation (zero self-undercutting).
+Standardize `determine_platform_status()` and `determine_5pct_goal_status()` in `pricing_engine/pipeline.py` according to global enterprise repricing standards. Filtered sub-floor outliers (junk, installments, accessories) are excluded, and undercutting the lowest viable competitor is consistently recognized as a viable market win. Eliminates the word `UNCOMPETITIVE` entirely.
 
 ## Architecture Decisions
-- **Zero Self-Undercut Invariance**: Competitor pool `offers` and metadata pool `own_offers` are strictly segregated at the scraper extraction layer. Evaluator pricing logic only operates on `offers`.
-- **Schema Stability**: Zero modifications to CSV column ordering; telemetry is surfaced via Rich Terminal Cards and Reason column annotations (`Alfa Reason`, `Digi Reason`).
+- **Zero "UNCOMPETITIVE" Labels**: Status remains clean: `CAPPED`, `WIN`, `SOLO`, `FALLBACK`.
+- **Viable Win Consistency**: Both capped undercuts (`CAPPED`) and standard undercuts (`WIN`) against viable competitors are consistently recognized as winners.
+- **Goal Stability**: When profit >= target profit (Rs. 526), both `CAPPED` and `WIN` earn `WIN + 5% ACHIEVED` and enter the 5% winning export.
 
 ## Task List
 
-### Phase 1: Foundation (Models)
-- [ ] Task 1.1: Add `classify_non_competitor_vendor()` in `pricing_engine/models.py`
-- [ ] Task 1.2: Add `own_offers` to `ScrapeResult` and `PlatformPricingResult` dataclasses
+### Phase 1: Status Engine Refactoring
+- [ ] Task 1.1: Refactor `determine_platform_status()` in `pricing_engine/pipeline.py` to consistently return `CAPPED` or `WIN` for viable competitor undercuts.
+- [ ] Task 1.2: Verify `determine_5pct_goal_status()` in `pricing_engine/pipeline.py` handles both pure and viable winning badges cleanly without uncompetitive labels.
 
-### Phase 2: Scraper Pipeline
-- [ ] Task 2.1: Update `_parse_offers_from_raw_items()` in `pricing_engine/scraper.py` to route non-competitors to `own_offers` without dropping
-- [ ] Task 2.2: Pass `own_offers` through single query scraper and `_execute_waterfall()`
+### Phase 2: Automated Testing
+- [ ] Task 2.1: Add unit tests in `tests/test_pipeline.py` for viable competitor undercuts (both capped and uncapped).
+- [ ] Task 2.2: Verify `tests/test_personal_commission.py` passes all assertions.
 
-### Phase 3: Evaluator Decision & Reason Annotation
-- [ ] Task 3.1: Add `_annotate_non_competitor_reason()` in `pricing_engine/evaluator.py`
-- [ ] Task 3.2: Verify mathematical invariance (monopoly when only own store exists, undercut only genuine competitors)
-
-### Phase 4: UI & Terminal Rendering
-- [ ] Task 4.1: Render own store and official store rows in `_render_platform_offers_to_table()` in `pricing_engine/pipeline.py`
-
-### Phase 5: Range Mode & Exporter
-- [ ] Task 5.1: Verify range mode compatibility in `pricing_engine/range_pipeline.py`
-
-### Phase 6: Automated Testing & Verification
-- [ ] Task 6.1: Add unit tests in `tests/test_evaluator.py` for vendor classification and zero undercutting
-- [ ] Task 6.2: Add unit tests in `tests/test_pipeline.py` for terminal card rendering
-- [ ] Task 6.3: Run full test suite (`pytest -v`) and linter (`ruff check .`)
+### Phase 3: Quality Gates
+- [ ] Task 3.1: Run `pytest -v`.
+- [ ] Task 3.2: Run `ruff check .` and `mypy pricing_engine index.py`.

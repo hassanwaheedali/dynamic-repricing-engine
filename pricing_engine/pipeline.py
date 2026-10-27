@@ -316,8 +316,10 @@ def determine_platform_status(
 
         if "monopoly" in reason_lower or "no competitors" in reason_lower:
             return "SOLO"
-        if "capped" in reason_lower:
+        if "capped" in reason_lower or "split midpoint" in reason_lower:
             return "CAPPED"
+        if "undercut" in reason_lower or "winning price" in reason_lower:
+            return "WIN"
         return ""
 
     return ""
@@ -332,26 +334,30 @@ def determine_5pct_goal_status(
 ) -> str:
     """Determine whether a product achieves WIN + Full 5% Personal Commission + Rs. 500 Company Profit.
 
-    Strict Goal Condition:
+    Strict Market-Wide Goal Condition:
     1. Active sellers exist in market (active_sellers > 0 -> proven market demand).
-    2. Status badge starts with 'WIN' or 'CAPPED' (our price beats the lowest market competitor).
+    2. Status badge indicates a true market-wide win: 'WIN (-' or 'CAPPED (-'.
+       If sub-floor competitors exist in the market, our price does NOT beat the cheapest
+       seller on the platform, so it cannot qualify as WIN + 5% ACHIEVED.
     3. Real profit covers both 5% personal commission on Net Price AND Rs. 500 company profit.
     """
     if is_skipped:
         return ""
     if status_badge == "SERVER_DOWN":
         return "SERVER_DOWN"
+    if status_badge == "FALLBACK":
+        return "FALLBACK (UNCOMPETITIVE)"
     if (
         active_sellers > 0
-        and (status_badge.startswith("WIN") or status_badge.startswith("CAPPED"))
+        and (status_badge.startswith("WIN (-") or status_badge.startswith("CAPPED (-"))
         and real_profit is not None
         and real_profit >= target_profit_5pct
     ):
         return "WIN + 5% ACHIEVED"
     if status_badge == "SOLO" and real_profit is not None and real_profit >= target_profit_5pct:
         return "SOLO (5% COVERED)"
-    if status_badge == "FALLBACK":
-        return "FALLBACK (UNCOMPETITIVE)"
+    if status_badge in ("CAPPED", "WIN"):
+        return "SUB-FLOOR CHEAPER"
     return "BELOW 5% FLOOR"
 
 
@@ -829,6 +835,191 @@ def build_scraped_sellers_table(
     return tbl
 
 
+def build_platform_decision_table(
+    alfa_res: PlatformPricingResult,
+    digi_res: PlatformPricingResult,
+    alfa_offers: list[ScrapedOffer] | ScrapeResult,
+    digi_offers: list[ScrapedOffer] | ScrapeResult,
+    personal_comm_pct: float = 0.0,
+) -> Table:
+    """Build platform comparison table comparing AlfaMall and DigiMall pricing decisions."""
+    plat_tbl = Table(
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        padding=(0, 1),
+        expand=True,
+    )
+    plat_tbl.add_column("Decision Metric", style="bold cyan", width=16)
+    plat_tbl.add_column("[bold #2c4699]AlfaMall (Strict 10%)[/]", style="white", ratio=1)
+    plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
+
+    # Active offers summary
+    is_alfa_down = alfa_res.status == STATUS_SERVER_DOWN or (
+        isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
+    )
+    is_digi_down = digi_res.status == STATUS_SERVER_DOWN or (
+        isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
+    )
+
+    if alfa_res.status == "SKIPPED":
+        alfa_offers_str = "[dim]Skipped[/]"
+    elif is_alfa_down:
+        alfa_offers_str = "[bold red]Connection Failed (Down)[/]"
+    else:
+        alfa_active_count = len([o for o in alfa_offers if not o.is_sold_out])
+        alfa_drop_count = len(alfa_res.dropped)
+        alfa_offers_str = f"{alfa_active_count} verified offers"
+        if alfa_drop_count > 0:
+            alfa_offers_str += f" ({alfa_drop_count} dropped)"
+
+    if digi_res.status == "SKIPPED":
+        digi_offers_str = "[dim]Skipped[/]"
+    elif is_digi_down:
+        digi_offers_str = "[bold red]Connection Failed (Down)[/]"
+    else:
+        digi_active_count = len([o for o in digi_offers if not o.is_sold_out])
+        digi_drop_count = len(digi_res.dropped)
+        digi_offers_str = f"{digi_active_count} verified offers"
+        if digi_drop_count > 0:
+            digi_offers_str += f" ({digi_drop_count} dropped)"
+
+    plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
+
+    # Commission tier applied
+    if digi_res.status == "SKIPPED":
+        digi_comm_badge = "[dim]N/A (Skipped)[/]"
+    elif digi_res.effective_comm == "8.00%":
+        digi_comm_badge = "[bold blue]8.00% Emergency Switch[/]"
+    else:
+        digi_comm_badge = "[#229693]8% + 2% Spread[/]"
+    alfa_comm_badge = "10.00% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
+    plat_tbl.add_row("Bank Commission", alfa_comm_badge, digi_comm_badge)
+
+    # Final Price
+    if alfa_res.status == "SKIPPED":
+        alfa_p_str = "[dim]Skipped[/]"
+    elif alfa_res.status == STATUS_SERVER_DOWN:
+        alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
+    elif alfa_res.final_price is not None:
+        if alfa_res.status == "Safe Fallback":
+            alfa_p_str = (
+                f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
+            )
+        elif (
+            "capped" in (alfa_res.reason or "").lower()
+            or "split midpoint" in (alfa_res.reason or "").lower()
+        ):
+            alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
+        elif (
+            "monopoly" in (alfa_res.status or "").lower()
+            or "monopoly" in (alfa_res.reason or "").lower()
+            or "no competitors" in (alfa_res.reason or "").lower()
+        ):
+            alfa_p_str = f"[bold cyan]Rs. {alfa_res.final_price:,} (MONOPOLY WIN)[/]"
+        elif (
+            "undercut" in (alfa_res.status or "").lower()
+            or "undercut" in (alfa_res.reason or "").lower()
+            or "winning price" in (alfa_res.reason or "").lower()
+        ):
+            alfa_p_str = f"[bold green]Rs. {alfa_res.final_price:,} (WINNING UNDERCUT)[/]"
+        else:
+            alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
+    else:
+        alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
+
+    if digi_res.status == "SKIPPED":
+        digi_p_str = "[dim]Skipped[/]"
+    elif digi_res.status == STATUS_SERVER_DOWN:
+        digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
+    elif digi_res.final_price is not None:
+        if digi_res.status == "Safe Fallback":
+            digi_p_str = (
+                f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
+            )
+        elif (
+            "capped" in (digi_res.reason or "").lower()
+            or "split midpoint" in (digi_res.reason or "").lower()
+        ):
+            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
+        elif (
+            "monopoly" in (digi_res.status or "").lower()
+            or "monopoly" in (digi_res.reason or "").lower()
+            or "no competitors" in (digi_res.reason or "").lower()
+        ):
+            digi_p_str = f"[bold cyan]Rs. {digi_res.final_price:,} (MONOPOLY WIN)[/]"
+        elif (
+            "undercut" in (digi_res.status or "").lower()
+            or "undercut" in (digi_res.reason or "").lower()
+            or "winning price" in (digi_res.reason or "").lower()
+        ):
+            tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
+            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT{tier_note})[/]"
+        else:
+            digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
+    else:
+        digi_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
+
+    plat_tbl.add_row("Final Price", alfa_p_str, digi_p_str)
+
+    # Real Profit
+    if alfa_res.status == "SKIPPED":
+        alfa_prof_str = "[dim]-[/]"
+    elif alfa_res.status == STATUS_SERVER_DOWN:
+        alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
+    elif alfa_res.final_price is not None:
+        if alfa_res.real_profit is not None and alfa_res.real_profit <= 0:
+            alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
+        elif alfa_res.real_profit is not None and alfa_res.real_profit < 700:
+            alfa_prof_str = (
+                f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            )
+        elif alfa_res.real_profit is not None:
+            alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
+        else:
+            alfa_prof_str = "[dim]Rs. 0[/]"
+    else:
+        alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
+
+    if digi_res.status == "SKIPPED":
+        digi_prof_str = "[dim]-[/]"
+    elif digi_res.status == STATUS_SERVER_DOWN:
+        digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
+    elif digi_res.final_price is not None:
+        if digi_res.real_profit is not None and digi_res.real_profit <= 0:
+            digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
+        elif digi_res.real_profit is not None and digi_res.real_profit < 700:
+            digi_prof_str = (
+                f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
+            )
+        elif digi_res.real_profit is not None:
+            digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
+        else:
+            digi_prof_str = "[dim]Rs. 0[/]"
+    else:
+        digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
+
+    plat_tbl.add_row("Real Net Profit", alfa_prof_str, digi_prof_str)
+    if personal_comm_pct > 0:
+        a_priced = alfa_res.status != "SKIPPED" and alfa_res.final_price is not None
+        d_priced = digi_res.status != "SKIPPED" and digi_res.final_price is not None
+        a_comm, a_co = split_real_profit(alfa_res.real_profit if a_priced else None, personal_comm_pct)
+        d_comm, d_co = split_real_profit(digi_res.real_profit if d_priced else None, personal_comm_pct)
+        alfa_split_str = (
+            f"[bold yellow]My Comm: +Rs. {a_comm:,}[/] | [bold green]Company: +Rs. {a_co:,}[/]"
+            if a_co is not None and alfa_res.real_profit is not None and alfa_res.real_profit > 0
+            else "[dim]-[/]"
+        )
+        digi_split_str = (
+            f"[bold yellow]My Comm: +Rs. {d_comm:,}[/] | [bold green]Company: +Rs. {d_co:,}[/]"
+            if d_co is not None and digi_res.real_profit is not None and digi_res.real_profit > 0
+            else "[dim]-[/]"
+        )
+        plat_tbl.add_row("Profit Split", alfa_split_str, digi_split_str)
+    plat_tbl.add_row("Strategy Reason", alfa_res.reason, digi_res.reason)
+    return plat_tbl
+
+
 def render_audit_card(
     product: ProductInput,
     shipping: float,
@@ -903,149 +1094,13 @@ def render_audit_card(
     )
 
     # 3. Platform Comparison Table
-    plat_tbl = Table(
-        box=box.ROUNDED,
-        show_header=True,
-        header_style="bold cyan",
-        padding=(0, 1),
-        expand=True,
+    plat_tbl = build_platform_decision_table(
+        alfa_res=alfa_res,
+        digi_res=digi_res,
+        alfa_offers=alfa_offers,
+        digi_offers=digi_offers,
+        personal_comm_pct=personal_comm_pct,
     )
-    plat_tbl.add_column("Decision Metric", style="bold cyan", width=16)
-    plat_tbl.add_column("[bold #2c4699]AlfaMall (Strict 10%)[/]", style="white", ratio=1)
-    plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
-
-    # Active offers summary
-    is_alfa_down = alfa_res.status == STATUS_SERVER_DOWN or (
-        isinstance(alfa_offers, ScrapeResult) and not alfa_offers.is_success
-    )
-    is_digi_down = digi_res.status == STATUS_SERVER_DOWN or (
-        isinstance(digi_offers, ScrapeResult) and not digi_offers.is_success
-    )
-
-    if alfa_res.status == "SKIPPED":
-        alfa_offers_str = "[dim]Skipped[/]"
-    elif is_alfa_down:
-        alfa_offers_str = "[bold red]Connection Failed (Down)[/]"
-    else:
-        alfa_active_count = len([o for o in alfa_offers if not o.is_sold_out])
-        alfa_drop_count = len(alfa_res.dropped)
-        alfa_offers_str = f"{alfa_active_count} verified offers"
-        if alfa_drop_count > 0:
-            alfa_offers_str += f" ({alfa_drop_count} dropped)"
-
-    if digi_res.status == "SKIPPED":
-        digi_offers_str = "[dim]Skipped[/]"
-    elif is_digi_down:
-        digi_offers_str = "[bold red]Connection Failed (Down)[/]"
-    else:
-        digi_active_count = len([o for o in digi_offers if not o.is_sold_out])
-        digi_drop_count = len(digi_res.dropped)
-        digi_offers_str = f"{digi_active_count} verified offers"
-        if digi_drop_count > 0:
-            digi_offers_str += f" ({digi_drop_count} dropped)"
-
-    plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
-
-    # Commission tier applied
-    if digi_res.status == "SKIPPED":
-        digi_comm_badge = "[dim]N/A (Skipped)[/]"
-    elif digi_res.effective_comm == "8.00%":
-        digi_comm_badge = "[bold blue]8.00% Emergency Switch[/]"
-    else:
-        digi_comm_badge = "[#229693]8% + 2% Spread[/]"
-    alfa_comm_badge = "10.00% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
-    plat_tbl.add_row("Bank Commission", alfa_comm_badge, digi_comm_badge)
-
-    # Final Price
-    if alfa_res.status == "SKIPPED":
-        alfa_p_str = "[dim]Skipped[/]"
-    elif alfa_res.status == STATUS_SERVER_DOWN:
-        alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
-    elif alfa_res.final_price is not None:
-        if alfa_res.status == "Safe Fallback":
-            alfa_p_str = (
-                f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
-            )
-        elif "capped" in (alfa_res.reason or "").lower():
-            alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
-        else:
-            alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
-    else:
-        alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
-
-    if digi_res.status == "SKIPPED":
-        digi_p_str = "[dim]Skipped[/]"
-    elif digi_res.status == STATUS_SERVER_DOWN:
-        digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
-    elif digi_res.final_price is not None:
-        if digi_res.status == "Safe Fallback":
-            digi_p_str = (
-                f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK - UNCOMPETITIVE)[/]"
-            )
-        elif "capped" in (digi_res.reason or "").lower():
-            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
-        else:
-            digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
-    else:
-        digi_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
-
-    plat_tbl.add_row("Final Price", alfa_p_str, digi_p_str)
-
-    # Real Profit
-    if alfa_res.status == "SKIPPED":
-        alfa_prof_str = "[dim]-[/]"
-    elif alfa_res.status == STATUS_SERVER_DOWN:
-        alfa_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
-    elif alfa_res.final_price is not None:
-        if alfa_res.real_profit is not None and alfa_res.real_profit <= 0:
-            alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif alfa_res.real_profit is not None and alfa_res.real_profit < 700:
-            alfa_prof_str = (
-                f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
-            )
-        elif alfa_res.real_profit is not None:
-            alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
-        else:
-            alfa_prof_str = "[dim]Rs. 0[/]"
-    else:
-        alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
-
-    if digi_res.status == "SKIPPED":
-        digi_prof_str = "[dim]-[/]"
-    elif digi_res.status == STATUS_SERVER_DOWN:
-        digi_prof_str = "[dim red]Rs. 0 (Server Down)[/]"
-    elif digi_res.final_price is not None:
-        if digi_res.real_profit is not None and digi_res.real_profit <= 0:
-            digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif digi_res.real_profit is not None and digi_res.real_profit < 700:
-            digi_prof_str = (
-                f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
-            )
-        elif digi_res.real_profit is not None:
-            digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
-        else:
-            digi_prof_str = "[dim]Rs. 0[/]"
-    else:
-        digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
-
-    plat_tbl.add_row("Real Net Profit", alfa_prof_str, digi_prof_str)
-    if floors.personal_comm > 0:
-        a_priced = alfa_res.status != "SKIPPED" and alfa_res.final_price is not None
-        d_priced = digi_res.status != "SKIPPED" and digi_res.final_price is not None
-        a_comm, a_co = split_real_profit(alfa_res.real_profit if a_priced else None, personal_comm_pct)
-        d_comm, d_co = split_real_profit(digi_res.real_profit if d_priced else None, personal_comm_pct)
-        alfa_split_str = (
-            f"[bold yellow]My Comm: +Rs. {a_comm:,}[/] | [bold green]Company: +Rs. {a_co:,}[/]"
-            if a_co is not None and alfa_res.real_profit is not None and alfa_res.real_profit > 0
-            else "[dim]-[/]"
-        )
-        digi_split_str = (
-            f"[bold yellow]My Comm: +Rs. {d_comm:,}[/] | [bold green]Company: +Rs. {d_co:,}[/]"
-            if d_co is not None and digi_res.real_profit is not None and digi_res.real_profit > 0
-            else "[dim]-[/]"
-        )
-        plat_tbl.add_row("Profit Split", alfa_split_str, digi_split_str)
-    plat_tbl.add_row("Strategy Reason", alfa_res.reason, digi_res.reason)
 
     # 1b. Search Query & Waterfall Fallback Telemetry
     def _format_search_telemetry(

@@ -1479,3 +1479,129 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
     assert "Fahad Electronics" in full_table_text
 
 
+def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
+    """Verify that build_platform_decision_table displays explicit badges for all price outcomes."""
+    from pricing_engine.models import PlatformPricingResult
+    from pricing_engine.pipeline import build_platform_decision_table
+
+    # Case 1: Standard Winning Undercut
+    alfa_undercut = PlatformPricingResult(
+        final_price=36499,
+        min_price=36599.0,
+        max_price=40000.0,
+        real_profit=1500,
+        reason="Undercut viable competitor Afzal Corporation to winning price Rs. 36,499.",
+        status="Undercut Win",
+    )
+    digi_undercut_8pct = PlatformPricingResult(
+        final_price=36299,
+        min_price=36599.0,
+        max_price=40000.0,
+        real_profit=2100,
+        reason="Triggered emergency 8% rate to undercut competitor to winning price Rs. 36,299.",
+        status="Undercut Win (8% Tier)",
+        effective_comm="8.00%",
+    )
+    tbl1 = build_platform_decision_table(
+        alfa_res=alfa_undercut,
+        digi_res=digi_undercut_8pct,
+        alfa_offers=[],
+        digi_offers=[],
+        personal_comm_pct=5.0,
+    )
+    rendered_text1 = " ".join(str(cell) for col in tbl1.columns for cell in col._cells)
+    assert "(WINNING UNDERCUT)" in rendered_text1
+    assert "(WINNING UNDERCUT (8% RATE))" in rendered_text1
+
+    # Case 2: Capped Sweet-Spot Win
+    alfa_capped = PlatformPricingResult(
+        final_price=98999,
+        min_price=99200.0,
+        max_price=108000.0,
+        real_profit=1099,
+        reason="Filtered 9 sub-floor offer(s). Competitor price is inflated. Capped price at Rs. 98,999 to ensure sales volume.",
+        status="Capped Sweet-Spot",
+    )
+    digi_monopoly = PlatformPricingResult(
+        final_price=104999,
+        min_price=None,
+        max_price=None,
+        real_profit=4000,
+        reason="No competitors found in market. Applied Monopoly pricing.",
+        status="Monopoly Win",
+    )
+    tbl2 = build_platform_decision_table(
+        alfa_res=alfa_capped,
+        digi_res=digi_monopoly,
+        alfa_offers=[],
+        digi_offers=[],
+        personal_comm_pct=5.0,
+    )
+    rendered_text2 = " ".join(str(cell) for col in tbl2.columns for cell in col._cells)
+    assert "(CAPPED SWEET-SPOT)" in rendered_text2
+    assert "(MONOPOLY WIN)" in rendered_text2
+
+    # Case 3: Safe Fallback
+    alfa_fallback = PlatformPricingResult(
+        final_price=54499,
+        min_price=45000.0,
+        max_price=50000.0,
+        real_profit=500,
+        reason="All competitors are selling at a loss. Listed at Safe Fallback Price Rs. 54,499.",
+        status="Safe Fallback",
+    )
+    tbl3 = build_platform_decision_table(
+        alfa_res=alfa_fallback,
+        digi_res=digi_monopoly,
+        alfa_offers=[],
+        digi_offers=[],
+        personal_comm_pct=5.0,
+    )
+    rendered_text3 = " ".join(str(cell) for col in tbl3.columns for cell in col._cells)
+    assert "(SAFE FALLBACK)" in rendered_text3
+
+
+def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -> None:
+    """Verify determine_platform_status accurately identifies pure and viable wins without uncompetitive text."""
+    from pricing_engine.pipeline import determine_5pct_goal_status, determine_platform_status
+
+    # Sub-floor filtered, but viable competitor undercut standardly
+    s1 = determine_platform_status(
+        price_val=36499,
+        min_comp_price=35000,  # Cheaper junk seller was dropped (< floor)
+        reason="Filtered 2 sub-floor offer(s). Undercut viable competitor to winning price Rs. 36,499.",
+    )
+    assert s1 == "WIN"
+    # Because sub-floor competitors exist in the mall, this is NOT a pure win against the whole platform
+    assert determine_5pct_goal_status(s1, real_profit=1500, target_profit_5pct=526, active_sellers=5) == "SUB-FLOOR CHEAPER"
+
+    # Sub-floor filtered, viable competitor capped (e.g. Dawlance DW-10500 Item #25)
+    s2 = determine_platform_status(
+        price_val=98999,
+        min_comp_price=45000,  # Dropped sub-floor seller (< floor)
+        reason="Filtered 7 sub-floor offer(s). Competitor Nasim & Sons price is inflated. Capped price at Rs. 98,999.",
+    )
+    assert s2 == "CAPPED"
+    # Because 7 sub-floor sellers are cheaper than our floor, this must NOT falsely claim WIN + 5% ACHIEVED!
+    assert determine_5pct_goal_status(s2, real_profit=1099, target_profit_5pct=526, active_sellers=10) == "SUB-FLOOR CHEAPER"
+
+    # Pure market win without sub-floor
+    s3 = determine_platform_status(
+        price_val=50000,
+        min_comp_price=50200,
+        reason="Undercut lowest viable competitor to winning price Rs. 50,000.",
+    )
+    assert s3 == "WIN (-200)"
+    assert determine_5pct_goal_status(s3, real_profit=1000, target_profit_5pct=526, active_sellers=3) == "WIN + 5% ACHIEVED"
+
+    # Pure market win with capping
+    s4 = determine_platform_status(
+        price_val=50000,
+        min_comp_price=60000,
+        reason="Competitor price is inflated. Capped price at Rs. 50,000.",
+    )
+    assert s4 == "CAPPED (-10,000)"
+    assert determine_5pct_goal_status(s4, real_profit=2000, target_profit_5pct=526, active_sellers=2) == "WIN + 5% ACHIEVED"
+
+
+
