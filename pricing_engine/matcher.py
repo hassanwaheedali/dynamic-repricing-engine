@@ -27,6 +27,10 @@ class GuardedFacets:
     cool_only: bool | None = None  # True if strictly cooling-only AC model
     heat_and_cool: bool | None = None  # True if Heat & Cool AC model
     door_type: str | None = None  # Hardware door structure: 'SD' (Single Door) vs 'DD' (Double Door)
+    load_type: str | None = None  # Washer loading: 'FL' (Front Load) vs 'TL' (Top Load)
+    tub_type: str | None = None  # Washer tub: 'TWIN' (Twin Tub) vs 'SINGLE' (Single Tub)
+    automation_type: str | None = None  # Washer automation: 'AUTO' (Fully Automatic) vs 'SEMI' (Semi Automatic)
+    defrost_type: str | None = None  # Refrigerator defrost: 'NO_FROST' vs 'DIRECT_COOL'
     is_inverter: bool | None = None  # True if Inverter, False if Non-Inverter / Fixed Speed
     capabilities: set[str] = field(default_factory=set)  # Additive hardware capabilities: T3, INVERTER, WIFI, IOT, ES, UV
     allowed_feature_tags: set[str] = field(default_factory=set)  # Permitted optional hardware tags (e.g. T3, QC0)
@@ -234,13 +238,13 @@ TAG_PATTERN = re.compile(r"[-_\s]*(?:T3|AAA|AA\+|AA|PRO|ULTRA|PLUS)+$", re.IGNOR
 
 # Standard category and capacity phrases to strip from search queries
 CATEGORY_PATTERNS = re.compile(
-    r"\b(?:AWM|AUTO\s+W/M|FRONT\s+LOAD(?:\s+W/M)?|W/M|WASHING\s+MACHINE|AIR\s+CONDITIONER|M/OVEN|M/O|MWO|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER|DRYER)\b"
-    r"|\b(?:AIR\s*CURTAIN|AIR\s*COOLER|AIR\s*FRYER|WATER\s+HEATER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
-    r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE|DEEP\s*FREEZER|CHEST\s*FREEZER|FREEZER)\b"
+    r"\b(?:AWM|AUTO\s+W/M|FRONT\s+LOAD(?:ING)?(?:\s+W/M)?|TOP\s+LOAD(?:ING)?(?:\s+W/M)?|W/M|WASHING\s+MACHINE|WASH\s*(?:&|AND)\s*SPIN|SHOWER\s+RINSE|AIR\s+CONDITIONER|M/OVEN|M/O|MWO|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER|DRYER)\b"
+    r"|\b(?:AIR\s*CURTAIN|AIR\s*COOLER|ROOM\s*COOLER|DESERT\s*COOLER|EVAPORATIVE\s*COOLER|AIR\s*FRYER|WATER\s+HEATER|INSTANT\s+GEYSER|GAS\s+GEYSER|ELECTRIC\s+GEYSER|GEYSER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|COOKING\s+RANGE|KITCHEN\s+HOOD|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
+    r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE|DEEP\s*FREEZER|CHEST\s*FREEZER|VERTICAL\s*FREEZER|FREEZER)\b"
     r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE|SINGLE\s*TUB|TWIN\s*TUB|TWIN\s*DOOR)\b"
-    r"|\b(?:INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|8K|FHD|UHD|HD|QLED|OLED|GOOGLE\s*TV|ANDROID\s*TV|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED|ENERGY\s*SAVER|ENERGY\s*SAVING|ENERGY\s*SAVE|POWER\s*SAVER|ECO\s*SAVER|EXTENDED\s*DURABILITY|DURABILITY|SIGNATURE|REGULAR(?:\s+SERIES)?|STUCCO(?:\s+PCM)?|PCM)\b"
+    r"|\b(?:FULLY\s+AUTOMATIC|SEMI[\s\-]*AUTOMATIC|AUTOMATIC|INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|8K|FHD|UHD|HD|QLED|OLED|GOOGLE\s*TV|ANDROID\s*TV|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED|ENERGY\s*SAVER|ENERGY\s*SAVING|ENERGY\s*SAVE|POWER\s*SAVER|ECO\s*SAVER|EXTENDED\s*DURABILITY|DURABILITY|SIGNATURE|REGULAR(?:\s+SERIES)?|STUCCO(?:\s+PCM)?|PCM)\b"
     r"|\b(?:HEATING|SOLO|GRILL|IN\s+GRILL|BEZEL\s*LESS|FRAMELESS)\b"
-    r"|\b\d+(?:\.\d+)?[\s\-_]*(?:(?:TON|ΤΟN|KG|GM|LTR|LITRE|LITRES?|LITERS?|L|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH(?:ES)?|MM|CM)\b|[\"\'])",
+    r"|\b\d+(?:\.\d+)?[\s\-_]*(?:(?:TON|ΤΟΝ|KG|KGS|GM|LTR|LITRE|LITRES?|LITERS?|L|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH(?:ES)?|MM|CM|WATTS?|GALLONS?|GAL)\b|[\"\'])",
     re.IGNORECASE,
 )
 
@@ -491,6 +495,12 @@ NON_SKU_TOKENS = {
     "CAPACITY",
     "DESIGN",
     "SYMPHONY",
+    "BUDS",
+    "AIRBUDS",
+    "EARBUDS",
+    "HEADPHONES",
+    "RINSE",
+    "SHOWER",
 }
 
 GENUINE_SUB_SERIES_TOKENS = {
@@ -521,6 +531,8 @@ MARKETPLACE_NOISE_RE = re.compile(
     r"|\b(?:SALE|DISCOUNT|DEAL|OFFER|PROMO|PROMOTION|RAMADAN\s+OFFER|EID\s+OFFER|SUPER\s+SALE)\b"
     r"|\b(?:ORIGINAL|AUTHENTIC|GENUINE|BRAND\s+NEW|SEALED\s+PACK|SEALED|BOX\s+PACK|100%\s*ORIG(?:I)?NAL)\b"
     r"|\b(?:SPECIAL\s+GIFT|SURPRISE\s+GIFT|FREE\s+GIFT|GIFT\s+PACK|GIFT|BEST\s+PRICE)\b"
+    r"|\b(?:WITH\s+)?FREE\s+(?:AIR\s*BUDS|EARBUDS|BUDS|GIFT|HEADPHONES|SURPRISE\s*GIFT)\b"
+    r"|\s*\(\s*(?:with\s+)?(?:free\s+)?(?:gift|air\s*buds|earbuds|buds|watch|speakers?|discount|voucher|surprise)[^)]*\)"
     r"|\b(?:QUANTUM\s+DOT|QUANTUM|TECHNOLOGY)\b"
     r"|\b(?:ELECTROEASE|HOMECART|METRO|HYPERSTAR|ALFAMALL|FAYSAL\s*BANK|QISTBAZAAR|ESBUY|TELEMART|YAYVO)\b"
     r"|\b(?:HEAT\s*(?:&|AND|/)\s*COOL|H\s*&\s*C|COOLING\s*ONLY|COOL\s*ONLY)\b"
@@ -842,17 +854,18 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         clean,
     )
 
-    # Check for descriptive series + capacity ONLY if anchored to end without trailing model code
+    # Check for descriptive AC series + tonnage ONLY when the prefix has ZERO digits (no model code!)
     m_desc = re.search(
-        r"^(.*?)\s+(\d+(?:\.\d+)?)\s*(?:ton|tonnage|kg|inch|\"|\')(?:\s+(?:inverter|fix(?:ed)?\s*speed|ac|split|heat\s*&\s*cool|cool\s*only))*$",
+        r"^(.*?)\s+(\d+(?:\.\d+)?)\s*(?:ton|tonnage)(?:\s+(?:inverter|fix(?:ed)?\s*speed|ac|split|heat\s*(?:&|and)\s*cool|cool\s*only))*$",
         clean,
         flags=re.IGNORECASE,
     )
-    if m_desc and m_desc.group(1).strip().upper() not in {"SPLIT", "SPLIT AC", "INVERTER", "AC", "AUTO", "AWM"}:
-        series_name = m_desc.group(1).strip()
-        cap_val = m_desc.group(2).strip()
-        query = f"{detected_brand} {series_name} {cap_val}".strip() if detected_brand else f"{series_name} {cap_val}"
-        return query, f"{series_name} {cap_val}"
+    if m_desc and not re.search(r"\d", m_desc.group(1)):
+        series_candidate = CATEGORY_PATTERNS.sub(" ", m_desc.group(1)).strip(" -_,()")
+        if series_candidate and series_candidate.upper() not in {"SPLIT", "SPLIT AC", "INVERTER", "AC", "AUTO", "AWM"}:
+            cap_val = m_desc.group(2).strip()
+            query = f"{detected_brand} {series_candidate} {cap_val}".strip() if detected_brand else f"{series_candidate} {cap_val}"
+            return query, f"{series_candidate} {cap_val}"
 
     # Check for TV pattern: e.g. 32" D2 -> 32 D2 (only if model is not a generic descriptor/non-sku token)
     m_tv = re.search(r"\b(\d{2})\s*-?\s*(?:\"|inches|inch|\')\s+([A-Za-z0-9][A-Za-z0-9\-_]*)\b", clean, flags=re.IGNORECASE)
@@ -908,14 +921,14 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
                     tokens.append(f"{t}-{nxt}-{third}")
                     i += 3
                     continue
-            # Case B: Prefix + 1-to-4-digit model number ("GS 18", "DWT 270 C", "DW 7500 C")
+            # Case B: Prefix + 1-to-6-digit model number ("GS 18", "DWT 270 C", "DW 7500 C", "DW 11095 C", "DW 11100 C")
             if (
                 re.match(r"^[A-Za-z]{2,4}(?:-[A-Za-z]{2,4})?$", t)
                 and t.upper() not in GENUINE_SUB_SERIES_TOKENS
                 and t.upper() not in NON_SKU_TOKENS
                 and not is_color_token(t)
                 and "-" not in nxt
-                and re.match(r"^\d{1,4}$", nxt)
+                and re.match(r"^\d{1,6}$", nxt)
                 and not (len(nxt) >= 3 and is_dimension_or_spec_token(nxt))
             ):
                 if (
@@ -1025,7 +1038,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     significant: list[str] = []
     capacity: str = ""
     for t in name_tokens:
-        t_clean = t.strip("-.,_ \"'+")
+        t_clean = t.strip("-.,_ \"'+/:;()[]{}")
         if not t_clean:
             continue
         t_upper = t_clean.upper()
@@ -1063,9 +1076,25 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         keyword_model = " ".join(significant)
         return search_query, keyword_model
 
-    parts = clean.split()
-    fallback = parts[-1] if parts else clean
-    return fallback, clean
+    punc_chars = " -_,.:;/()[]{}"
+    clean_stripped = clean.strip(punc_chars)
+    if not clean_stripped:
+        base_title = full_name_clean.strip(punc_chars)
+        fallback_query = (
+            f"{detected_brand} {base_title}".strip()
+            if detected_brand and not base_title.upper().startswith(detected_brand.upper())
+            else base_title
+        )
+        return fallback_query, base_title
+
+    parts = [p.strip(punc_chars) for p in clean_stripped.split() if p.strip(punc_chars)]
+    fallback = parts[-1] if parts else clean_stripped
+    query = (
+        f"{detected_brand} {fallback}".strip()
+        if detected_brand and not fallback.upper().startswith(detected_brand.upper())
+        else fallback
+    )
+    return query, clean_stripped
 
 
 def extract_tag(s: str) -> tuple[str, str]:
@@ -1743,21 +1772,33 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             return t_clean
         return f"{p_clean}{sep}{t_clean}"
 
+    tokens = raw_model.split()
+    first_token = tokens[0] if tokens else raw_model
+
     # Dynamic SKU Prefix Extraction (100% Generic & Brand-Agnostic):
     # Detects any 2-4 letter brand/form-factor acronym directly preceding or hyphenated with the model
     # (e.g. DMB-4467, HRF-538, HWM-120, DWT-1165, GS-12)
     pfx = ""
-    num_match = re.search(r"\d+", clean_name)
-    if num_match:
-        stem_num = num_match.group(0)
-        m_pfx = re.search(rf"\b([A-Za-z]{{2,4}})[- ]?{re.escape(stem_num)}", clean_name)
-        if m_pfx:
-            candidate_pfx = m_pfx.group(1).upper()
-            if candidate_pfx.lower() != detected_brand.lower() and candidate_pfx not in NON_SKU_TOKENS:
-                pfx = candidate_pfx
-
-    tokens = raw_model.split()
-    first_token = tokens[0] if tokens else raw_model
+    stem_num = ""
+    m_pfx_direct = re.match(r"^([A-Za-z]{2,4})[-_](?=[A-Za-z0-9])", first_token)
+    if m_pfx_direct:
+        candidate_pfx = m_pfx_direct.group(1).upper()
+        if candidate_pfx.lower() != detected_brand.lower() and candidate_pfx not in NON_SKU_TOKENS:
+            pfx = candidate_pfx
+        stem_num_match = re.search(r"\d+", first_token[m_pfx_direct.end():])
+        if stem_num_match:
+            stem_num = stem_num_match.group(0)
+    else:
+        num_match = re.search(r"\d+", first_token)
+        if num_match:
+            stem_num = num_match.group(0)
+            m_pfx = re.search(rf"\b([A-Za-z]{{2,4}})[- ]?{re.escape(first_token)}\b", clean_name)
+            if not m_pfx and stem_num:
+                m_pfx = re.search(rf"\b([A-Za-z]{{2,4}})[- ]?{re.escape(stem_num)}\b", clean_name)
+            if m_pfx:
+                candidate_pfx = m_pfx.group(1).upper()
+                if candidate_pfx.lower() != detected_brand.lower() and candidate_pfx not in NON_SKU_TOKENS:
+                    pfx = candidate_pfx
 
     # Check for TV pattern: 2-digit screen size glued to series (e.g. 50S80EUX, 43P735)
     tv_match = re.match(r"^(\d{2})([A-Z]\w{3,})$", first_token)
@@ -1844,7 +1885,7 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
                 # Top priority: Full brand + prefix + model (e.g. Dawlance DMB 4467, Haier HRF 538)
                 tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, bare_stem, " ")))
                 tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, bare_stem, "-")))
-                if stem_num and stem_num != bare_stem:
+                if stem_num and stem_num != bare_stem and not re.match(r"^\d+-\d+", bare_stem):
                     tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, stem_num, " ")))
                     tier_1.append(_with_brand(detected_brand, _with_prefix(pfx, stem_num, "-")))
                     if len(stem_num) >= 3:
@@ -1852,7 +1893,7 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
                 tier_1.append(_with_brand(detected_brand, raw_model))
                 # Standalone prefix for sellers who omit brand name (e.g. DMB 4467, HRF 538)
                 tier_1.append(_with_prefix(pfx, bare_stem, " "))
-                if stem_num and stem_num != bare_stem:
+                if stem_num and stem_num != bare_stem and not re.match(r"^\d+-\d+", bare_stem):
                     tier_1.append(_with_prefix(pfx, stem_num, " "))
                     tier_2.append(_with_prefix(pfx, stem_num, "-"))
                     if len(stem_num) >= 4:
@@ -1976,6 +2017,11 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
                 tier_3.append(f"{pfx}-{bare_stem}")
                 tier_3.append(f"{pfx} {bare_stem}")
                 tier_3.append(f"{pfx} {spaced}")
+            elif not pfx and detected_brand.upper() == "HAIER" and re.match(r"^\d{2,3}-\d{3,4}[A-Za-z0-9]{0,3}$", bare_stem):
+                tier_1.insert(0, f"Haier HWM {bare_stem}")
+                tier_1.insert(1, f"Haier HWM-{bare_stem}")
+                tier_2.insert(0, f"HWM {bare_stem}")
+                tier_2.insert(1, f"HWM-{bare_stem}")
         elif fridge_match:
             digits = fridge_match.group(1)
             letters = fridge_match.group(2)
@@ -2105,8 +2151,9 @@ def _anchor_from_prefix_match(m: re.Match[str], first_token_tag: str) -> tuple[s
     suf = re.sub(r"[()]", "", suf).strip()
     matched_raw = m.group(0)
     has_space_pfx = bool(re.search(rf"^{re.escape(m.group(1))}\s+", matched_raw))
-    if has_space_pfx and suf:
-        # pfx was separated by space, while num+suf form a digit-first alphanumeric model (e.g. 24SVN-AI-41, 32D2)
+    # Only defer when num is 1-2 digits and suf is glued directly to num (e.g. "TV 32D2", "AC 24SVN")
+    is_glued_num_suf = bool(suf and re.search(rf"{re.escape(num)}{re.escape(suf)}", matched_raw, re.IGNORECASE))
+    if has_space_pfx and is_glued_num_suf and len(num) <= 2:
         return "", first_token_tag
     if num.isdigit() and len(num) <= 2 and (not suf or pfx in GENUINE_SUB_SERIES_TOKENS or pfx in {"SPLIT", "AUTO", "AWM"}):
         return "", first_token_tag
@@ -2116,7 +2163,7 @@ def _anchor_from_prefix_match(m: re.Match[str], first_token_tag: str) -> tuple[s
         if not suf and not (num.isdigit() and len(num) <= 2):
             return num, first_token_tag
         return "", first_token_tag
-    elif suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
+    elif is_glued_num_suf and len(suf) <= 8 and suf not in {"INVERTER", "SERIES", "NORMAL"}:
         if is_sku_variant_tag(suf) and len(num) >= 3:
             return f"{pfx}-{num}", (first_token_tag if first_token_tag else suf)
         else:
@@ -2161,6 +2208,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     raw_clean = title_no_opt.replace("—", " ").replace("–", " ").replace("|", " ").replace("[", "(").replace("]", ")").replace("{", "(").replace("}", ")").strip()
     raw_clean = re.sub(r"\s*[-–—|]\s*(?:By\s+|Official\s+)[A-Za-z0-9\s.]{2,}$", "", raw_clean, flags=re.IGNORECASE)
     raw_clean = re.sub(r"\s*[-–—|]\s*(?:HomeCart|ElectroEase|Telemart|Metro|Hyperstar|AlfaMall|Faysal Bank|QistBazaar)\b.*$", "", raw_clean, flags=re.IGNORECASE)
+    raw_clean = re.sub(r"\s*\([^)]*(?:gift|free|warranty|installment|discount|deal|delivery)[^)]*\)", " ", raw_clean, flags=re.IGNORECASE)
     raw_clean = MERCHANT_TRACKING_CODE_RE.sub(" ", raw_clean)
     clean_title = normalize_technical_slashes(raw_clean)
     first_w = clean_title.split()[0] if clean_title else ""
@@ -2327,6 +2375,34 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     elif re.search(r"\b(?:DD|DOUBLE\s+DOOR)\b", clean_title, re.IGNORECASE):
         door_type = "DD"
 
+    # 2g2. Washer Loading Type (FL vs TL)
+    load_type = None
+    if re.search(r"\b(?:FL|FRONT\s*LOAD(?:ING)?)\b", clean_title, re.IGNORECASE):
+        load_type = "FL"
+    elif re.search(r"\b(?:TL|TOP\s*LOAD(?:ING)?)\b", clean_title, re.IGNORECASE):
+        load_type = "TL"
+
+    # 2g3. Washer Tub Architecture (TWIN vs SINGLE)
+    tub_type = None
+    if re.search(r"\b(?:TT|TWIN\s*TUB|WASH\s*&\s*SPIN)\b", clean_title, re.IGNORECASE):
+        tub_type = "TWIN"
+    elif re.search(r"\b(?:ST|SINGLE\s*TUB|SPINNER\b|DRYER\b)\b", clean_title, re.IGNORECASE):
+        tub_type = "SINGLE"
+
+    # 2g4. Washer Automation Type (AUTO vs SEMI)
+    automation_type = None
+    if re.search(r"\b(?:SEMI[\s\-]*AUTO(?:MATIC)?|MANUAL)\b", clean_title, re.IGNORECASE):
+        automation_type = "SEMI"
+    elif re.search(r"\b(?:FA|FULLY\s*AUTO(?:MATIC)?|(?<!SEMI[\s\-])AUTO(?:MATIC)?(?:\s*WASH(?:ING|ER)?)?)\b", clean_title, re.IGNORECASE):
+        automation_type = "AUTO"
+
+    # 2g5. Refrigerator Defrost System (NO_FROST vs DIRECT_COOL)
+    defrost_type = None
+    if re.search(r"\b(?:NO[\s\-]*FROST|FROST[\s\-]*FREE)\b", clean_title, re.IGNORECASE):
+        defrost_type = "NO_FROST"
+    elif re.search(r"\b(?:DIRECT[\s\-]*COOL)\b", clean_title, re.IGNORECASE):
+        defrost_type = "DIRECT_COOL"
+
     # 2h. Inverter Mode
     is_inverter = None
     if re.search(r"\b(?:NON[\s\-]*INVERTER|FIX(?:ED)?\s*SPEED|CONVENTIONAL)\b", clean_title, re.IGNORECASE):
@@ -2398,6 +2474,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         "REGULAR", "DEEP", "FREEZER", "BRAND", "NEW", "BOX", "PACK", "WITH",
         "ORIGINAL", "WARRANTY", "BEST", "PRICE", "ON", "INSTALLMENT", "STUCCO",
         "PCM", "ARC", "WHITE", "BLACK", "GREY", "SILVER", "TECH", "HOUSE", "ISPK", "COD",
+        "GIFT", "FREE", "BUDS", "AIRBUDS", "EARBUDS",
     }
     for w in post_words:
         w_clean = w.strip("()[]-.,_ \"'/").upper()
@@ -2446,6 +2523,10 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         cool_only=cool_only,
         heat_and_cool=heat_and_cool,
         door_type=door_type,
+        load_type=load_type,
+        tub_type=tub_type,
+        automation_type=automation_type,
+        defrost_type=defrost_type,
         is_inverter=is_inverter,
         capabilities=caps,
         allowed_feature_tags=allowed_tags,
@@ -2589,7 +2670,14 @@ def _matches_brand_initial_synthesis(
         if norm_t.startswith(b_init) and norm_c.startswith(b_init):
             core_t = re.sub(r"^[A-Z]{2,4}", "", norm_t)
             core_c = re.sub(r"^[A-Z]{2,4}", "", norm_c)
-            if core_t and core_c and (core_t == core_c or core_t in core_c or core_c in core_t):
+            t_nums = re.findall(r"\d+", core_t)
+            c_nums = re.findall(r"\d+", core_c)
+            if (
+                t_nums
+                and c_nums
+                and t_nums == c_nums
+                and (core_t == core_c or core_t in core_c or core_c in core_t)
+            ):
                 return True
     return False
 
@@ -2748,6 +2836,70 @@ def referee_match(
             reason=(
                 f"Door structure collision: target is {target_slots.guarded_facets.door_type} "
                 f"vs candidate {cand_slots.guarded_facets.door_type}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 1b2b. Zero-Tolerance Washer Loading Type Guard (Front Load vs Top Load)
+    if (
+        target_slots.guarded_facets.load_type
+        and cand_slots.guarded_facets.load_type
+        and target_slots.guarded_facets.load_type != cand_slots.guarded_facets.load_type
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Loading type collision: target is {target_slots.guarded_facets.load_type} "
+                f"vs candidate {cand_slots.guarded_facets.load_type}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 1b2c. Zero-Tolerance Washer Tub Architecture Guard (Twin Tub vs Single Tub)
+    if (
+        target_slots.guarded_facets.tub_type
+        and cand_slots.guarded_facets.tub_type
+        and target_slots.guarded_facets.tub_type != cand_slots.guarded_facets.tub_type
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Tub type collision: target is {target_slots.guarded_facets.tub_type} "
+                f"vs candidate {cand_slots.guarded_facets.tub_type}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 1b2d. Zero-Tolerance Washer Automation Guard (Fully Automatic vs Semi-Automatic)
+    if (
+        target_slots.guarded_facets.automation_type
+        and cand_slots.guarded_facets.automation_type
+        and target_slots.guarded_facets.automation_type != cand_slots.guarded_facets.automation_type
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Automation type collision: target is {target_slots.guarded_facets.automation_type} "
+                f"vs candidate {cand_slots.guarded_facets.automation_type}"
+            ),
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
+
+    # 1b2e. Zero-Tolerance Refrigerator Defrost System Guard (Direct Cool vs No Frost)
+    if (
+        target_slots.guarded_facets.defrost_type
+        and cand_slots.guarded_facets.defrost_type
+        and target_slots.guarded_facets.defrost_type != cand_slots.guarded_facets.defrost_type
+    ):
+        return MatchDecision(
+            is_match=False,
+            reason=(
+                f"Defrost type collision: target is {target_slots.guarded_facets.defrost_type} "
+                f"vs candidate {cand_slots.guarded_facets.defrost_type}"
             ),
             target_slots=target_slots,
             candidate_slots=cand_slots,

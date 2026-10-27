@@ -1345,3 +1345,105 @@ def test_glued_drum_search_patterns_and_tub_series() -> None:
     assert decision.is_match is False
 
 
+
+
+def test_trailing_capacity_washing_machine_model_extraction() -> None:
+    """Verify that trailing capacities (- 13KG, - 10KG, - 9.5KG) do not hijack model extraction."""
+    t_haier = "Haier 130-178 Wash & Spin Twin Tub Washing Machine - 13KG"
+    _, m_haier = extract_search_query_and_model(t_haier, "Haier")
+    assert m_haier == "130-178"
+    slots_haier = extract_product_slots(t_haier, "Haier")
+    assert slots_haier.anchor == "130-178"
+    pats_haier = generate_search_patterns(t_haier, "Haier")
+    assert any("HWM 130-178" in p for p in pats_haier["tier_1"] + pats_haier["tier_2"])
+
+    t_daw = "Dawlance Washing Machine DW 11095 C Twin Tub (Clear Lid) - 10KG"
+    _, m_daw = extract_search_query_and_model(t_daw, "Dawlance")
+    assert m_daw == "DW-11095-C"
+    slots_daw = extract_product_slots(t_daw, "Dawlance")
+    assert "11095" in slots_daw.anchor
+
+    t_dwt = "Dawlance DWT 9057 EZ Fully Automatic Washing Machine - 9.5KG"
+    _, m_dwt = extract_search_query_and_model(t_dwt, "Dawlance")
+    assert m_dwt == "DWT-9057-EZ"
+    slots_dwt = extract_product_slots(t_dwt, "Dawlance")
+    assert slots_dwt.anchor == "DWT-9057"
+
+
+def test_dw_11095_referee_no_false_matches() -> None:
+    """Verify DW 11095 C strictly matches legitimate listings and rejects microwave ovens & other models."""
+    target = "Dawlance Washing Machine DW 11095 C Twin Tub (Clear Lid) - 10KG"
+    cand_match = "Dawlance DW 11095 C Twin Tub Washing Machine (with free gift air buds)"
+    cand_mwo = "Dawlance DW-MD10 Heating Microwave Oven"
+    cand_other = "Dawlance DW 10090 Twin Tub 10KG"
+    cand_other_variant = "Dawlance DW 11095 G Glass Lid Twin Tub 10KG"
+
+    assert referee_match(target, cand_match, brand="Dawlance").is_match is True
+    assert referee_match(target, cand_mwo, brand="Dawlance").is_match is False
+    assert referee_match(target, cand_other, brand="Dawlance").is_match is False
+    assert referee_match(target, cand_other_variant, brand="Dawlance").is_match is False
+
+
+def test_leading_capacity_does_not_pollute_prefix_stem() -> None:
+    """Verify Bug 3: Leading capacity like 13KG does not contaminate prefix stem (no HWM 13 or HWM-13)."""
+    title = "HAIER 13KG SINGLE TUB WASHING MACHINE Model HWM 130-1217 GB"
+    pats = generate_search_patterns(title, "Haier")
+    tier_1 = pats["tier_1"]
+    tier_2 = pats["tier_2"]
+
+    # Must contain full model
+    assert any("130-1217" in p for p in tier_1)
+    assert any("130-1217" in p for p in tier_2)
+
+    # Must not contain isolated 13KG partial queries
+    assert "HWM 13" not in tier_1
+    assert "Haier HWM 13" not in tier_1
+    assert "HWM-13" not in tier_2
+    assert "13" not in tier_1 and "13" not in tier_2
+
+
+def test_appliance_category_variant_guards() -> None:
+    """Verify zero-tolerance variant guards: Tub Type, Load Type, Automation Type, Defrost System."""
+    # Tub Type: Twin Tub vs Single Tub
+    t_twin = "Haier Twin Tub Washing Machine HND-100"
+    c_single = "Haier Single Tub Washing Machine HND-100"
+    dec_tub = referee_match(t_twin, c_single, brand="Haier")
+    assert dec_tub.is_match is False
+    assert "Tub type collision" in dec_tub.reason
+
+    # Load Type: Front Load vs Top Load
+    t_fl = "Dawlance Front Load Washer DWT 1165"
+    c_tl = "Dawlance Top Load Washer DWT 1165"
+    dec_load = referee_match(t_fl, c_tl, brand="Dawlance")
+    assert dec_load.is_match is False
+    assert "Loading type collision" in dec_load.reason
+
+    # Automation Type: Fully Automatic vs Semi Automatic
+    t_auto = "Haier Fully Automatic Washer HWM 80-1217"
+    c_semi = "Haier Semi Automatic Washer HWM 80-1217"
+    dec_auto = referee_match(t_auto, c_semi, brand="Haier")
+    assert dec_auto.is_match is False
+    assert "Automation type collision" in dec_auto.reason
+
+    # Defrost System: Direct Cool vs No Frost
+    t_dc = "Dawlance 91999 Direct Cool Refrigerator"
+    c_nf = "Dawlance 91999 No Frost Refrigerator"
+    dec_defrost = referee_match(t_dc, c_nf, brand="Dawlance")
+    assert dec_defrost.is_match is False
+    assert "Defrost type collision" in dec_defrost.reason
+
+
+def test_punctuation_fallback_extraction() -> None:
+    """Verify titles ending in punctuation do not return dangling symbols like '-', '/', ':'."""
+    cases = [
+        ("SG WATER PURIFIER -", "SG", "SG WATER PURIFIER"),
+        ("Haier Refrigerator -", "Haier", "Haier Refrigerator"),
+        ("Dawlance Washing Machine /", "Dawlance", "Dawlance Washing Machine"),
+        ("PEL Split AC :", "PEL", "PEL Split AC"),
+        ("Gree AC ( )", "Gree", "Gree AC"),
+    ]
+    for raw_title, brand, expected_fallback in cases:
+        q, m = extract_search_query_and_model(raw_title, brand)
+        assert q not in ("-", "/", ":", ")", ""), f"Query was {q}"
+        assert m not in ("-", "/", ":", ")", ""), f"Model was {m}"
+        assert expected_fallback in q or expected_fallback in m
