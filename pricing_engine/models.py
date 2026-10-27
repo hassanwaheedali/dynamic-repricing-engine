@@ -20,6 +20,8 @@ NON_COMPETITOR_VENDORS: set[str] = {
     "kia chahiye",
     "kia-chahiye",
     "kiachahiye.com",
+    "kia chahiye pvt ltd",
+    "kia-chahiye-pvt-ltd",
     "ajmer",
     "ajmer electronics",
     "ajmer-electronics",

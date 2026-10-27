@@ -383,6 +383,8 @@ def test_is_non_competitor_vendor() -> None:
     assert is_non_competitor_vendor("KiaChahiye") is True
     assert is_non_competitor_vendor("kia-chahiye") is True
     assert is_non_competitor_vendor("KIA CHAHIYE") is True
+    assert is_non_competitor_vendor("Kia Chahiye Pvt Ltd") is True
+    assert is_non_competitor_vendor("kia-chahiye-pvt-ltd") is True
     assert is_non_competitor_vendor("KiaChahye") is True
     assert is_non_competitor_vendor("kiachahye") is True
     assert is_non_competitor_vendor("kia chahye") is True
@@ -398,6 +400,8 @@ def test_is_non_competitor_vendor() -> None:
     from pricing_engine.models import classify_non_competitor_vendor
 
     assert classify_non_competitor_vendor("KiaChahye") == "OWN_STORE"
+    assert classify_non_competitor_vendor("Kia Chahiye Pvt Ltd") == "OWN_STORE"
+    assert classify_non_competitor_vendor("kia-chahiye-pvt-ltd") == "OWN_STORE"
     assert classify_non_competitor_vendor("kiachahye.com") == "OWN_STORE"
     assert classify_non_competitor_vendor("Ajmer Electronics") == "OWN_STORE"
     assert classify_non_competitor_vendor("Haier Official Store") == "OFFICIAL_STORE"
