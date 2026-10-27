@@ -152,3 +152,34 @@ def test_main_interactive_mode_prompt_selects_range(tmp_path: Path) -> None:
     ):
         assert asyncio.run(main()) == 0
     mock_range.assert_called_once()
+
+
+def test_parse_args_alfa_flag() -> None:
+    """Verify --alfa and --alfa-only flags set alfa_only True, and default is False."""
+    with patch("sys.argv", ["index.py"]):
+        args = parse_args()
+        assert args.alfa_only is False
+        assert args.platform == "all"
+
+    with patch("sys.argv", ["index.py", "--alfa"]):
+        args = parse_args()
+        assert args.alfa_only is True
+
+    with patch("sys.argv", ["index.py", "--alfa-only"]):
+        args = parse_args()
+        assert args.alfa_only is True
+
+
+def test_main_alfa_flag_passes_platform_alfa(tmp_path: Path) -> None:
+    """Verify --alfa flag passes platform='alfa' to run_pipeline."""
+    test_csv = tmp_path / "test.csv"
+    test_csv.write_text("Brand,Name,Net Price\nGree,GS-18AITH21W,100000\n", encoding="utf-8")
+
+    with (
+        patch("sys.argv", ["index.py", "-i", str(test_csv), "--alfa"]),
+        patch("index.run_pipeline", new_callable=AsyncMock) as mock_pipe,
+    ):
+        assert asyncio.run(main()) == 0
+        mock_pipe.assert_called_once()
+        assert mock_pipe.call_args.kwargs.get("platform") == "alfa"
+

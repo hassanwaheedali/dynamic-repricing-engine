@@ -394,6 +394,16 @@ def resolve_option_output_dir(
     return target_dir
 
 
+def filter_alfa_only_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter DataFrame to exclude digi-key columns when Alfa-only export is requested.
+
+    Preserves input columns, general cost/shipping columns, and Alfa columns,
+    while excluding any column containing 'digi' (case-insensitive).
+    """
+    retained_cols = [col for col in df.columns if "digi" not in col.lower()]
+    return df[retained_cols]
+
+
 def export_results(
     df: pd.DataFrame,
     source_filename: str | Path,
@@ -401,6 +411,7 @@ def export_results(
     timestamp: datetime | None = None,
     render_panel: bool = True,
     personal_comm_pct: float = 5.0,
+    platform: str = "all",
 ) -> ExportManifest:
     """Format and export results DataFrame to timestamped and latest CSV and XLSX files.
 
@@ -445,6 +456,8 @@ def export_results(
     latest_xlsx_path = xlsx_dir / latest_xlsx_filename
 
     export_df = df.copy()
+    if platform.lower().strip() == "alfa":
+        export_df = filter_alfa_only_columns(export_df)
     if "S.NO" in export_df.columns:
         export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
 
@@ -486,6 +499,7 @@ def export_winning_5pct_results(
     output_dir: str | Path | None = None,
     timestamp: datetime | None = None,
     personal_comm_pct: float = 5.0,
+    platform: str = "all",
 ) -> tuple[Path | None, Path | None, int]:
     """Filter and export only high-demand Winning + Full 5% Commission products to CSV and Excel.
 
@@ -517,15 +531,51 @@ def export_winning_5pct_results(
     if winners_df.empty:
         return None, None, 0
 
-    # Sort by highest market demand (total active sellers) then highest 5% commission
-    alfa_sellers = pd.to_numeric(winners_df.get("Alfa Active Sellers", 0), errors="coerce").fillna(0)
-    digi_sellers = pd.to_numeric(winners_df.get("Digi Active Sellers", 0), errors="coerce").fillna(0)
-    my_comm = pd.to_numeric(winners_df.get("My 5% Commission", 0), errors="coerce").fillna(0)
-    winners_df["_total_sellers"] = alfa_sellers + digi_sellers
-    winners_df["_my_comm"] = my_comm
-    winners_df = winners_df.sort_values(
-        by=["_total_sellers", "_my_comm"], ascending=[False, False]
-    ).drop(columns=["_total_sellers", "_my_comm"])
+    # Sort winning products A to Z by product name/title, preserving input order for ties
+    name_col = next(
+        (
+            c
+            for c in (
+                "Name ",
+                "Name",
+                "Title",
+                "title",
+                "Product Name",
+                "product name",
+                "Product Title",
+                "product title",
+                "Model",
+                "model",
+            )
+            if c in winners_df.columns
+        ),
+        None,
+    )
+    if name_col is None:
+        name_col = next(
+            (
+                c
+                for c in winners_df.columns
+                if c.strip().lower()
+                in {
+                    "name",
+                    "title",
+                    "product name",
+                    "product title",
+                    "product",
+                    "model",
+                }
+            ),
+            None,
+        )
+
+    if name_col is not None:
+        winners_df = winners_df.sort_values(
+            by=name_col,
+            key=lambda s: s.astype(str).str.strip().str.lower(),
+            ascending=True,
+            kind="stable",
+        )
 
     if output_dir is None:
         out_dir = resolve_option_output_dir(source_filename, option=3)
@@ -548,6 +598,8 @@ def export_winning_5pct_results(
     latest_xlsx = xlsx_dir / f"{stem}_winning_5pct_latest.xlsx"
 
     export_df = winners_df.copy()
+    if platform.lower().strip() == "alfa":
+        export_df = filter_alfa_only_columns(export_df)
     if "S.NO" in export_df.columns:
         export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
 
@@ -632,6 +684,7 @@ def export_range_results(
     output_dir: str | Path | None = None,
     timestamp: datetime | None = None,
     render_panel: bool = True,
+    platform: str = "all",
 ) -> RangeExportManifest:
     """Export Market Range results to ``csv/`` and ``xlsx/`` (timestamped + latest each).
 
@@ -650,9 +703,13 @@ def export_range_results(
     ts_str = (timestamp or datetime.now()).strftime("%Y%m%d_%H%M%S")
     stem = sanitize_catalog_stem(source_filename)
 
+    working_df = df.copy()
+    if platform.lower().strip() == "alfa":
+        working_df = filter_alfa_only_columns(working_df)
+
     csv_path = csv_dir / f"{stem}_range_{ts_str}.csv"
     csv_latest = csv_dir / f"{stem}_range_latest.csv"
-    csv_df = df.copy()
+    csv_df = working_df.copy()
     if "S.NO" in csv_df.columns:
         csv_df["S.NO"] = csv_df["S.NO"].apply(format_export_sno)
     for col in RANGE_NUMERIC_COLUMNS:
@@ -664,7 +721,7 @@ def export_range_results(
     warnings: list[str] = []
     xlsx_path: Path | None = xlsx_dir / f"{stem}_range_{ts_str}.xlsx"
     xlsx_latest: Path | None = xlsx_dir / f"{stem}_range_latest.xlsx"
-    xl_df = _range_xlsx_frame(df)
+    xl_df = _range_xlsx_frame(working_df)
     assert xlsx_path is not None and xlsx_latest is not None
     try:
         _write_range_xlsx(xl_df, xlsx_path)
@@ -690,7 +747,7 @@ def export_range_results(
         xlsx_path=xlsx_path,
         xlsx_latest=xlsx_latest,
         timestamp=ts_str,
-        total_rows=len(df),
+        total_rows=len(working_df),
         warnings=tuple(warnings),
     )
     if render_panel:

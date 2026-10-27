@@ -26,7 +26,7 @@ from pricing_engine.exporter import (
     export_range_results,
     resolve_option_output_dir,
 )
-from pricing_engine.ingestion import normalize_catalog_columns
+from pricing_engine.ingestion import normalize_catalog_columns, read_catalog_csv
 from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
 from pricing_engine.models import MarketRange, ProductInput, ScrapeResult
 from pricing_engine.pipeline import parse_product_input
@@ -126,14 +126,7 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
         ValueError: If the Brand or Name column is missing, or a row has an empty
             Brand/Name (a missing brand could match the wrong product).
     """
-    try:
-        df = pd.read_csv(input_path)
-    except Exception:
-        df = pd.read_csv(input_path, sep=None, engine="python")
-
-    # If parsed as a single column containing tabs, retry with tab separator
-    if len(df.columns) == 1 and "\t" in str(df.columns[0]):
-        df = pd.read_csv(input_path, sep="\t")
+    df = read_catalog_csv(input_path)
 
     # Clean, strip whitespace, and normalize common column header aliases (e.g. Title, Model -> Name) without collision
     df.columns = normalize_catalog_columns(list(df.columns), preserve_name_space=True)
@@ -416,7 +409,9 @@ async def run_range_pipeline(
         if export_dir is not None
         else resolve_option_output_dir(path, option=2)
     )
-    manifest = export_range_results(out_df, path, output_dir=resolved_export_dir, render_panel=False)
+    manifest = export_range_results(
+        out_df, path, output_dir=resolved_export_dir, render_panel=False, platform=plat
+    )
 
     if verbose:
         render_range_summary(list(records))

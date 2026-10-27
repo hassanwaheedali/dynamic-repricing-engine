@@ -29,12 +29,14 @@ from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricin
 from pricing_engine.exporter import (
     export_results,
     export_winning_5pct_results,
+    filter_alfa_only_columns,
     resolve_option_output_dir,
 )
 from pricing_engine.ingestion import (
     INVALID_BRAND_VALUES,
     INVALID_NAME_VALUES,
     normalize_catalog_columns,
+    read_catalog_csv,
 )
 from pricing_engine.learner import AutonomousLearner
 from pricing_engine.matcher import (
@@ -1551,14 +1553,17 @@ def render_winning_5pct_summary(
         console.print()
         return
 
-    # Sort by total active sellers descending, then personal commission descending
-    def _sort_key(r: dict[str, Any]) -> tuple[int, int]:
-        a_s = int(_safe_float(r.get("Alfa Active Sellers"), 0))
-        d_s = int(_safe_float(r.get("Digi Active Sellers"), 0))
-        c_v = int(_safe_float(r.get("My 5% Commission"), 0))
-        return (a_s + d_s, c_v)
+    # Sort A to Z by product name/title case-insensitively, preserving input order for ties
+    def _sort_key(r: dict[str, Any]) -> str:
+        name = str(
+            r.get(
+                "Name ",
+                r.get("Name", r.get("Title", r.get("Product Name", r.get("Model", "")))),
+            )
+        )
+        return name.strip().lower()
 
-    sorted_winners = sorted(winners, key=_sort_key, reverse=True)
+    sorted_winners = sorted(winners, key=_sort_key)
 
     table = Table(
         title=(
@@ -1686,11 +1691,7 @@ async def run_pipeline(
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found at: {input_path}")
 
-    try:
-        # Auto-detect delimiter (comma or tab)
-        df = pd.read_csv(input_path, sep=None, engine="python")
-    except Exception:
-        df = pd.read_csv(input_path)
+    df = read_catalog_csv(input_path)
 
     # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name) without collision
     df.columns = normalize_catalog_columns(list(df.columns), preserve_name_space=True)
@@ -1797,7 +1798,10 @@ async def run_pipeline(
         target_out = Path(output_path)
         if target_out.parent and not target_out.parent.exists():
             target_out.parent.mkdir(parents=True, exist_ok=True)
-        out_df.to_csv(target_out, index=False)
+        export_df = out_df.copy()
+        if plat == "alfa":
+            export_df = filter_alfa_only_columns(export_df)
+        export_df.to_csv(target_out, index=False)
         effective_finish_path = target_out
         if personal_comm_pct > 0:
             winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
@@ -1805,6 +1809,7 @@ async def run_pipeline(
                 source_filename=input_path,
                 output_dir=target_out.parent,
                 personal_comm_pct=personal_comm_pct,
+                platform=plat,
             )
     else:
         manifest = export_results(
@@ -1813,6 +1818,7 @@ async def run_pipeline(
             output_dir=resolved_export_dir,
             render_panel=False,
             personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
+            platform=plat,
         )
         effective_finish_path = manifest.timestamped_path
         effective_xlsx_path = manifest.latest_xlsx_path
@@ -1822,6 +1828,7 @@ async def run_pipeline(
                 source_filename=input_path,
                 output_dir=resolved_export_dir,
                 personal_comm_pct=personal_comm_pct,
+                platform=plat,
             )
 
     if supabase_client.is_configured and default_learner.buffer_size > 0:

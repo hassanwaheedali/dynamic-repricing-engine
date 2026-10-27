@@ -17,7 +17,10 @@ from pricing_engine.calculator import (
     calculate_personal_commission,
     split_real_profit,
 )
-from pricing_engine.exporter import export_excel_workbook
+from pricing_engine.exporter import (
+    export_excel_workbook,
+    export_winning_5pct_results,
+)
 from pricing_engine.models import PlatformPricingResult, ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import (
     determine_risk_alert,
@@ -149,7 +152,7 @@ def test_process_product_5pct_rejects_competitor_below_5pct_floor() -> None:
     assert rec["Digi Real Profit"] >= 500
 
 
-def test_export_winning_5pct_results_filters_and_sorts_by_demand(tmp_path: Path) -> None:
+def test_export_winning_5pct_results_filters_and_sorts_a_to_z(tmp_path: Path) -> None:
     input_csv = tmp_path / "catalog.csv"
     out_dir = tmp_path / "outputs"
 
@@ -235,9 +238,9 @@ def test_export_winning_5pct_results_filters_and_sorts_by_demand(tmp_path: Path)
     assert winners_xlsx.is_file()
 
     w_df = pd.read_csv(winners_csv)
-    # Only items 1 and 2 won with 5% + 500; item 2 has 4 sellers vs item 1's 1 seller so item 2 is ranked #1!
+    # Only items 1 and 2 won with 5% + 500; sorted A to Z by Name (Gree before Haier)
     assert len(w_df) == 2
-    assert list(w_df["S.NO"]) == [2, 1]
+    assert list(w_df["S.NO"]) == [1, 2]
     assert w_df["My 5% Commission"].iloc[0] > 0
     assert w_df["My 5% Commission"].iloc[1] > 0
 
@@ -317,3 +320,89 @@ def test_adversarial_edge_cases(tmp_path: Path) -> None:
     col_map = {h: openpyxl.utils.get_column_letter(i + 1) for i, h in enumerate(headers)}
     formula = ws[f"{col_map['My 5% Commission']}2"].value
     assert isinstance(formula, str) and "*0.035" in formula
+
+
+def test_export_winning_5pct_results_sorts_a_to_z_preserving_data(tmp_path: Path) -> None:
+    """Verify winning products sort strictly A-to-Z while preserving input order for ties and intact row data."""
+    out_dir = tmp_path / "winners_test"
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 101,
+                "Brand": "Haier",
+                "Name": "Haier HW 105 Washer",
+                "Net Price": 70000,
+                "Custom Tag": "Tag-Haier",
+                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
+                "Digi 5% Goal": "WIN + 5% ACHIEVED",
+                "My 5% Commission": 3500,
+            },
+            {
+                "S.NO": 102,
+                "Brand": "Dawlance",
+                "Name": "Dawlance DW-6570 Washer",
+                "Net Price": 33000,
+                "Custom Tag": "Tag-Dawlance-A",
+                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
+                "Digi 5% Goal": "BELOW FLOOR",
+                "My 5% Commission": 1650,
+            },
+            {
+                "S.NO": 103,
+                "Brand": "Gree",
+                "Name": "Gree GS-18AITH21W AC",
+                "Net Price": 180000,
+                "Custom Tag": "Tag-Gree",
+                "Alfa 5% Goal": "SOLO (5% COVERED)",
+                "Digi 5% Goal": "SOLO (5% COVERED)",
+                "My 5% Commission": 9000,
+            },
+            {
+                "S.NO": 104,
+                "Brand": "Dawlance",
+                "Name": "Dawlance DW-6570 Washer",  # Identical name to test stable tie-breaker
+                "Net Price": 35000,
+                "Custom Tag": "Tag-Dawlance-B",
+                "Alfa 5% Goal": "WIN + 5% ACHIEVED",
+                "Digi 5% Goal": "WIN + 5% ACHIEVED",
+                "My 5% Commission": 1750,
+            },
+            {
+                "S.NO": 105,
+                "Brand": "Orient",
+                "Name": "Orient Non-Winner Model",
+                "Net Price": 50000,
+                "Custom Tag": "Tag-Orient",
+                "Alfa 5% Goal": "SAFE_FALLBACK",
+                "Digi 5% Goal": "SAFE_FALLBACK",
+                "My 5% Commission": 0,
+            },
+        ]
+    )
+
+    csv_path, xlsx_path, count = export_winning_5pct_results(
+        df=df,
+        source_filename="test_catalog.csv",
+        output_dir=out_dir,
+    )
+
+    assert count == 4  # Item 105 was filtered out (not in WINNING_5PCT_GOALS)
+    assert csv_path is not None and csv_path.is_file()
+    assert xlsx_path is not None and xlsx_path.is_file()
+
+    w_df = pd.read_csv(csv_path)
+    assert len(w_df) == 4
+
+    # Verify A to Z ordering:
+    # Dawlance (102) -> Dawlance (104, stable tie preservation) -> Gree (103) -> Haier (101)
+    assert list(w_df["S.NO"]) == [102, 104, 103, 101]
+    assert list(w_df["Name"]) == [
+        "Dawlance DW-6570 Washer",
+        "Dawlance DW-6570 Washer",
+        "Gree GS-18AITH21W AC",
+        "Haier HW 105 Washer",
+    ]
+    # Verify input data and custom columns preserved completely intact:
+    assert list(w_df["Custom Tag"]) == ["Tag-Dawlance-A", "Tag-Dawlance-B", "Tag-Gree", "Tag-Haier"]
+    assert list(w_df["Net Price"]) == [33000, 35000, 180000, 70000]
+

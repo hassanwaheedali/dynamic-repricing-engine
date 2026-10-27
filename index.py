@@ -87,9 +87,11 @@ def parse_args() -> argparse.Namespace:
         help="Target platform: 'all' (default), 'alfa' (AlfaMall only), or 'digi' (DigiMall only)",
     )
     parser.add_argument(
+        "--alfa",
         "--alfa-only",
+        dest="alfa_only",
         action="store_true",
-        help="Run repricing only for AlfaMall (alias for --platform alfa)",
+        help="Run repricing only for AlfaMall and export only Alfa columns (alias for --platform alfa)",
     )
     parser.add_argument(
         "--digi-only",
