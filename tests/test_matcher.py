@@ -1447,3 +1447,100 @@ def test_punctuation_fallback_extraction() -> None:
         assert q not in ("-", "/", ":", ")", ""), f"Query was {q}"
         assert m not in ("-", "/", ":", ")", ""), f"Model was {m}"
         assert expected_fallback in q or expected_fallback in m
+
+
+def test_dawlance_dwt255_item28_matching_and_5_cases() -> None:
+    """Verify Item #28 bug fix and complete 5-case single-letter variant referee matching."""
+    target_clear_lid = (
+        "Dawlance DWT 255 Clear Lid Automatic Top Load Washing Machine – White"
+    )
+    cand1 = "Dawlance DWT 255 C 8.5 Kg Top Load Washing Machine"
+    cand2 = "Dawlance Automatic Washing Machine 8.5 KG DWT 255C (0% Markup) - ET"
+
+    # 1. Candidate 2 must clean payment noise and trailing seller store tag
+    slots2 = extract_product_slots(cand2, brand="Dawlance")
+    assert "ET" not in slots2.guarded_facets.capabilities, "ET must not be parsed as hardware capability"
+    assert slots2.anchor in ("DWT-255", "DWT-255-C", "DWT-255C"), f"Anchor must not drop DWT: {slots2.anchor}"
+
+    # 2. Both candidates match target with Clear Lid
+    dec1 = referee_match(target_clear_lid, cand1, brand="Dawlance")
+    assert dec1.is_match is True, f"Cand 1 match failed: {dec1.reason}"
+
+    dec2 = referee_match(target_clear_lid, cand2, brand="Dawlance")
+    assert dec2.is_match is True, f"Cand 2 match failed: {dec2.reason}"
+
+    # 3. Opposing variant 'S' (Solid Lid / Steel) must collide and reject
+    cand_s = "Dawlance DWT 255 S 8.5 Kg Top Load Washing Machine"
+    dec_s = referee_match(target_clear_lid, cand_s, brand="Dawlance")
+    assert dec_s.is_match is False, "Opposing variant S must be rejected"
+    assert "collision" in dec_s.reason.lower()
+
+    # 4. Capacity edge case: '- 8.5 kg' must NOT be stripped as a seller tag
+    cand_cap = "Dawlance DWT 255 C - 8.5 kg"
+    slots_cap = extract_product_slots(cand_cap, brand="Dawlance")
+    assert slots_cap.guarded_facets.capacity in ("8.5KG", "8KG"), f"Capacity lost: {slots_cap.guarded_facets.capacity}"
+
+    # 5. Strict brand matching: PEL must be rejected
+    cand_pel = "PEL DWT 255 C 8.5 Kg Top Load Washing Machine"
+    dec_pel = referee_match(target_clear_lid, cand_pel, brand="Dawlance")
+    assert dec_pel.is_match is False
+    assert "Brand collision" in dec_pel.reason
+
+    # 6. Fuzzy brand matching: typo 'Dawlanc' must be recognized as Dawlance
+    cand_typo = "Dawlanc DWT 255 C 8.5 Kg Top Load Washing Machine"
+    dec_typo = referee_match(target_clear_lid, cand_typo, brand="Dawlance")
+    assert dec_typo.is_match is True, f"Typo Dawlanc match failed: {dec_typo.reason}"
+
+    # 7. 5-Case Variant Logic:
+    # Target is base model without C:
+    target_base = "Dawlance DWT 255 Automatic Top Load Washing Machine"
+    # vs cand with C: must be fallback to base_match with yellow notice
+    dec_base_vs_c = referee_match(target_base, cand1, brand="Dawlance")
+    assert dec_base_vs_c.is_match is False
+    assert dec_base_vs_c.is_base_match is True
+    assert "C" in (dec_base_vs_c.missing_modifier or "")
+
+    # vs cand with base: exact match
+    cand_base = "Dawlance DWT 255 8.5 Kg Top Load Washing Machine"
+    dec_base_vs_base = referee_match(target_base, cand_base, brand="Dawlance")
+    assert dec_base_vs_base.is_match is True
+    assert dec_base_vs_base.is_base_match is False
+
+    # Target is variant with C vs cand with base: must be fallback with notice
+    dec_c_vs_base = referee_match(target_clear_lid, cand_base, brand="Dawlance")
+    assert dec_c_vs_base.is_match is False
+    assert dec_c_vs_base.is_base_match is True
+
+
+def test_adversarial_review_regressions() -> None:
+    """Verify fixes for findings raised in the adversarial code review."""
+    # 1. CRITICAL-01: Hardware Facet Preservation (GD, WB, IOT, FL)
+    # - GD must NOT be stripped as a seller tag
+    slots_gd = extract_product_slots("Dawlance Refrigerator 9060 Inverter - GD", brand="Dawlance")
+    assert slots_gd.guarded_facets.door_finish == "GD", "GD must not be stripped"
+    # GD refrigerator must reject INOX
+    dec_gd_inox = referee_match("Dawlance Refrigerator 9060 Inverter - GD", "Dawlance Refrigerator 9060 Inverter INOX", brand="Dawlance")
+    assert dec_gd_inox.is_match is False
+
+    # 2. CRITICAL-02: No false brand collisions on common English words (GREEN, HAIR)
+    dec_green = referee_match("Orient 1.5 Ton Model 18G", "1.5 Ton Model 18G Green Series", brand="Orient")
+    assert dec_green.is_match is True, f"GREEN should not collide with GREE: {dec_green.reason}"
+
+    # 3. REQUIRED-03: Seller tags with pipe and em-dash are stripped
+    slots_pipe = extract_product_slots("Dawlance DWT 255 | Telemart", brand="Dawlance")
+    assert slots_pipe.anchor == "DWT-255"
+
+    slots_emdash = extract_product_slots("Dawlance DWT 255 — By Tech House", brand="Dawlance")
+    assert slots_emdash.anchor == "DWT-255"
+
+    # 4. REQUIRED-04: Symmetric Clear Lid matching (Target C vs Cand Clear Lid)
+    target_c = "Dawlance DWT 255 C 8.5 Kg Top Load Washing Machine"
+    cand_clear_lid = "Dawlance DWT 255 Clear Lid 8.5 Kg Top Load Washing Machine"
+    dec_sym = referee_match(target_c, cand_clear_lid, brand="Dawlance")
+    assert dec_sym.is_match is True, f"Symmetric Clear Lid match failed: {dec_sym.reason}"
+
+    # 5. REQUIRED-05: Dynamic brand-initial prefix check across any brand (e.g. PEL vs Haier prefix)
+    cand_hwm = "HWM 120-1217 Top Load Washing Machine"
+    dec_pel = referee_match("PEL 120 Fully Automatic Washing Machine", cand_hwm, brand="PEL")
+    assert dec_pel.is_match is False
+    assert "Brand initial collision" in dec_pel.reason
