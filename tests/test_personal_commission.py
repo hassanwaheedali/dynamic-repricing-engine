@@ -208,6 +208,10 @@ def test_export_winning_5pct_results_filters_and_sorts_by_demand(tmp_path: Path)
         )
 
     async def _mock_scrape_digi(session, patterns, target_model, **kwargs):
+        if "9178LF" in target_model:
+            return ScrapeResult(
+                offers=[ScrapedOffer("DumpingVendor", 82000.0, False, "Dawlance 9178LF")]
+            )
         return ScrapeResult(offers=[])
 
     with (
@@ -225,8 +229,8 @@ def test_export_winning_5pct_results_filters_and_sorts_by_demand(tmp_path: Path)
         )
 
     assert len(out_df) == 3
-    winners_csv = out_dir / "catalog_winning_5pct_latest.csv"
-    winners_xlsx = out_dir / "catalog_winning_5pct_latest.xlsx"
+    winners_csv = out_dir / "csv" / "catalog_winning_5pct_latest.csv"
+    winners_xlsx = out_dir / "xlsx" / "catalog_winning_5pct_latest.xlsx"
     assert winners_csv.is_file()
     assert winners_xlsx.is_file()
 

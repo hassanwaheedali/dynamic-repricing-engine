@@ -264,7 +264,7 @@ def test_full_pipeline_pure_clean_template_without_sno(tmp_path: Path) -> None:
             assert list(out_df["S.NO"]) == [1, 2]
 
             # Output files exist in export directory
-            latest_file = export_dir / "pure_clean_template_repriced_latest.csv"
+            latest_file = export_dir / "csv" / "pure_clean_template_repriced_latest.csv"
             assert latest_file.is_file()
             read_back = pd.read_csv(latest_file)
             assert "S.NO" in read_back.columns

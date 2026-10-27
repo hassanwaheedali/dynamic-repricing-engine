@@ -6,6 +6,7 @@ timestamps and maintaining an always-current latest copy.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +17,8 @@ import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+from pricing_engine.models import WINNING_5PCT_GOALS
 
 console = Console()
 
@@ -171,7 +174,7 @@ def export_excel_workbook(
     # Populate data rows
     for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
         ws.row_dimensions[row_idx].height = 20
-        row_vals = []
+        row_vals: list[Any] = []
         for col_name in headers:
             val = row[col_name]
             if pd.isna(val):
@@ -334,37 +337,100 @@ def render_export_panel(manifest: ExportManifest) -> None:
     console.print(panel)
 
 
+def sanitize_catalog_stem(filename: str | Path) -> str:
+    """Extract clean, safe filename stem removing repricing suffixes and path traversal characters."""
+    raw_stem = Path(filename).stem.strip()
+    clean_stem = raw_stem
+    if clean_stem.endswith("_repriced_latest"):
+        clean_stem = clean_stem[: -len("_repriced_latest")]
+    elif clean_stem.endswith("_repriced"):
+        clean_stem = clean_stem[: -len("_repriced")]
+
+    sanitized = re.sub(r"[^\w\-. ]", "_", clean_stem).strip(". ")
+    if not sanitized:
+        raise ValueError(f"Invalid catalog stem: '{raw_stem}' derived from '{filename}'")
+    return sanitized
+
+
+def resolve_option_output_dir(
+    input_path: str | Path,
+    option: int | str = 1,
+    base_dir: str | Path = "data/outputs",
+) -> Path:
+    """Derive structured output directory grouped by input stem and option subfolder.
+
+    Directory structure:
+        {base_dir}/{stem}/option_{1|2|3}/
+
+    Args:
+        input_path: Path to the input catalog file.
+        option: 1 (Full Repricing), 2 (Market Range), or 3 (5% Personal Commission / Winners).
+        base_dir: Base outputs directory (default: 'data/outputs').
+
+    Returns:
+        Path to the ensured option subfolder in the separate output directory.
+    """
+    stem = sanitize_catalog_stem(input_path)
+
+    opt_key = str(option).lower().strip()
+    if opt_key in ("1", "reprice", "repricing", "full", "option_1"):
+        subfolder = "option_1"
+    elif opt_key in ("2", "range", "market_range", "option_2"):
+        subfolder = "option_2"
+    elif opt_key in ("3", "5pct", "comm", "commission", "reprice_5pct", "option_3"):
+        subfolder = "option_3"
+    else:
+        raise ValueError(
+            f"Unsupported pricing option: '{option}'. Expected 1 (Reprice), 2 (Range), or 3 (5% Commission)."
+        )
+
+    resolved_base = Path(base_dir).resolve()
+    resolved_target = (resolved_base / stem / subfolder).resolve()
+    if not resolved_target.is_relative_to(resolved_base):
+        raise ValueError(f"Path traversal detected: '{input_path}' escapes '{base_dir}'")
+
+    target_dir = Path(base_dir) / stem / subfolder
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
 def export_results(
     df: pd.DataFrame,
     source_filename: str | Path,
-    output_dir: str | Path = "data/outputs",
+    output_dir: str | Path | None = None,
     timestamp: datetime | None = None,
     render_panel: bool = True,
     personal_comm_pct: float = 5.0,
 ) -> ExportManifest:
     """Format and export results DataFrame to timestamped and latest CSV and XLSX files.
 
+    Files are separated into `csv/` and `xlsx/` subfolders within output_dir.
+
     Args:
         df: Processed DataFrame containing repricing results.
         source_filename: Source catalog name/path used to derive output stem.
-        output_dir: Target directory where outputs should be saved.
+        output_dir: Target directory where outputs should be saved (default: derived via resolve_option_output_dir).
         timestamp: Optional explicit datetime (defaults to datetime.now()).
         render_panel: If True, prints Rich finish panel.
+        personal_comm_pct: Personal commission percentage for formula calculations.
 
     Returns:
         ExportManifest with paths to generated files.
     """
-    out_dir = Path(output_dir)
+    if output_dir is None:
+        out_dir = resolve_option_output_dir(source_filename, option=1)
+    else:
+        out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_dir = out_dir / "csv"
+    xlsx_dir = out_dir / "xlsx"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    xlsx_dir.mkdir(parents=True, exist_ok=True)
 
     dt = timestamp or datetime.now()
     ts_str = dt.strftime("%Y%m%d_%H%M%S")
-
-    stem = Path(source_filename).stem
-    if stem.endswith("_repriced_latest"):
-        stem = stem[: -len("_repriced_latest")]
-    elif stem.endswith("_repriced"):
-        stem = stem[: -len("_repriced")]
+    stem = sanitize_catalog_stem(source_filename)
 
     timestamped_csv_filename = f"{stem}_repriced_{ts_str}.csv"
     latest_csv_filename = f"{stem}_repriced_latest.csv"
@@ -372,11 +438,11 @@ def export_results(
     timestamped_xlsx_filename = f"{stem}_repriced_{ts_str}.xlsx"
     latest_xlsx_filename = f"{stem}_repriced_latest.xlsx"
 
-    timestamped_csv_path = out_dir / timestamped_csv_filename
-    latest_csv_path = out_dir / latest_csv_filename
+    timestamped_csv_path = csv_dir / timestamped_csv_filename
+    latest_csv_path = csv_dir / latest_csv_filename
 
-    timestamped_xlsx_path = out_dir / timestamped_xlsx_filename
-    latest_xlsx_path = out_dir / latest_xlsx_filename
+    timestamped_xlsx_path = xlsx_dir / timestamped_xlsx_filename
+    latest_xlsx_path = xlsx_dir / latest_xlsx_filename
 
     export_df = df.copy()
     if "S.NO" in export_df.columns:
@@ -417,7 +483,7 @@ def export_results(
 def export_winning_5pct_results(
     df: pd.DataFrame,
     source_filename: str | Path,
-    output_dir: str | Path = "data/outputs",
+    output_dir: str | Path | None = None,
     timestamp: datetime | None = None,
     personal_comm_pct: float = 5.0,
 ) -> tuple[Path | None, Path | None, int]:
@@ -434,13 +500,14 @@ def export_winning_5pct_results(
     if "Alfa 5% Goal" not in df.columns and "Digi 5% Goal" not in df.columns:
         return None, None, 0
 
+    win_goals = WINNING_5PCT_GOALS
     alfa_win = (
-        df["Alfa 5% Goal"] == "WIN + 5% ACHIEVED"
+        df["Alfa 5% Goal"].isin(win_goals)
         if "Alfa 5% Goal" in df.columns
         else pd.Series(False, index=df.index)
     )
     digi_win = (
-        df["Digi 5% Goal"] == "WIN + 5% ACHIEVED"
+        df["Digi 5% Goal"].isin(win_goals)
         if "Digi 5% Goal" in df.columns
         else pd.Series(False, index=df.index)
     )
@@ -460,22 +527,25 @@ def export_winning_5pct_results(
         by=["_total_sellers", "_my_comm"], ascending=[False, False]
     ).drop(columns=["_total_sellers", "_my_comm"])
 
-    out_dir = Path(output_dir)
+    if output_dir is None:
+        out_dir = resolve_option_output_dir(source_filename, option=3)
+    else:
+        out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_dir = out_dir / "csv"
+    xlsx_dir = out_dir / "xlsx"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    xlsx_dir.mkdir(parents=True, exist_ok=True)
 
     dt = timestamp or datetime.now()
     ts_str = dt.strftime("%Y%m%d_%H%M%S")
+    stem = sanitize_catalog_stem(source_filename)
 
-    stem = Path(source_filename).stem
-    if stem.endswith("_repriced_latest"):
-        stem = stem[: -len("_repriced_latest")]
-    elif stem.endswith("_repriced"):
-        stem = stem[: -len("_repriced")]
-
-    ts_csv = out_dir / f"{stem}_winning_5pct_{ts_str}.csv"
-    latest_csv = out_dir / f"{stem}_winning_5pct_latest.csv"
-    ts_xlsx = out_dir / f"{stem}_winning_5pct_{ts_str}.xlsx"
-    latest_xlsx = out_dir / f"{stem}_winning_5pct_latest.xlsx"
+    ts_csv = csv_dir / f"{stem}_winning_5pct_{ts_str}.csv"
+    latest_csv = csv_dir / f"{stem}_winning_5pct_latest.csv"
+    ts_xlsx = xlsx_dir / f"{stem}_winning_5pct_{ts_str}.xlsx"
+    latest_xlsx = xlsx_dir / f"{stem}_winning_5pct_latest.xlsx"
 
     export_df = winners_df.copy()
     if "S.NO" in export_df.columns:
@@ -559,10 +629,9 @@ def _write_range_xlsx(df: pd.DataFrame, path: Path) -> None:
 def export_range_results(
     df: pd.DataFrame,
     source_filename: str | Path,
-    output_dir: str | Path = "data/outputs/range",
+    output_dir: str | Path | None = None,
     timestamp: datetime | None = None,
     render_panel: bool = True,
-    personal_comm_pct: float = 5.0,
 ) -> RangeExportManifest:
     """Export Market Range results to ``csv/`` and ``xlsx/`` (timestamped + latest each).
 
@@ -570,13 +639,16 @@ def export_range_results(
     XLSX problems (openpyxl missing, file locked by Excel) never abort the run: the CSV
     is always written first and issues are reported in ``manifest.warnings``.
     """
-    root = Path(output_dir)
+    if output_dir is None:
+        root = resolve_option_output_dir(source_filename, option=2)
+    else:
+        root = Path(output_dir)
     csv_dir, xlsx_dir = root / "csv", root / "xlsx"
     csv_dir.mkdir(parents=True, exist_ok=True)
     xlsx_dir.mkdir(parents=True, exist_ok=True)
 
     ts_str = (timestamp or datetime.now()).strftime("%Y%m%d_%H%M%S")
-    stem = Path(source_filename).stem
+    stem = sanitize_catalog_stem(source_filename)
 
     csv_path = csv_dir / f"{stem}_range_{ts_str}.csv"
     csv_latest = csv_dir / f"{stem}_range_latest.csv"

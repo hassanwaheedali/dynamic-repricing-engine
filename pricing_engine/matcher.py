@@ -166,18 +166,18 @@ def normalize_color(title: str, anchor: str = "") -> tuple[str | None, str | Non
     m_code = re.search(r"[\(\s\-_/](S[-_]?G|S[-_]?W|DG|[WBSGDRP])(?=[\(\)\s\-_/]|$)", title_search, re.IGNORECASE)
     if m_code:
         code = m_code.group(1).upper()
-        fam = COLOR_SUFFIX_MAP.get(code)
-        if fam:
-            return fam, code
+        code_fam = COLOR_SUFFIX_MAP.get(code)
+        if code_fam:
+            return code_fam, code
 
     # Fallback to trailing single-letter color code on model anchor (e.g. 12AITH21W -> W -> White)
     if anchor:
         m_suf = re.search(r"\d+[A-Za-z]+?\d+(S[-_]?G|S[-_]?W|DG|[WBSGDRP])$", anchor, re.IGNORECASE)
         if m_suf:
             letter = m_suf.group(1).upper()
-            fam = COLOR_SUFFIX_MAP.get(letter)
-            if fam:
-                return fam, letter
+            letter_fam = COLOR_SUFFIX_MAP.get(letter)
+            if letter_fam:
+                return letter_fam, letter
 
     return None, None
 
@@ -212,9 +212,9 @@ def get_all_color_families(text: str) -> set[str]:
         m_suf = re.search(r"\d+[A-Za-z]+?\d+([WBSGDRP])$", clean_tok, re.IGNORECASE)
         if m_suf:
             letter = m_suf.group(1).upper()
-            fam = COLOR_SUFFIX_MAP.get(letter)
-            if fam:
-                fams.add(fam)
+            tok_fam = COLOR_SUFFIX_MAP.get(letter)
+            if tok_fam:
+                fams.add(tok_fam)
     return fams
 
 
@@ -2319,8 +2319,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             m_kg = re.search(r"\b(\d+(?:\.\d+)?)\s*[-]?\s*KG\b", clean_title, re.IGNORECASE)
             if m_kg:
                 capacity = f"{int(float(m_kg.group(1)))}KG"
-            elif anchor and re.match(r"^(\d{2,3})-\d+", anchor):
-                num_val = int(re.match(r"^(\d{2,3})-\d+", anchor).group(1))
+            elif anchor and (m_anchor := re.match(r"^(\d{2,3})-\d+", anchor)):
+                num_val = int(m_anchor.group(1))
                 capacity = f"{num_val // 10}KG"
             elif not is_non_ac:
                 # AC Tonnage

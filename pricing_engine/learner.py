@@ -138,7 +138,7 @@ class AutonomousLearner:
 
         to_flush = list(self._buffer)
         try:
-            recorded = await client.record_observations_batch(to_flush)
+            recorded: int = int(await client.record_observations_batch(to_flush) or 0)
             self.clear_buffer()
             return recorded
         except Exception as exc:

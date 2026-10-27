@@ -21,9 +21,14 @@ from rich.panel import Panel
 from rich.table import Table
 
 from pricing_engine.evaluator import evaluate_market_range
-from pricing_engine.exporter import RangeExportManifest, export_range_results
+from pricing_engine.exporter import (
+    RangeExportManifest,
+    export_range_results,
+    resolve_option_output_dir,
+)
+from pricing_engine.ingestion import normalize_catalog_columns
 from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
-from pricing_engine.models import MarketRange, ProductInput
+from pricing_engine.models import MarketRange, ProductInput, ScrapeResult
 from pricing_engine.pipeline import parse_product_input
 from pricing_engine.scraper import scrape_alfamall, scrape_digimall
 
@@ -121,11 +126,17 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
         ValueError: If the Brand or Name column is missing, or a row has an empty
             Brand/Name (a missing brand could match the wrong product).
     """
-    df = pd.read_csv(input_path)
-    has_legacy_name_space = "Name " in df.columns
-    df.columns = [
-        "Name " if c == "Name " and has_legacy_name_space else str(c).strip() for c in df.columns
-    ]
+    try:
+        df = pd.read_csv(input_path)
+    except Exception:
+        df = pd.read_csv(input_path, sep=None, engine="python")
+
+    # If parsed as a single column containing tabs, retry with tab separator
+    if len(df.columns) == 1 and "\t" in str(df.columns[0]):
+        df = pd.read_csv(input_path, sep="\t")
+
+    # Clean, strip whitespace, and normalize common column header aliases (e.g. Title, Model -> Name) without collision
+    df.columns = normalize_catalog_columns(list(df.columns), preserve_name_space=True)
     name_col = "Name " if "Name " in df.columns else "Name"
     if name_col not in df.columns:
         if len(df.columns) == 1:
@@ -193,13 +204,13 @@ async def process_range_item_async(
             alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
         elif alfa_task:
             alfa_offers = await alfa_task
-            digi_offers = []
+            digi_offers = ScrapeResult(offers=[])
         elif digi_task:
-            alfa_offers = []
+            alfa_offers = ScrapeResult(offers=[])
             digi_offers = await digi_task
         else:
-            alfa_offers = []
-            digi_offers = []
+            alfa_offers = ScrapeResult(offers=[])
+            digi_offers = ScrapeResult(offers=[])
 
     alfa_range = (
         evaluate_market_range(alfa_offers)
@@ -338,7 +349,7 @@ async def run_range_pipeline(
     input_path: str | Path,
     concurrency: int = 3,
     verbose: bool = True,
-    export_dir: str | Path = "data/outputs/range",
+    export_dir: str | Path | None = None,
     platform: str = "all",
 ) -> pd.DataFrame:
     """Run Market Range Mode on a Brand+Name catalog and export CSV + XLSX.
@@ -400,7 +411,12 @@ async def run_range_pipeline(
         records = await asyncio.gather(*tasks)  # gather preserves submission order
 
     out_df = pd.DataFrame(records)
-    manifest = export_range_results(out_df, path, output_dir=export_dir, render_panel=False)
+    resolved_export_dir = (
+        Path(export_dir)
+        if export_dir is not None
+        else resolve_option_output_dir(path, option=2)
+    )
+    manifest = export_range_results(out_df, path, output_dir=resolved_export_dir, render_panel=False)
 
     if verbose:
         render_range_summary(list(records))

@@ -48,10 +48,8 @@ htmlcov/
 .agents/settings.local.json
 
 # Data Pipeline
-data/outputs/*.csv
-data/outputs/*.json
-data/outputs/*.xlsx
-data/outputs/~*
+data/outputs/**
+!data/outputs/
 !data/outputs/.gitkeep
 !data/inputs/template.csv
 

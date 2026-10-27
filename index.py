@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Output repriced CSV file (default: structured export to data/outputs/)",
+        help="Output repriced CSV file (default: structured export to data/outputs/<catalog>/option_<N>/)",
     )
     parser.add_argument(
         "-b",
@@ -74,7 +75,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Market Range Mode: input needs only Brand+Name; outputs market Min/Max for "
-            "AlfaMall & DigiMall (CSV + XLSX in data/outputs/range/), no final prices"
+            "AlfaMall & DigiMall (CSV + XLSX in data/outputs/<catalog>/option_2/), no final prices"
         ),
     )
     parser.add_argument(
@@ -113,14 +114,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+ARTIFACT_FILENAME_PATTERN = re.compile(
+    r"_(?:repriced|range|winning_\w+)_(?:\d{8}_\d{6}|latest)\.csv$",
+    re.IGNORECASE,
+)
+
+
 def find_input_catalogs(inputs_dir: Path = Path("data/inputs")) -> list[Path]:
-    """Scan directory for catalog CSV files, excluding templates."""
+    """Scan directory for catalog CSV files, excluding templates and generated output artifacts."""
     if not inputs_dir.is_dir():
         return []
     return sorted(
         p
         for p in inputs_dir.glob("*.csv")
-        if not p.name.lower().startswith("template") and not p.name.endswith(".gitkeep")
+        if p.is_file()
+        and not p.name.lower().startswith("template")
+        and not p.name.endswith(".gitkeep")
+        and not ARTIFACT_FILENAME_PATTERN.search(p.name)
     )
 
 
@@ -213,7 +223,7 @@ async def main() -> int:
     if range_mode and output_path is not None:
         console.print(
             "[yellow]ℹ️  -o/--output is ignored in range mode; "
-            "files go to data/outputs/range/.[/yellow]"
+            "files go to data/outputs/<catalog>/option_2/.[/yellow]"
         )
 
     if args.batch:
@@ -284,9 +294,6 @@ async def main() -> int:
                 )
                 continue
             effective_out = output_path if len(target_catalogs) == 1 else None
-            extra_pipe_kwargs: dict[str, float] = {}
-            if personal_comm_pct > 0:
-                extra_pipe_kwargs["personal_comm_pct"] = personal_comm_pct
             await run_pipeline(
                 input_path=cat,
                 output_path=effective_out,
@@ -294,7 +301,7 @@ async def main() -> int:
                 verbose=not args.quiet,
                 use_structured_export=(effective_out is None),
                 platform=target_platform,
-                **extra_pipe_kwargs,
+                personal_comm_pct=personal_comm_pct,
             )
         except Exception as exc:
             console.print(

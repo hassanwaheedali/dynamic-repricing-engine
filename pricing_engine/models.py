@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
+WINNING_5PCT_GOALS: frozenset[str] = frozenset({"WIN + 5% ACHIEVED", "SOLO (5% COVERED)"})
 
 # List of vendor names/handles excluded from competitor pricing and market discovery
 # (e.g. brand-owned official flagship stores that shouldn't be competed against)

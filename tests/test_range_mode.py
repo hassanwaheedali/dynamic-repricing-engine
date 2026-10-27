@@ -189,8 +189,18 @@ def test_range_pipeline_missing_brand_raises(tmp_path: Path) -> None:
         _run(cat, tmp_path, AsyncMock(), AsyncMock())
 
 
+def test_range_pipeline_accepts_common_column_aliases(tmp_path: Path) -> None:
+    """Range mode accepts 'Title', 'Product Name', 'Model' as aliases for 'Name' just like main pipeline."""
+    for col_alias in ("Title", "Product Name", "Product Title", "Model"):
+        cat = _write_catalog(tmp_path / f"list_{col_alias.replace(' ', '_')}.csv", f"Brand,{col_alias}\nGree,GS-12XPH32\n")
+        alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 100)]))
+        digi = AsyncMock(return_value=ScrapeResult(offers=[_offer("D", 90)]))
+        df = _run(cat, tmp_path, alfa, digi)
+        assert list(df["Name"]) == ["GS-12XPH32"]
+
+
 def test_range_pipeline_missing_name_column_raises(tmp_path: Path) -> None:
-    cat = _write_catalog(tmp_path / "list.csv", "Brand,Model\nGree,X\n")
+    cat = _write_catalog(tmp_path / "list.csv", "Brand,Category\nGree,X\n")
     with pytest.raises(ValueError, match="Name"):
         _run(cat, tmp_path, AsyncMock(), AsyncMock())
 

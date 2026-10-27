@@ -26,7 +26,11 @@ from pricing_engine.calculator import (
 )
 from pricing_engine.db import SupabaseClient
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
-from pricing_engine.exporter import export_results, export_winning_5pct_results
+from pricing_engine.exporter import (
+    export_results,
+    export_winning_5pct_results,
+    resolve_option_output_dir,
+)
 from pricing_engine.ingestion import (
     INVALID_BRAND_VALUES,
     INVALID_NAME_VALUES,
@@ -41,6 +45,7 @@ from pricing_engine.matcher import (
 )
 from pricing_engine.models import (
     STATUS_SERVER_DOWN,
+    WINNING_5PCT_GOALS,
     CostFloors,
     PlatformPricingResult,
     ProductInput,
@@ -1129,7 +1134,7 @@ class InOrderCardDispatcher:
             self._buffer[idx] = render_fn
             while self._next_idx in self._buffer:
                 fn = self._buffer.pop(self._next_idx)
-                if fn:
+                if fn is not None:
                     fn()
                 self._next_idx += 1
 
@@ -1139,7 +1144,7 @@ class InOrderCardDispatcher:
             self._buffer[idx] = lambda: None
             while self._next_idx in self._buffer:
                 fn = self._buffer.pop(self._next_idx)
-                if fn:
+                if fn is not None:
                     fn()
                 self._next_idx += 1
 
@@ -1148,7 +1153,7 @@ class InOrderCardDispatcher:
         async with self._lock:
             for idx in sorted(self._buffer.keys()):
                 fn = self._buffer.pop(idx)
-                if fn:
+                if fn is not None:
                     fn()
 
 
@@ -1210,13 +1215,13 @@ async def process_item_async(
             alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
         elif alfa_task:
             alfa_offers = await alfa_task
-            digi_offers = []
+            digi_offers = ScrapeResult(offers=[])
         elif digi_task:
-            alfa_offers = []
+            alfa_offers = ScrapeResult(offers=[])
             digi_offers = await digi_task
         else:
-            alfa_offers = []
-            digi_offers = []
+            alfa_offers = ScrapeResult(offers=[])
+            digi_offers = ScrapeResult(offers=[])
 
     if plat in ("all", "alfa"):
         alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
@@ -1501,11 +1506,12 @@ def render_winning_5pct_summary(
     personal_comm_pct: float = 5.0,
 ) -> None:
     """Render a dedicated executive summary table of high-demand Winning + 5% Commission products."""
+    win_goals = WINNING_5PCT_GOALS
     winners = [
         r
         for r in records
-        if r.get("Alfa 5% Goal") == "WIN + 5% ACHIEVED"
-        or r.get("Digi 5% Goal") == "WIN + 5% ACHIEVED"
+        if r.get("Alfa 5% Goal") in win_goals
+        or r.get("Digi 5% Goal") in win_goals
     ]
 
     if not winners:
@@ -1567,11 +1573,12 @@ def render_winning_5pct_summary(
 
         alfa_goal = str(rec.get("Alfa 5% Goal", ""))
         alfa_sellers = int(_safe_float(rec.get("Alfa Active Sellers"), 0))
-        if alfa_goal == "WIN + 5% ACHIEVED":
+        if alfa_goal in win_goals:
             alfa_win_count += 1
             ap = int(_safe_float(rec.get("Final Price Alfa"), 0))
             aco = int(_safe_float(rec.get("Alfa Company Profit"), 0))
-            alfa_cell = f"[bold green]{ap:,}[/] [dim]({alfa_sellers} sellers)[/]"
+            demand_lbl = f"{alfa_sellers} sellers" if alfa_sellers > 0 else "Monopoly"
+            alfa_cell = f"[bold green]{ap:,}[/] [dim]({demand_lbl})[/]"
             alfa_co_cell = f"[bold green]+{aco:,}[/]"
         else:
             alfa_cell = f"[dim]- ({alfa_sellers} sellers)[/]"
@@ -1579,11 +1586,12 @@ def render_winning_5pct_summary(
 
         digi_goal = str(rec.get("Digi 5% Goal", ""))
         digi_sellers = int(_safe_float(rec.get("Digi Active Sellers"), 0))
-        if digi_goal == "WIN + 5% ACHIEVED":
+        if digi_goal in win_goals:
             digi_win_count += 1
             dp = int(_safe_float(rec.get("Final Price Digi"), 0))
             dco = int(_safe_float(rec.get("Digi Company Profit"), 0))
-            digi_cell = f"[bold green]{dp:,}[/] [dim]({digi_sellers} sellers)[/]"
+            demand_lbl = f"{digi_sellers} sellers" if digi_sellers > 0 else "Monopoly"
+            digi_cell = f"[bold green]{dp:,}[/] [dim]({demand_lbl})[/]"
             digi_co_cell = f"[bold green]+{dco:,}[/]"
         else:
             digi_cell = f"[dim]- ({digi_sellers} sellers)[/]"
@@ -1617,7 +1625,7 @@ async def run_pipeline(
     concurrency: int = 3,
     verbose: bool = True,
     use_structured_export: bool = False,
-    export_dir: str | Path = "data/outputs",
+    export_dir: str | Path | None = None,
     platform: str = "all",
     personal_comm_pct: float = 0.0,
 ) -> pd.DataFrame:
@@ -1661,17 +1669,25 @@ async def run_pipeline(
 
     # Clean, strip whitespace, and normalize common column header aliases (e.g. Title -> Name) without collision
     df.columns = normalize_catalog_columns(list(df.columns), preserve_name_space=True)
+    if "Net Price" not in df.columns:
+        raise ValueError(f"Missing required column 'Net Price' in {input_path.name}.")
     start_time = time.perf_counter()
 
     supabase_client = SupabaseClient()
     if supabase_client.is_configured:
         await InMemoryRegistry.load_from_db(supabase_client)
 
-    banner_output_path = (
-        Path(output_path)
-        if output_path is not None
-        else Path(export_dir) / f"{input_path.stem}_repriced_latest.csv"
-    )
+    opt_mode = 3 if personal_comm_pct > 0 else 1
+    if output_path is not None:
+        banner_output_path = Path(output_path)
+        resolved_export_dir = None
+    else:
+        resolved_export_dir = (
+            Path(export_dir)
+            if export_dir is not None
+            else resolve_option_output_dir(input_path, option=opt_mode)
+        )
+        banner_output_path = resolved_export_dir / "csv" / f"{input_path.stem}_repriced_latest.csv"
 
     if verbose:
         render_start_banner(
@@ -1769,7 +1785,7 @@ async def run_pipeline(
         manifest = export_results(
             df=out_df,
             source_filename=input_path,
-            output_dir=export_dir,
+            output_dir=resolved_export_dir,
             render_panel=False,
             personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
         )
@@ -1779,7 +1795,7 @@ async def run_pipeline(
             winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
                 df=out_df,
                 source_filename=input_path,
-                output_dir=export_dir,
+                output_dir=resolved_export_dir,
                 personal_comm_pct=personal_comm_pct,
             )
 

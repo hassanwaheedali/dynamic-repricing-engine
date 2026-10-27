@@ -61,7 +61,7 @@ def test_query_cache_never_caches_empty_or_failures() -> None:
 
         # Ensure empty failure was NOT cached
         cache = get_scraper_cache()
-        assert ("alfamall", "36TFIH") not in cache
+        assert not any(k[:2] == ("alfamall", "36TFIH") for k in cache)
 
         # Next call with 200 OK should fetch fresh and not return poisoned empty list
         mock_resp_200 = MagicMock()
@@ -99,7 +99,7 @@ def test_digimall_cache_guard_prevents_false_monopoly() -> None:
         assert offers.is_success is False
 
         cache = get_scraper_cache()
-        assert ("digimall", "12AITH21W") not in cache
+        assert not any(k[:2] == ("digimall", "12AITH21W") for k in cache)
 
     asyncio.run(_test())
 

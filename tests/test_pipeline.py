@@ -1306,9 +1306,9 @@ def test_run_pipeline_structured_export_mode(tmp_path: Path) -> None:
                 export_dir=export_dir,
             )
             assert len(out_df) == 1
-            latest_file = export_dir / "catalog_repriced_latest.csv"
+            latest_file = export_dir / "csv" / "catalog_repriced_latest.csv"
             assert latest_file.is_file()
-            ts_files = list(export_dir.glob("catalog_repriced_*.csv"))
+            ts_files = list((export_dir / "csv").glob("catalog_repriced_*.csv"))
             assert len(ts_files) >= 2
 
     asyncio.run(_run())

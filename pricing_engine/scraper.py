@@ -101,8 +101,8 @@ DIGIMALL_CONFIG = PlatformConfig(
     },
 )
 
-# Run-scoped on-demand cache: (platform, query) -> ScrapeResult
-_query_cache: dict[tuple[str, str], ScrapeResult] = {}
+# Run-scoped on-demand cache: (platform, query, target_desc) -> ScrapeResult
+_query_cache: dict[tuple[str, str, str], ScrapeResult] = {}
 _raw_items_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
 
@@ -112,7 +112,7 @@ def clear_scraper_cache() -> None:
     _raw_items_cache.clear()
 
 
-def get_scraper_cache() -> dict[tuple[str, str], ScrapeResult]:
+def get_scraper_cache() -> dict[tuple[str, str, str], ScrapeResult]:
     """Return a read-only copy of current query cache."""
     return dict(_query_cache)
 
