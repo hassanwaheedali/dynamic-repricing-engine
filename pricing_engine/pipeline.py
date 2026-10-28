@@ -309,6 +309,8 @@ def determine_platform_status(
                 diff = int(round(min_p - f_p))
                 if diff > 0 and "sub-floor" not in reason_lower:
                     return f"WIN (-{diff:,})"
+                if diff <= 0:
+                    return "CAPPED"
             except (ValueError, TypeError):
                 pass
 
@@ -904,7 +906,11 @@ def build_platform_decision_table(
             alfa_p_str = (
                 f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif len(alfa_res.dropped) > 0 or "sub-floor" in (alfa_res.reason or "").lower():
+        elif (
+            len(alfa_res.dropped) > 0
+            or "sub-floor" in (alfa_res.reason or "").lower()
+            or (alfa_res.min_price is not None and alfa_res.final_price >= alfa_res.min_price)
+        ):
             alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED)[/]"
         elif (
             "monopoly" in (alfa_res.status or "").lower()
@@ -934,7 +940,11 @@ def build_platform_decision_table(
             digi_p_str = (
                 f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif len(digi_res.dropped) > 0 or "sub-floor" in (digi_res.reason or "").lower():
+        elif (
+            len(digi_res.dropped) > 0
+            or "sub-floor" in (digi_res.reason or "").lower()
+            or (digi_res.min_price is not None and digi_res.final_price >= digi_res.min_price)
+        ):
             tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
             digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED{tier_note})[/]"
         elif (
