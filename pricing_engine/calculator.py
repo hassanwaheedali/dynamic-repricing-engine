@@ -538,9 +538,13 @@ def calculate_adaptive_target_price(
     competitor_ceiling = competitor_price - undercut_buffer
     if cost_base is not None and payout_rate > 0:
         target_profit_price = (cost_base + large_gap_profit_target) / payout_rate
+        # Smooth continuity from Tier 2 (floor + 5,000) up to target_profit_price:
+        # Gaps 10k to 15k transition smoothly from 5k profit to 10k profit cap.
+        tier2_ceiling = floor_min + 5000.0 + max(0.0, gap - 10000.0)
+        bounded_target = min(target_profit_price, tier2_ceiling)
         floor_k = (int(floor_min) // 1000) * 1000
         next_999 = (floor_k + 999) if (floor_k + 999) >= floor_min else (floor_k + 1999)
-        bounded_target = max(target_profit_price, float(next_999))
+        bounded_target = max(bounded_target, float(next_999))
         return min(competitor_ceiling, bounded_target)
 
     # Fallback to 50% midpoint if cost_base is not provided

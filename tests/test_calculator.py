@@ -185,6 +185,58 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     assert profit == 10388
 
 
+def test_tier2_to_tier1_boundary_continuity_no_cliff() -> None:
+    # Cost base 63,000 PKR, Floor Alfa (10%) = (63000 + 500) / 0.90 = 70555.56 PKR
+    cost_base = 63000.0
+    floor = 70555.56
+    payout_rate = 0.90
+
+    # Gap = 9,999 PKR (Tier 2, 50% split)
+    comp_9999 = floor + 9999.0
+    t_9999 = calculate_adaptive_target_price(
+        floor_min=floor, competitor_price=comp_9999, cost_base=cost_base, payout_rate=payout_rate
+    )
+    p_9999 = find_winning_psychological_price(floor, comp_9999, max_ceiling=t_9999)
+
+    # Gap = 10,000 PKR (Tier 1 boundary)
+    comp_10000 = floor + 10000.0
+    t_10000 = calculate_adaptive_target_price(
+        floor_min=floor, competitor_price=comp_10000, cost_base=cost_base, payout_rate=payout_rate
+    )
+    p_10000 = find_winning_psychological_price(floor, comp_10000, max_ceiling=t_10000)
+
+    # ZERO price cliff between 9,999 and 10,000 gap
+    assert p_9999 == 75499
+    assert p_10000 == 75499
+    assert p_9999 == p_10000
+
+    # Gap = 12,000 PKR (Smooth transition toward 10k profit cap)
+    comp_12000 = floor + 12000.0
+    t_12000 = calculate_adaptive_target_price(
+        floor_min=floor, competitor_price=comp_12000, cost_base=cost_base, payout_rate=payout_rate
+    )
+    p_12000 = find_winning_psychological_price(floor, comp_12000, max_ceiling=t_12000)
+    assert p_12000 == 77499
+    assert p_12000 > p_10000
+
+    # Gap = 15,000 PKR (Reaches ~10k profit target)
+    comp_15000 = floor + 15000.0
+    t_15000 = calculate_adaptive_target_price(
+        floor_min=floor, competitor_price=comp_15000, cost_base=cost_base, payout_rate=payout_rate
+    )
+    p_15000 = find_winning_psychological_price(floor, comp_15000, max_ceiling=t_15000)
+    assert p_15000 == 80499
+
+    # Gap = 25,000 PKR (Capped at large_gap_profit_target 10,000 ceiling)
+    comp_25000 = floor + 25000.0
+    t_25000 = calculate_adaptive_target_price(
+        floor_min=floor, competitor_price=comp_25000, cost_base=cost_base, payout_rate=payout_rate
+    )
+    p_25000 = find_winning_psychological_price(floor, comp_25000, max_ceiling=t_25000)
+    assert p_25000 == 81099  # Safely capped at ~10k profit point, never follows comp to 95k!
+    assert round((p_25000 * 0.90) - cost_base) == 9989  # ~10k sweet spot profit
+
+
 def test_tight_margin_under_100_selects_round_50_item18() -> None:
     # Item #18 scenario: Competitor at 173,099, 8% Floor at 173,003.26 (Gap = 95.74 PKR)
     # System selects clean rounded price 173,050 (multiple of 50) below competitor
