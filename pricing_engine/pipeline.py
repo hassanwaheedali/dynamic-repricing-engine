@@ -906,8 +906,8 @@ def build_platform_decision_table(
             alfa_p_str = (
                 f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif "capped" in (alfa_res.reason or "").lower():
-            alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
+        elif "capped" in (alfa_res.reason or "").lower() or "sweet-spot" in (alfa_res.reason or "").lower():
+            alfa_p_str = f"[bold green]Rs. {alfa_res.final_price:,} (WINNING SWEET-SPOT)[/]"
         elif (
             "monopoly" in (alfa_res.status or "").lower()
             or "monopoly" in (alfa_res.reason or "").lower()
@@ -934,9 +934,9 @@ def build_platform_decision_table(
             digi_p_str = (
                 f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif "capped" in (digi_res.reason or "").lower():
+        elif "capped" in (digi_res.reason or "").lower() or "sweet-spot" in (digi_res.reason or "").lower():
             tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
-            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT{tier_note})[/]"
+            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT{tier_note})[/]"
         elif (
             "monopoly" in (digi_res.status or "").lower()
             or "monopoly" in (digi_res.reason or "").lower()
@@ -1452,7 +1452,7 @@ def _format_summary_price(
     if status == "SOLO":
         return f"{price_str} [dim]SOLO[/]{mod_tag}"
     if status.startswith("CAPPED"):
-        return f"{price_str} [bold yellow]{status}[/]{mod_tag}"
+        return f"{price_str} [bold green]{status}[/]{mod_tag}"
     return f"{price_str}{mod_tag}"
 
 

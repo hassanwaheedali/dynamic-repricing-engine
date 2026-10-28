@@ -117,6 +117,46 @@ def evaluate_alfa_pricing(
     return _annotate_non_competitor_reason(res, own_offers)
 
 
+def _format_winning_reason(
+    gap: float,
+    competitor_name: str,
+    competitor_price: float,
+    final_price: int,
+    profit: int,
+    dropped_prefix: str = "",
+    bank_note: str = "",
+) -> str:
+    """Format an informative winning reason when price is capped below uncapped undercut."""
+    if gap >= 10000.0:
+        return (
+            f"{dropped_prefix}Competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
+            f"price is inflated. Capped price at winning sweet-spot price Rs. {final_price:,.0f} "
+            f"(+Rs. {profit:,} profit{bank_note}) for sales conversion."
+        )
+    if gap >= 2000.0:
+        pct_str = format_dynamic_retention_pct(gap)
+        return (
+            f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
+            f"to capped winning sweet-spot price Rs. {final_price:,.0f} (+Rs. {profit:,} profit{bank_note}) for maximum conversion."
+        )
+    if gap >= 1500.0:
+        return (
+            f"{dropped_prefix}Applied Tier 3 winning discount (Rs. 500) below competitor {competitor_name} "
+            f"(Rs. {competitor_price:,.0f}) to winning price Rs. {final_price:,.0f} "
+            f"(+Rs. {profit:,} profit{bank_note}) for high sales conversion."
+        )
+    if gap >= 800.0:
+        return (
+            f"{dropped_prefix}Applied Tier 4 winning discount (Rs. 200) below competitor {competitor_name} "
+            f"(Rs. {competitor_price:,.0f}) to winning price Rs. {final_price:,.0f} "
+            f"(+Rs. {profit:,} profit{bank_note}) for high sales conversion."
+        )
+    return (
+        f"{dropped_prefix}Undercut viable competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
+        f"to winning price Rs. {final_price:,.0f} (+Rs. {profit:,} profit{bank_note})."
+    )
+
+
 def _evaluate_alfa_core(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
@@ -285,17 +325,14 @@ def _evaluate_alfa_core(
     uncapped_p = find_winning_psychological_price(cost_floors.floor_alfa, lowest_viable.price)
     if uncapped_p is not None and final_p < uncapped_p:
         gap = lowest_viable.price - cost_floors.floor_alfa
-        if 2000.0 <= gap < 10000.0:
-            pct_str = format_dynamic_retention_pct(gap)
-            reason = (
-                f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
-                f"to capped winning psychological price Rs. {final_p:,.0f} (+Rs. {profit:,} profit) for maximum conversion."
-            )
-        else:
-            reason = (
-                f"{dropped_prefix}Competitor {lowest_viable.vendor_name} (Rs. {lowest_viable.price:,.0f}) "
-                f"price is inflated. Capped price at Rs. {final_p:,.0f} (+Rs. {profit:,} profit) to ensure sales volume."
-            )
+        reason = _format_winning_reason(
+            gap=gap,
+            competitor_name=lowest_viable.vendor_name,
+            competitor_price=lowest_viable.price,
+            final_price=final_p,
+            profit=profit,
+            dropped_prefix=dropped_prefix,
+        )
     else:
         reason = (
             f"{dropped_prefix}Undercut viable competitor {lowest_viable.vendor_name} "
@@ -448,17 +485,14 @@ def _evaluate_digi_core(
                 cost_floors.floor_digi_10, lowest_offer.price
             )
             if uncapped_p is not None and final_p_10 < uncapped_p:
-                if 2000.0 <= gap_10 < 10000.0:
-                    pct_str = format_dynamic_retention_pct(gap_10)
-                    reason = (
-                        f"Large price gap (Rs. {gap_10:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
-                        f"to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
-                    )
-                else:
-                    reason = (
-                        f"Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
-                        f"price is inflated. Capped price at sweet-spot Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                    )
+                reason = _format_winning_reason(
+                    gap=gap_10,
+                    competitor_name=lowest_offer.vendor_name,
+                    competitor_price=lowest_offer.price,
+                    final_price=final_p_10,
+                    profit=profit,
+                    bank_note=" on 8% Faysal Bank rate",
+                )
             else:
                 reason = (
                     f"Lowest competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
@@ -502,17 +536,15 @@ def _evaluate_digi_core(
                     cost_floors.floor_digi_8, lowest_offer.price
                 )
                 if uncapped_p is not None and final_p_8 < uncapped_p:
-                    if 2000.0 <= gap_8 < 10000.0:
-                        pct_str = format_dynamic_retention_pct(gap_8)
-                        reason = (
-                            f"Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_8:,.0f}) above floor. "
-                            f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
-                        )
-                    else:
-                        reason = (
-                            f"Triggered emergency 8% Faysal Bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
-                            f"price is inflated. Capped price at sweet-spot Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                        )
+                    reason = _format_winning_reason(
+                        gap=gap_8,
+                        competitor_name=lowest_offer.vendor_name,
+                        competitor_price=lowest_offer.price,
+                        final_price=final_p_8,
+                        profit=profit,
+                        dropped_prefix="Triggered emergency 8% Faysal Bank rate. ",
+                        bank_note=" on 8% Faysal Bank rate",
+                    )
                 else:
                     reason = (
                         f"Unviable at 10% floor (Rs. {round(cost_floors.floor_digi_10):,}). "
@@ -556,17 +588,15 @@ def _evaluate_digi_core(
                         cost_floors.floor_digi_10, lowest_upper.price
                     )
                     if uncapped_p is not None and final_p_10 < uncapped_p:
-                        if 2000.0 <= gap_upper_10 < 10000.0:
-                            pct_str = format_dynamic_retention_pct(gap_upper_10)
-                            reason = (
-                                f"Filtered sub-floor offers. Large price gap (Rs. {gap_upper_10:,.0f}) above floor. "
-                                f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
-                            )
-                        else:
-                            reason = (
-                                f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                                f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                            )
+                        reason = _format_winning_reason(
+                            gap=gap_upper_10,
+                            competitor_name=lowest_upper.vendor_name,
+                            competitor_price=lowest_upper.price,
+                            final_price=final_p_10,
+                            profit=profit,
+                            dropped_prefix="Filtered sub-floor offers. ",
+                            bank_note=" on 8% Faysal Bank rate",
+                        )
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
@@ -608,17 +638,15 @@ def _evaluate_digi_core(
                         cost_floors.floor_digi_8, lowest_upper.price
                     )
                     if uncapped_p is not None and final_p_upper < uncapped_p:
-                        if 2000.0 <= gap_upper_8 < 10000.0:
-                            pct_str = format_dynamic_retention_pct(gap_upper_8)
-                            reason = (
-                                f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_upper_8:,.0f}) above floor. "
-                                f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
-                            )
-                        else:
-                            reason = (
-                                f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                                f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                            )
+                        reason = _format_winning_reason(
+                            gap=gap_upper_8,
+                            competitor_name=lowest_upper.vendor_name,
+                            competitor_price=lowest_upper.price,
+                            final_price=final_p_upper,
+                            profit=profit,
+                            dropped_prefix="Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. ",
+                            bank_note=" on 8% Faysal Bank rate",
+                        )
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate to undercut "

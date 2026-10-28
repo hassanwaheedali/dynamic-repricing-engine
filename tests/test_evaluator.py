@@ -502,7 +502,7 @@ def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
     assert result.effective_comm == "10.00%"
     assert result.final_price == 83899
     assert "Applied dynamic adaptive split (69%)" in result.reason
-    assert "capped winning psychological price" in result.reason
+    assert "capped winning sweet-spot price" in result.reason
     assert result.real_profit == round((83899 * 0.92) - sample_floors.cost_base)
 
 
@@ -519,7 +519,7 @@ def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -
     assert result.final_price == 83899
     assert "Filtered sub-floor offers" in result.reason
     assert "Applied dynamic adaptive split (69%)" in result.reason
-    assert "capped winning psychological price" in result.reason
+    assert "capped winning sweet-spot price" in result.reason
     assert any("SubFloorSeller" in d for d in result.dropped)
     assert any("UpperSeller10k" in a for a in result.active_pool)
 
@@ -551,6 +551,19 @@ def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
     assert "Filtered sub-floor offers" in result.reason
     assert "Triggered emergency 8% Faysal Bank rate" in result.reason
     assert "Applied dynamic adaptive split" in result.reason
-    assert "capped winning psychological price" in result.reason
+    assert "capped winning sweet-spot price" in result.reason
     assert any("LossSeller" in d for d in result.dropped)
     assert any("UpperSeller8pct" in a for a in result.active_pool)
+
+
+def test_tier3_winning_discount_reason_no_inflated_copy(sample_floors: CostFloors) -> None:
+    # Item #3 scenario: Floor is 80,555.56, Competitor is 82,250 (gap = 1,694.44, Tier 3)
+    # Tier 3 targets competitor - 500. Snaps to psychological price below ceiling.
+    offers = [
+        ScrapedOffer(vendor_name="TechHouse", price=82250.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_alfa_pricing(cost_floors=sample_floors, offers=offers)
+    assert result.status == "Competitive Win"
+    assert "Applied Tier 3 winning discount (Rs. 500) below competitor TechHouse" in result.reason
+    assert "price is inflated" not in result.reason
+    assert result.final_price == 81499

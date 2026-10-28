@@ -1538,7 +1538,7 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
         personal_comm_pct=5.0,
     )
     rendered_text2 = " ".join(str(cell) for col in tbl2.columns for cell in col._cells)
-    assert "(CAPPED SWEET-SPOT)" in rendered_text2
+    assert "(WINNING SWEET-SPOT)" in rendered_text2
     assert "(MONOPOLY WIN)" in rendered_text2
 
     # Case 3: Safe Fallback & Digi 50% Split Midpoint
@@ -1567,7 +1567,7 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
     )
     rendered_text3 = " ".join(str(cell) for col in tbl3.columns for cell in col._cells)
     assert "(SAFE FALLBACK)" in rendered_text3
-    assert "(CAPPED SWEET-SPOT)" in rendered_text3
+    assert "(WINNING SWEET-SPOT)" in rendered_text3
 
 
 def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -> None:
