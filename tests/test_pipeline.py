@@ -1609,7 +1609,7 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         min_comp_price=60000,
         reason="Competitor price is inflated. Capped price at Rs. 50,000.",
     )
-    assert s4 == "CAPPED (-10,000)"
+    assert s4 == "WIN (-10,000)"
     assert determine_5pct_goal_status(s4, real_profit=2000, target_profit_5pct=526, active_sellers=2) == "WIN + 5% ACHIEVED"
 
     # Pure market win with 50% split midpoint
@@ -1618,7 +1618,7 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         min_comp_price=50000,
         reason="Large price gap (Rs. 5,000) above floor. Applied dynamic adaptive split (69%) to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
     )
-    assert s5 == "CAPPED (-2,501)"
+    assert s5 == "WIN (-2,501)"
     assert determine_5pct_goal_status(s5, real_profit=2749, target_profit_5pct=526, active_sellers=1) == "WIN + 5% ACHIEVED"
 
     # 50% split midpoint with sub-floor filtered (viable competitor capped, but sub-floor existed)

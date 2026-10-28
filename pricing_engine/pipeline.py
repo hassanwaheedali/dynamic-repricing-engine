@@ -308,17 +308,13 @@ def determine_platform_status(
                 f_p = float(price_val)
                 diff = int(round(min_p - f_p))
                 if diff > 0 and "sub-floor" not in reason_lower:
-                    if "capped" in reason_lower or "sweet-spot" in reason_lower:
-                        return f"CAPPED (-{diff:,})"
                     return f"WIN (-{diff:,})"
             except (ValueError, TypeError):
                 pass
 
         if "monopoly" in reason_lower or "no competitors" in reason_lower:
             return "SOLO"
-        if "sub-floor" in reason_lower:
-            return "CAPPED"
-        if "capped" in reason_lower:
+        if "sub-floor" in reason_lower or "capped" in reason_lower:
             return "CAPPED"
         if "undercut" in reason_lower or "winning price" in reason_lower:
             return "WIN"
@@ -1455,8 +1451,6 @@ def _format_summary_price(
     if status == "FALLBACK":
         return f"[bold red]{raw_p}[/] [red]FALLBACK[/]{mod_tag}"
     if status.startswith("WIN"):
-        return f"{price_str} [bold green]{status}[/]{mod_tag}"
-    if status.startswith("CAPPED (-"):
         return f"{price_str} [bold green]{status}[/]{mod_tag}"
     if status == "SOLO":
         return f"{price_str} [dim]SOLO[/]{mod_tag}"

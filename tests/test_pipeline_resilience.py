@@ -927,7 +927,7 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     Item #4: Fahad @ 23,300 < Floor (23,363) -> Sub-floor dropped -> YELLOW CAPPED on Card & Summary!
     Item #3: Electronics World @ 31,522 < Floor (32,807) -> Sub-floor dropped -> YELLOW CAPPED on Card & Summary!
     Item #7: 0 dropped, Fahad @ 43,000 > Floor -> Pure Undercut -> GREEN WINNING UNDERCUT on Card & WIN (-diff) on Summary!
-    Item #10: 0 dropped, Fahad @ 38,199 > Floor -> Pure Sweet-Spot -> GREEN WINNING SWEET-SPOT on Card & CAPPED (-diff) on Summary!
+    Item #10: 0 dropped, Fahad @ 38,199 > Floor -> Pure Sweet-Spot -> GREEN WINNING SWEET-SPOT on Card & WIN (-diff) on Summary!
     """
     from pricing_engine.evaluator import evaluate_alfa_pricing
     from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
@@ -1045,8 +1045,8 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     txt10 = " ".join(str(cell) for col in tbl10.columns for cell in col._cells)
     assert "[bold green]Rs. 37,499 (WINNING SWEET-SPOT)[/]" in txt10
     status10 = determine_platform_status(res_item10.final_price, res_item10.min_price, res_item10.reason, "")
-    assert status10 == "CAPPED (-700)"
+    assert status10 == "WIN (-700)"
     summary10 = _format_summary_price(
         price_val=res_item10.final_price, min_comp_price=res_item10.min_price, reason=res_item10.reason
     )
-    assert "[bold green]CAPPED (-700)[/]" in summary10
+    assert "[bold green]WIN (-700)[/]" in summary10
