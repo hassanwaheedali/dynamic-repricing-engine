@@ -488,3 +488,18 @@ def test_evaluator_own_store_out_of_stock_annotation(sample_floors: CostFloors) 
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
     assert "[OWN STORE ACTIVE: KiaChahye (OUT OF STOCK) @ Rs. 85,000]" in alfa_res.reason
 
+
+
+def test_digi_50_percent_split_midpoint_tier2(sample_floors: CostFloors) -> None:
+    # 10% floor is 80,555.56. Competitor is at 85,555 (gap is ~5,000, Tier 2: 2,000 <= Gap < 10,000)
+    # 50% split midpoint targets ~83,055 -> snaps to psychological 82,999 (rather than undercutting to 85,499)
+    offers = [
+        ScrapedOffer(vendor_name="CompetitorGap5k", price=85555.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
+    assert result.status == "Safe Win (10% Tier)"
+    assert result.effective_comm == "10.00%"
+    assert result.final_price == 82999
+    assert "Applied 50% split midpoint" in result.reason
+    assert "capped winning psychological price" in result.reason
+    assert result.real_profit == round((82999 * 0.92) - sample_floors.cost_base)

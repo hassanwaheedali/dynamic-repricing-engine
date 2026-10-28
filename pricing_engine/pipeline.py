@@ -308,7 +308,7 @@ def determine_platform_status(
                 f_p = float(price_val)
                 diff = int(round(min_p - f_p))
                 if diff > 0 and "sub-floor" not in reason_lower:
-                    if "capped" in reason_lower:
+                    if "capped" in reason_lower or "split midpoint" in reason_lower:
                         return f"CAPPED (-{diff:,})"
                     return f"WIN (-{diff:,})"
             except (ValueError, TypeError):

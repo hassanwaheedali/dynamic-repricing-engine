@@ -287,7 +287,7 @@ def _evaluate_alfa_core(
         if 2000.0 <= gap < 10000.0:
             reason = (
                 f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied 50% split midpoint "
-                f"to winning psychological price Rs. {final_p:,.0f} (+Rs. {profit:,} profit) for maximum conversion."
+                f"to capped winning psychological price Rs. {final_p:,.0f} (+Rs. {profit:,} profit) for maximum conversion."
             )
         else:
             reason = (
@@ -445,11 +445,17 @@ def _evaluate_digi_core(
             uncapped_p = find_winning_psychological_price(
                 cost_floors.floor_digi_10, lowest_offer.price
             )
-            if gap_10 >= 10000.0 and uncapped_p is not None and final_p_10 < uncapped_p:
-                reason = (
-                    f"Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
-                    f"price is inflated. Capped price at sweet-spot Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                )
+            if uncapped_p is not None and final_p_10 < uncapped_p:
+                if 2000.0 <= gap_10 < 10000.0:
+                    reason = (
+                        f"Large price gap (Rs. {gap_10:,.0f}) above floor. Applied 50% split midpoint "
+                        f"to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                    )
+                else:
+                    reason = (
+                        f"Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
+                        f"price is inflated. Capped price at sweet-spot Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
+                    )
             else:
                 reason = (
                     f"Lowest competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
@@ -492,11 +498,17 @@ def _evaluate_digi_core(
                 uncapped_p = find_winning_psychological_price(
                     cost_floors.floor_digi_8, lowest_offer.price
                 )
-                if gap_8 >= 10000.0 and uncapped_p is not None and final_p_8 < uncapped_p:
-                    reason = (
-                        f"Triggered emergency 8% Faysal Bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
-                        f"price is inflated. Capped price at sweet-spot Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                    )
+                if uncapped_p is not None and final_p_8 < uncapped_p:
+                    if 2000.0 <= gap_8 < 10000.0:
+                        reason = (
+                            f"Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_8:,.0f}) above floor. "
+                            f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                        )
+                    else:
+                        reason = (
+                            f"Triggered emergency 8% Faysal Bank rate. Competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
+                            f"price is inflated. Capped price at sweet-spot Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
+                        )
                 else:
                     reason = (
                         f"Unviable at 10% floor (Rs. {round(cost_floors.floor_digi_10):,}). "
@@ -539,15 +551,17 @@ def _evaluate_digi_core(
                     uncapped_p = find_winning_psychological_price(
                         cost_floors.floor_digi_10, lowest_upper.price
                     )
-                    if (
-                        gap_upper_10 >= 10000.0
-                        and uncapped_p is not None
-                        and final_p_10 < uncapped_p
-                    ):
-                        reason = (
-                            f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                            f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                        )
+                    if uncapped_p is not None and final_p_10 < uncapped_p:
+                        if 2000.0 <= gap_upper_10 < 10000.0:
+                            reason = (
+                                f"Filtered sub-floor offers. Large price gap (Rs. {gap_upper_10:,.0f}) above floor. "
+                                f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                            )
+                        else:
+                            reason = (
+                                f"Filtered sub-floor offers. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
+                                f"price is inflated. Capped at sweet-spot price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
+                            )
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
@@ -588,15 +602,17 @@ def _evaluate_digi_core(
                     uncapped_p = find_winning_psychological_price(
                         cost_floors.floor_digi_8, lowest_upper.price
                     )
-                    if (
-                        gap_upper_8 >= 10000.0
-                        and uncapped_p is not None
-                        and final_p_upper < uncapped_p
-                    ):
-                        reason = (
-                            f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
-                            f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
-                        )
+                    if uncapped_p is not None and final_p_upper < uncapped_p:
+                        if 2000.0 <= gap_upper_8 < 10000.0:
+                            reason = (
+                                f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_upper_8:,.0f}) above floor. "
+                                f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                            )
+                        else:
+                            reason = (
+                                f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) "
+                                f"price is inflated. Capped at sweet-spot price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for sales conversion."
+                            )
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate to undercut "

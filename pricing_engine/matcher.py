@@ -2229,7 +2229,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     # Clean trailing seller store tags (e.g. ' - ET', ' - By Tech House', ' - Telemart', ' - ElectroEase')
     # Guarantees hardware facets (GD, WB, GB, FL, TL, IOT), capacities, specs, and colors are NEVER stripped!
-    m_trailer = re.search(r"\s+[-–—|]\s+(?:By\s+|Official\s+)?[A-Za-z0-9\s.]{2,}$", raw_clean, flags=re.IGNORECASE)
+    m_trailer = re.search(r"\s+[-–—|]\s*(?:(By\s+|Official\s+))?[A-Za-z0-9\s.]{2,}$", raw_clean, flags=re.IGNORECASE)
     if m_trailer:
         trailer_text = m_trailer.group(0).strip(" -–—|")
         HARDWARE_FACET_TAGS = {"GD", "WB", "GB", "SD", "DD", "FL", "TL", "IOT", "LVS", "ADS", "CFL", "INOX"}
@@ -2241,8 +2241,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             or trailer_text.upper() in HARDWARE_FACET_TAGS
         )
         if not is_spec:
+            is_explicit_seller = bool(m_trailer.group(1))
             has_digits = bool(re.search(r"\d", trailer_text))
-            if not has_digits:
+            if is_explicit_seller or not has_digits:
                 raw_clean = raw_clean[:m_trailer.start()].strip()
 
     raw_clean = raw_clean.replace("—", " ").replace("–", " ").replace("|", " ").replace("[", "(").replace("]", ")").replace("{", "(").replace("}", ")").strip()
@@ -2758,7 +2759,7 @@ def _extract_stem_single_letter_variant(text: str, anchor: str = "") -> str | No
         if len(parts) >= 2 and any(re.search(r"\d{3,}", p) for p in parts[:-1]) and len(parts[-1]) == 1 and parts[-1].isalpha():
             return parts[-1].upper()
     # 2. Glued or spaced on prefix/capacity+digits: DWT-255C, DWT 255 C, HWM 80-1217 E
-    m = re.search(r"(?:[A-Za-z]{2,4}[-_ ]?|\b\d{1,3}[-_ ])(\d{3,6})[-_ ]?([A-Za-z])(?![A-Za-z0-9])", check_str)
+    m = re.search(r"(?:[A-Za-z]{2,4}[-_ ]?|\b\d{1,3}[-_ ])(\d{3,6})[-_ ]?([A-Za-z])(?![A-Za-z0-9]|-[A-Za-z0-9])", check_str)
     if m:
         return m.group(2).upper()
     return None

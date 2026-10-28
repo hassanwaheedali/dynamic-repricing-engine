@@ -1541,7 +1541,7 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
     assert "(CAPPED SWEET-SPOT)" in rendered_text2
     assert "(MONOPOLY WIN)" in rendered_text2
 
-    # Case 3: Safe Fallback
+    # Case 3: Safe Fallback & Digi 50% Split Midpoint
     alfa_fallback = PlatformPricingResult(
         final_price=54499,
         min_price=45000.0,
@@ -1550,15 +1550,24 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
         reason="All competitors are selling at a loss. Listed at Safe Fallback Price Rs. 54,499.",
         status="Safe Fallback",
     )
+    digi_50pct = PlatformPricingResult(
+        final_price=47499,
+        min_price=50000.0,
+        max_price=50000.0,
+        real_profit=3699,
+        reason="Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 3,699 profit on 8% Faysal Bank rate) for maximum conversion.",
+        status="Safe Win (10% Tier)",
+    )
     tbl3 = build_platform_decision_table(
         alfa_res=alfa_fallback,
-        digi_res=digi_monopoly,
+        digi_res=digi_50pct,
         alfa_offers=[],
         digi_offers=[],
         personal_comm_pct=5.0,
     )
     rendered_text3 = " ".join(str(cell) for col in tbl3.columns for cell in col._cells)
     assert "(SAFE FALLBACK)" in rendered_text3
+    assert "(CAPPED SWEET-SPOT)" in rendered_text3
 
 
 def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -> None:
@@ -1602,6 +1611,24 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     )
     assert s4 == "CAPPED (-10,000)"
     assert determine_5pct_goal_status(s4, real_profit=2000, target_profit_5pct=526, active_sellers=2) == "WIN + 5% ACHIEVED"
+
+    # Pure market win with 50% split midpoint
+    s5 = determine_platform_status(
+        price_val=47499,
+        min_comp_price=50000,
+        reason="Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
+    )
+    assert s5 == "CAPPED (-2,501)"
+    assert determine_5pct_goal_status(s5, real_profit=2749, target_profit_5pct=526, active_sellers=1) == "WIN + 5% ACHIEVED"
+
+    # 50% split midpoint with sub-floor filtered (viable competitor capped, but sub-floor existed)
+    s6 = determine_platform_status(
+        price_val=47499,
+        min_comp_price=40000,
+        reason="Filtered 1 sub-floor offer(s). Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
+    )
+    assert s6 == "CAPPED"
+    assert determine_5pct_goal_status(s6, real_profit=2749, target_profit_5pct=526, active_sellers=2) == "SUB-FLOOR CHEAPER"
 
 
 
