@@ -1616,7 +1616,7 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     s5 = determine_platform_status(
         price_val=47499,
         min_comp_price=50000,
-        reason="Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
+        reason="Large price gap (Rs. 5,000) above floor. Applied dynamic adaptive split (69%) to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
     )
     assert s5 == "CAPPED (-2,501)"
     assert determine_5pct_goal_status(s5, real_profit=2749, target_profit_5pct=526, active_sellers=1) == "WIN + 5% ACHIEVED"
@@ -1625,10 +1625,18 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     s6 = determine_platform_status(
         price_val=47499,
         min_comp_price=40000,
-        reason="Filtered 1 sub-floor offer(s). Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
+        reason="Filtered 1 sub-floor offer(s). Large price gap (Rs. 5,000) above floor. Applied dynamic adaptive split (69%) to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
     )
     assert s6 == "CAPPED"
     assert determine_5pct_goal_status(s6, real_profit=2749, target_profit_5pct=526, active_sellers=2) == "SUB-FLOOR CHEAPER"
+
+    # Vendor named with "Split" (e.g. Split AC Hub) on ordinary undercut must NOT trigger false-positive CAPPED
+    s7 = determine_platform_status(
+        price_val=79899,
+        min_comp_price=80000,
+        reason="Undercut lowest competitor Gree Split AC Hub (Rs. 80,000) to winning price Rs. 79,899.",
+    )
+    assert s7 == "WIN (-101)"
 
 
 

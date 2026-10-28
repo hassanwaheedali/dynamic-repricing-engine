@@ -308,7 +308,7 @@ def determine_platform_status(
                 f_p = float(price_val)
                 diff = int(round(min_p - f_p))
                 if diff > 0 and "sub-floor" not in reason_lower:
-                    if "capped" in reason_lower or "split" in reason_lower:
+                    if "capped" in reason_lower:
                         return f"CAPPED (-{diff:,})"
                     return f"WIN (-{diff:,})"
             except (ValueError, TypeError):
@@ -316,7 +316,7 @@ def determine_platform_status(
 
         if "monopoly" in reason_lower or "no competitors" in reason_lower:
             return "SOLO"
-        if "capped" in reason_lower or "split" in reason_lower:
+        if "capped" in reason_lower:
             return "CAPPED"
         if "undercut" in reason_lower or "winning price" in reason_lower:
             return "WIN"
@@ -906,10 +906,7 @@ def build_platform_decision_table(
             alfa_p_str = (
                 f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif (
-            "capped" in (alfa_res.reason or "").lower()
-            or "split" in (alfa_res.reason or "").lower()
-        ):
+        elif "capped" in (alfa_res.reason or "").lower():
             alfa_p_str = f"[bold yellow]Rs. {alfa_res.final_price:,} (CAPPED SWEET-SPOT)[/]"
         elif (
             "monopoly" in (alfa_res.status or "").lower()
@@ -937,10 +934,7 @@ def build_platform_decision_table(
             digi_p_str = (
                 f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
             )
-        elif (
-            "capped" in (digi_res.reason or "").lower()
-            or "split" in (digi_res.reason or "").lower()
-        ):
+        elif "capped" in (digi_res.reason or "").lower():
             tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
             digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED SWEET-SPOT{tier_note})[/]"
         elif (
