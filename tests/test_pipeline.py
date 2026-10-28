@@ -841,14 +841,14 @@ def test_item_3_slash_expansion_digimall_reprice_win() -> None:
 
     record = process_product_with_offers(product, alfa_offers=[], digi_offers=digi_offers)
 
-    # 1. Winning price undercuts Musab Mall (193,999) to 192,899 (Adaptive undercut)
-    assert record["Final Price Digi"] == 192899
+    # 1. Winning price undercuts Musab Mall (193,999) to 193,499 (Adaptive undercut via dynamic glide)
+    assert record["Final Price Digi"] == 193499
 
     # 2. Commission switched to 8.00% Emergency Tier
     assert record["Digi Effective Commision"] == "8.00%"
 
-    # 3. Real Profit calculated: (192,899 * 0.92) - 175,978 = +1,489
-    assert record["Digi Real Profit"] == 1489
+    # 3. Real Profit calculated: (193,499 * 0.92) - 175,978 = +2,041
+    assert record["Digi Real Profit"] == 2041
 
     # 4. Reason documents the 8% switch undercut
     assert (

@@ -60,7 +60,8 @@ def test_alfa_competitive_win_undercut(sample_floors: CostFloors) -> None:
     assert result.final_price is not None
     assert result.final_price < 83000.0
     assert result.final_price >= sample_floors.floor_alfa
-    assert result.final_price == 81499
+    assert result.final_price == 82299
+    assert "Applied dynamic adaptive split" in result.reason
     assert result.real_profit > 500
 
 
@@ -472,7 +473,7 @@ def test_evaluator_own_store_with_external_competitor(sample_floors: CostFloors)
     )
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
     assert alfa_res.status == "Competitive Win"
-    assert alfa_res.final_price == 81499  # Undercuts Fahad Electronics (83,000)
+    assert alfa_res.final_price == 82299  # Undercuts Fahad Electronics (83,000) via dynamic split
     assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 84,000]" in alfa_res.reason
     assert "[OFFICIAL STORE: Haier Official Store @ Rs. 92,000]" in alfa_res.reason
     assert any("Fahad Electronics" in s for s in alfa_res.active_pool)
@@ -490,16 +491,16 @@ def test_evaluator_own_store_out_of_stock_annotation(sample_floors: CostFloors) 
 
 
 
-def test_digi_50_percent_split_midpoint_tier2(sample_floors: CostFloors) -> None:
+def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
     # 10% floor is 80,555.56. Competitor is at 85,555 (gap is ~5,000, Tier 2: 2,000 <= Gap < 10,000)
-    # 50% split midpoint targets ~83,055 -> snaps to psychological 82,999 (rather than undercutting to 85,499)
+    # Dynamic glide (68.75%) targets ~83,993 -> snaps to psychological 83,899
     offers = [
         ScrapedOffer(vendor_name="CompetitorGap5k", price=85555.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
     assert result.effective_comm == "10.00%"
-    assert result.final_price == 82999
-    assert "Applied 50% split midpoint" in result.reason
+    assert result.final_price == 83899
+    assert "Applied dynamic adaptive split (69%)" in result.reason
     assert "capped winning psychological price" in result.reason
-    assert result.real_profit == round((82999 * 0.92) - sample_floors.cost_base)
+    assert result.real_profit == round((83899 * 0.92) - sample_floors.cost_base)

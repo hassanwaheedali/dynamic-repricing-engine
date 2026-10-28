@@ -285,8 +285,10 @@ def _evaluate_alfa_core(
     if uncapped_p is not None and final_p < uncapped_p:
         gap = lowest_viable.price - cost_floors.floor_alfa
         if 2000.0 <= gap < 10000.0:
+            retention_pct = 0.80 - ((gap - 2000.0) / 8000.0) * 0.30
+            pct_str = f"{round(retention_pct * 100)}%"
             reason = (
-                f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied 50% split midpoint "
+                f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
                 f"to capped winning psychological price Rs. {final_p:,.0f} (+Rs. {profit:,} profit) for maximum conversion."
             )
         else:
@@ -447,8 +449,10 @@ def _evaluate_digi_core(
             )
             if uncapped_p is not None and final_p_10 < uncapped_p:
                 if 2000.0 <= gap_10 < 10000.0:
+                    retention_pct = 0.80 - ((gap_10 - 2000.0) / 8000.0) * 0.30
+                    pct_str = f"{round(retention_pct * 100)}%"
                     reason = (
-                        f"Large price gap (Rs. {gap_10:,.0f}) above floor. Applied 50% split midpoint "
+                        f"Large price gap (Rs. {gap_10:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
                         f"to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
                     )
                 else:
@@ -500,9 +504,11 @@ def _evaluate_digi_core(
                 )
                 if uncapped_p is not None and final_p_8 < uncapped_p:
                     if 2000.0 <= gap_8 < 10000.0:
+                        retention_pct = 0.80 - ((gap_8 - 2000.0) / 8000.0) * 0.30
+                        pct_str = f"{round(retention_pct * 100)}%"
                         reason = (
                             f"Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_8:,.0f}) above floor. "
-                            f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                            f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
                         )
                     else:
                         reason = (
@@ -553,9 +559,11 @@ def _evaluate_digi_core(
                     )
                     if uncapped_p is not None and final_p_10 < uncapped_p:
                         if 2000.0 <= gap_upper_10 < 10000.0:
+                            retention_pct = 0.80 - ((gap_upper_10 - 2000.0) / 8000.0) * 0.30
+                            pct_str = f"{round(retention_pct * 100)}%"
                             reason = (
                                 f"Filtered sub-floor offers. Large price gap (Rs. {gap_upper_10:,.0f}) above floor. "
-                                f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                                f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
                             )
                         else:
                             reason = (
@@ -604,9 +612,11 @@ def _evaluate_digi_core(
                     )
                     if uncapped_p is not None and final_p_upper < uncapped_p:
                         if 2000.0 <= gap_upper_8 < 10000.0:
+                            retention_pct = 0.80 - ((gap_upper_8 - 2000.0) / 8000.0) * 0.30
+                            pct_str = f"{round(retention_pct * 100)}%"
                             reason = (
                                 f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Large price gap (Rs. {gap_upper_8:,.0f}) above floor. "
-                                f"Applied 50% split midpoint to capped winning psychological price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
+                                f"Applied dynamic adaptive split ({pct_str}) to capped winning psychological price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) for maximum conversion."
                             )
                         else:
                             reason = (

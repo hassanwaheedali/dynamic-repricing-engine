@@ -478,7 +478,7 @@ def calculate_adaptive_target_price(
     - Tier 5 (Gap < 800 PKR, e.g. <= 799): Closest Rs. 100 undercut (or competitor - 1 if tight).
     - Tier 4 (800 <= Gap < 1,500 PKR, e.g. 800, 900, 1000, 1200): Rs. 200 undercut.
     - Tier 3 (1,500 <= Gap < 2,000 PKR, e.g. 1500, 1800, 1900): Rs. 500 customer discount (competitor - 500), min 1,000 buffer.
-    - Tier 2 (2,000 <= Gap < 10,000 PKR, 3 Zeros): Proportional 50% split with min 1,000 PKR buffer.
+    - Tier 2 (2,000 <= Gap < 10,000 PKR, 3 Zeros): Unified Dynamic Glide Split (80% retention at 2,000 down to 50% at 10,000).
     - Tier 1 (Gap >= 10,000 PKR, 4 Zeros): Option A sweet spot capped around ~10,000 target profit.
 
     Args:
@@ -513,9 +513,10 @@ def calculate_adaptive_target_price(
         target = competitor_price - 500.0
         return max(floor_min + 1000.0, target)
 
-    # Tier 2: Gap 2,000 to 9,999 PKR (3 Zeros) -> 50% split with min 1,000 buffer
+    # Tier 2: Gap 2,000 to 9,999 PKR (3 Zeros) -> Unified Dynamic Glide (80% at 2k down to 50% at 10k)
     if gap < 10000.0:
-        buffer = max(gap * 0.50, min_buffer_3_zeros)
+        retention_pct = 0.80 - ((gap - 2000.0) / 8000.0) * 0.30
+        buffer = max(gap * retention_pct, min_buffer_3_zeros)
         return floor_min + buffer
 
     # Tier 1: Gap >= 10,000 PKR (4 Zeros) -> Option A: Profit-targeted sweet spot (~10k)

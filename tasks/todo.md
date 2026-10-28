@@ -1,32 +1,22 @@
-# Task Breakdown: Item #28 Matcher Architecture & 5-Case Variant Polish
+# Task Breakdown: Unified Dynamic Glide Split (80% -> 50%)
 
-- [x] **Task 1: Pre-Processing Sanitizer (Noise & Seller Codes) with Capacity Guard**
-  - Clean parenthetical payment terms (`0% Markup`, `Installment`, `EMI`, `Down Payment`)
-  - Clean trailing seller codes after hyphens/delimiters (`- ET`, `- Telemart`)
-  - **Spec & Capacity Guard**: Ensure `- 8 kg`, `- 8.5 KG`, `- 10KG`, `- 1.5 TON`, `- 300L` are NEVER stripped
-  - Clean standalone dashes in post-words loop
-  - *Acceptance:* `c2` produces `capabilities=set()`, `residuals=[]` with zero fake `ET` capability; `- 8 kg` retains `capacity='8KG'`
+- [x] **Task 1: Core Math Engine (`pricing_engine/calculator.py`)**
+  - Implement dynamic linear interpolation formula for Tier 2: `retention_pct = 0.80 - ((gap - 2000.0) / 8000.0) * 0.30`
+  - Update `test_adaptive_target_tier2_2000_to_10000_gap()` in `tests/test_calculator.py`
+  - *Acceptance:* Gap 2k -> 80% (buffer 1600), Gap 5k -> 68.75% (buffer 3437.5), Gap 10k -> 50% (buffer 5000)
 
-- [x] **Task 2: Strict Brand Matching & Dynamic Prefix Initial Verification**
-  - Zero-tolerance brand collision against all competing brands
-  - Dynamic brand-initial prefix check: `{brand[0]}` (e.g. `D` for Dawlance, `H` for Haier)
-  - Reject candidate if prefix initial conflicts with target brand
-  - *Acceptance:* Cross-brand candidates rejected immediately with `Brand collision`
+- [x] **Task 2: Evaluator Dynamic Telemetry (`pricing_engine/evaluator.py`)**
+  - In `_evaluate_alfa_core`: compute dynamic `pct_str` and format reason: `Applied dynamic adaptive split ({pct_str}) to capped winning psychological price...`
+  - In `_evaluate_digi_core`: apply dynamic `pct_str` across Step A (10% Tier), Step B (Emergency 8% Switch), and Step C (Upper Band 10% & 8%)
+  - *Acceptance:* Exact percentage (e.g. 76%, 69%, 58%) rendered in reason string for both platforms
 
-- [x] **Task 3: Generic Case B Anchor Extraction**
-  - Update `Case B` in `extract_search_query_and_model()` to match `\d{1,6}([A-Za-z]{1,3})?`
-  - Canonicalize `DWT 255C` -> `DWT-255-C`, `DW 255C` -> `DW-255-C`
-  - *Acceptance:* Prefix `DWT`/`DW` is preserved, anchor becomes `DWT-255-C`
+- [x] **Task 3: Pipeline & Badging Consistency (`pricing_engine/pipeline.py`)**
+  - Verify `determine_platform_status()` tags `CAPPED (-diff)` on market wins with dynamic adaptive split
+  - Verify `build_platform_decision_table()` renders `(CAPPED SWEET-SPOT)` and `(CAPPED SWEET-SPOT (8% RATE))`
+  - *Acceptance:* Terminal audit cards display bold yellow `(CAPPED SWEET-SPOT)`
 
-- [x] **Task 4: 5-Case Single-Letter Variant Referee**
-  - Implement generic `_extract_stem_single_letter_variant()` using `COLOR_SUFFIX_MAP`
-  - Implement 5-case decision logic in `referee_match()`
-  - *Acceptance:* All 5 cases (exact, base fallback, variant omission, collision) match expected verdicts
-
-- [x] **Task 5: Unit Tests & Regression Verification**
-  - Add `test_dawlance_dwt255_item28_matching_and_5_cases()` in `tests/test_matcher.py`
-  - Test `- 8 kg` / `- 8.5 KG` edge cases in unit test
-  - Test strict brand rejection (e.g. `PEL` or `Haier` against Dawlance target)
-  - Verify `test_deep_freezer_df300_es_matching()` remains passing (ET protection preserved)
-  - Run full benchmark tests: Gree, Haier, Dawlance
-  - Run `ruff check .`
+- [x] **Task 4: Automated Testing & Quality Gates**
+  - Update existing test assertions in `tests/test_evaluator.py` and `tests/test_pipeline.py`
+  - Run `pytest` (100% green, 376 passed)
+  - Run `ruff check .` (0 errors)
+  - Run `mypy pricing_engine index.py` (0 errors)

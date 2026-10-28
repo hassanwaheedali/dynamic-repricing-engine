@@ -120,14 +120,16 @@ def test_adaptive_target_tier3_1500_to_2000_gap() -> None:
 
 
 def test_adaptive_target_tier2_2000_to_10000_gap() -> None:
-    # 2,000 <= Gap < 10,000 PKR (3 Zeros) -> 50% split with min 1,000 buffer
+    # 2,000 <= Gap < 10,000 PKR (3 Zeros) -> Unified Dynamic Glide (80% at 2k down to 50% at 10k)
     floor = 70000.0
-    # Gap = 2,500 -> 50% is 1,250 -> 71,250
-    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=72500.0) == 71250.0
-    # Gap = 5,000 -> 50% is 2,500 -> 72,500
-    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=75000.0) == 72500.0
-    # Gap = 9,000 -> 50% is 4,500 -> 74,500
-    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=79000.0) == 74500.0
+    # Gap = 2,000 -> 80% is 1,600 -> 71,600
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=72000.0) == 71600.0
+    # Gap = 2,500 -> 78.125% is 1,953.125 -> 71,953.125
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=72500.0) == 71953.125
+    # Gap = 5,000 -> 68.75% is 3,437.5 -> 73,437.5
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=75000.0) == 73437.5
+    # Gap = 9,000 -> 53.75% is 4,837.5 -> 74,837.5
+    assert calculate_adaptive_target_price(floor_min=floor, competitor_price=79000.0) == 74837.5
 
 
 def test_adaptive_target_4_zeros_large_gap_item1() -> None:
