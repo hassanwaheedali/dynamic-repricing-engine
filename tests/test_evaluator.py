@@ -504,3 +504,53 @@ def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
     assert "Applied dynamic adaptive split (69%)" in result.reason
     assert "capped winning psychological price" in result.reason
     assert result.real_profit == round((83899 * 0.92) - sample_floors.cost_base)
+
+
+def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -> None:
+    # Sub-floor competitor at 75,000 (below 8% floor 78,804.35)
+    # Upper competitor at 85,555 (Gap above 10% floor is ~5,000 PKR, Tier 2)
+    offers = [
+        ScrapedOffer(vendor_name="SubFloorSeller", price=75000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="UpperSeller10k", price=85555.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
+    assert result.status == "Safe Win (10% Tier)"
+    assert result.effective_comm == "10.00%"
+    assert result.final_price == 83899
+    assert "Filtered sub-floor offers" in result.reason
+    assert "Applied dynamic adaptive split (69%)" in result.reason
+    assert "capped winning psychological price" in result.reason
+    assert any("SubFloorSeller" in d for d in result.dropped)
+    assert any("UpperSeller10k" in a for a in result.active_pool)
+
+
+def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
+    # High-value item: cost_base = 150,000 PKR
+    # 10% floor = (150000 + 500) / 0.90 = 167,222.22 PKR
+    # 8% floor = (150000 + 500) / 0.92 = 163,586.96 PKR
+    floors = CostFloors(
+        cost_base=150000.0,
+        zero_margin_10=150000.0 / 0.90,
+        zero_margin_8=150000.0 / 0.92,
+        floor_alfa=(150000.0 + 500.0) / 0.90,
+        floor_digi_10=(150000.0 + 500.0) / 0.90,
+        floor_digi_8=(150000.0 + 500.0) / 0.92,
+    )
+    # Sub-floor seller at 160,000 (below 8% floor 163,586.96)
+    # Upper seller at 166,500 (below 10% floor 167,222.22, but gap above 8% floor is ~2,913 PKR, Tier 2)
+    offers = [
+        ScrapedOffer(vendor_name="LossSeller", price=160000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="UpperSeller8pct", price=166500.0, is_sold_out=False, raw_title="AC"),
+    ]
+    result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
+    assert result.status == "Win via 8% Switch"
+    assert result.effective_comm == "8.00%"
+    assert result.final_price is not None
+    assert result.final_price < 166500.0
+    assert result.final_price >= floors.floor_digi_8
+    assert "Filtered sub-floor offers" in result.reason
+    assert "Triggered emergency 8% Faysal Bank rate" in result.reason
+    assert "Applied dynamic adaptive split" in result.reason
+    assert "capped winning psychological price" in result.reason
+    assert any("LossSeller" in d for d in result.dropped)
+    assert any("UpperSeller8pct" in a for a in result.active_pool)
