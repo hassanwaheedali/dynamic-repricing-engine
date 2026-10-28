@@ -127,7 +127,15 @@ def _format_winning_reason(
     bank_note: str = "",
 ) -> str:
     """Format an informative winning reason when price is capped below uncapped undercut."""
+    has_subfloor = bool(dropped_prefix and "sub-floor" in dropped_prefix.lower())
+
     if gap >= 10000.0:
+        if has_subfloor:
+            return (
+                f"{dropped_prefix}Competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
+                f"price is inflated. Capped price at sweet-spot price Rs. {final_price:,.0f} "
+                f"(+Rs. {profit:,} profit{bank_note}) for sales conversion."
+            )
         return (
             f"{dropped_prefix}Competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
             f"price is inflated. Capped price at winning sweet-spot price Rs. {final_price:,.0f} "
@@ -135,21 +143,43 @@ def _format_winning_reason(
         )
     if gap >= 2000.0:
         pct_str = format_dynamic_retention_pct(gap)
+        if has_subfloor:
+            return (
+                f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
+                f"to capped sweet-spot price Rs. {final_price:,.0f} (+Rs. {profit:,} profit{bank_note}) for maximum conversion."
+            )
         return (
             f"{dropped_prefix}Large price gap (Rs. {gap:,.0f}) above floor. Applied dynamic adaptive split ({pct_str}) "
             f"to capped winning sweet-spot price Rs. {final_price:,.0f} (+Rs. {profit:,} profit{bank_note}) for maximum conversion."
         )
     if gap >= 1500.0:
+        if has_subfloor:
+            return (
+                f"{dropped_prefix}Applied Tier 3 discount (Rs. 500) below competitor {competitor_name} "
+                f"(Rs. {competitor_price:,.0f}) to capped price Rs. {final_price:,.0f} "
+                f"(+Rs. {profit:,} profit{bank_note}) to safeguard profit."
+            )
         return (
             f"{dropped_prefix}Applied Tier 3 winning discount (Rs. 500) below competitor {competitor_name} "
             f"(Rs. {competitor_price:,.0f}) to winning price Rs. {final_price:,.0f} "
             f"(+Rs. {profit:,} profit{bank_note}) for high sales conversion."
         )
     if gap >= 800.0:
+        if has_subfloor:
+            return (
+                f"{dropped_prefix}Applied Tier 4 discount (Rs. 200) below competitor {competitor_name} "
+                f"(Rs. {competitor_price:,.0f}) to capped price Rs. {final_price:,.0f} "
+                f"(+Rs. {profit:,} profit{bank_note}) to safeguard profit."
+            )
         return (
             f"{dropped_prefix}Applied Tier 4 winning discount (Rs. 200) below competitor {competitor_name} "
             f"(Rs. {competitor_price:,.0f}) to winning price Rs. {final_price:,.0f} "
             f"(+Rs. {profit:,} profit{bank_note}) for high sales conversion."
+        )
+    if has_subfloor:
+        return (
+            f"{dropped_prefix}Undercut viable competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
+            f"to capped price Rs. {final_price:,.0f} (+Rs. {profit:,} profit{bank_note})."
         )
     return (
         f"{dropped_prefix}Undercut viable competitor {competitor_name} (Rs. {competitor_price:,.0f}) "
@@ -336,7 +366,7 @@ def _evaluate_alfa_core(
     else:
         reason = (
             f"{dropped_prefix}Undercut viable competitor {lowest_viable.vendor_name} "
-            f"(Rs. {lowest_viable.price:,.0f}) to winning price Rs. {final_p:,.0f}."
+            f"(Rs. {lowest_viable.price:,.0f}) to capped price Rs. {final_p:,.0f}."
             if dropped
             else f"Undercut lowest competitor {lowest_viable.vendor_name} (Rs. {lowest_viable.price:,.0f}) to winning price Rs. {final_p:,.0f}."
         )
@@ -600,7 +630,7 @@ def _evaluate_digi_core(
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
-                            f"(Rs. {lowest_upper.price:,.0f}) to winning price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate incl. 2% bank spread)."
+                            f"(Rs. {lowest_upper.price:,.0f}) to capped price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate incl. 2% bank spread)."
                         )
                     return PlatformPricingResult(
                         min_price=min_p,
@@ -650,7 +680,7 @@ def _evaluate_digi_core(
                     else:
                         reason = (
                             f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate to undercut "
-                            f"upper competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) to winning price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit)."
+                            f"upper competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) to capped price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit)."
                         )
                 return PlatformPricingResult(
                     min_price=min_p,

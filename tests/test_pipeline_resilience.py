@@ -921,10 +921,132 @@ def test_led_quote_and_screen_size_handling() -> None:
     assert '1/2"' in m_safeguard.group(0)
 
 
+def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
+    """Verify exact UI differentiation between Pure Wins (Green) vs Sub-floor Capped Adjustments (Yellow).
 
+    Item #4: Fahad @ 23,300 < Floor (23,363) -> Sub-floor dropped -> YELLOW CAPPED on Card & Summary!
+    Item #3: Electronics World @ 31,522 < Floor (32,807) -> Sub-floor dropped -> YELLOW CAPPED on Card & Summary!
+    Item #7: 0 dropped, Fahad @ 43,000 > Floor -> Pure Undercut -> GREEN WINNING UNDERCUT on Card & WIN (-diff) on Summary!
+    Item #10: 0 dropped, Fahad @ 38,199 > Floor -> Pure Sweet-Spot -> GREEN WINNING SWEET-SPOT on Card & CAPPED (-diff) on Summary!
+    """
+    from pricing_engine.evaluator import evaluate_alfa_pricing
+    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.pipeline import (
+        _format_summary_price,
+        build_platform_decision_table,
+        determine_platform_status,
+    )
 
+    dummy_digi = PlatformPricingResult(min_price=None, max_price=None, final_price=None, status="SKIPPED")
 
+    # Item #4: Dawlance 80085 (Cost Base 20,500, Floor 23,363)
+    floors_item4 = CostFloors(
+        cost_base=20500.0,
+        zero_margin_10=20500.0 / 0.90,
+        zero_margin_8=20500.0 / 0.92,
+        floor_alfa=(20500.0 + 500.0) / 0.90,
+        floor_digi_10=(20500.0 + 500.0) / 0.90,
+        floor_digi_8=(20500.0 + 500.0) / 0.92,
+    )
+    offers_item4 = [
+        ScrapedOffer(vendor_name="Fahad Electronics", price=23300.0, is_sold_out=False, raw_title="DW-80085"),
+        ScrapedOffer(vendor_name="Electro Ease", price=28249.0, is_sold_out=False, raw_title="DW-80085"),
+        ScrapedOffer(vendor_name="Home Cart", price=31199.0, is_sold_out=False, raw_title="DW-80085"),
+    ]
+    res_item4 = evaluate_alfa_pricing(cost_floors=floors_item4, offers=offers_item4)
+    assert res_item4.final_price == 26499
+    assert len(res_item4.dropped) == 1
+    assert "Fahad Electronics" in res_item4.dropped[0]
+    assert "winning" not in res_item4.reason.lower()  # Reason must NOT claim winning!
+    tbl4 = build_platform_decision_table(res_item4, dummy_digi, offers_item4, [])
+    txt4 = " ".join(str(cell) for col in tbl4.columns for cell in col._cells)
+    assert "[bold yellow]Rs. 26,499 (CAPPED)[/]" in txt4
+    assert "(WINNING" not in txt4
+    status4 = determine_platform_status(res_item4.final_price, res_item4.min_price, res_item4.reason, "")
+    assert status4 == "CAPPED"
+    summary4 = _format_summary_price(
+        price_val=res_item4.final_price, min_comp_price=res_item4.min_price, reason=res_item4.reason
+    )
+    assert "[bold yellow]CAPPED[/]" in summary4
+    assert "[bold green]" not in summary4
 
+    # Item #3: Haier 130-1217 (Cost Base 29,000, Floor 32,807)
+    floors_item3 = CostFloors(
+        cost_base=29000.0,
+        zero_margin_10=29000.0 / 0.90,
+        zero_margin_8=29000.0 / 0.92,
+        floor_alfa=(29000.0 + 500.0) / 0.90,
+        floor_digi_10=(29000.0 + 500.0) / 0.90,
+        floor_digi_8=(29000.0 + 500.0) / 0.92,
+    )
+    offers_item3 = [
+        ScrapedOffer(vendor_name="Electronics World", price=31522.0, is_sold_out=False, raw_title="HWM 130-1217"),
+        ScrapedOffer(vendor_name="Tech House", price=34500.0, is_sold_out=False, raw_title="HWM 130-1217"),
+    ]
+    res_item3 = evaluate_alfa_pricing(cost_floors=floors_item3, offers=offers_item3)
+    assert res_item3.final_price == 33999
+    assert len(res_item3.dropped) == 1
+    assert "winning" not in res_item3.reason.lower()  # Reason must NOT claim winning!
+    tbl3 = build_platform_decision_table(res_item3, dummy_digi, offers_item3, [])
+    txt3 = " ".join(str(cell) for col in tbl3.columns for cell in col._cells)
+    assert "[bold yellow]Rs. 33,999 (CAPPED)[/]" in txt3
+    assert "(WINNING" not in txt3
+    status3 = determine_platform_status(res_item3.final_price, res_item3.min_price, res_item3.reason, "")
+    assert status3 == "CAPPED"
+    summary3 = _format_summary_price(
+        price_val=res_item3.final_price, min_comp_price=res_item3.min_price, reason=res_item3.reason
+    )
+    assert "[bold yellow]CAPPED[/]" in summary3
+    assert "[bold green]" not in summary3
 
+    # Item #7: Dawlance DW 10090 (Cost Base 36,500, Floor 41,140) - 0 sub-floor dropped!
+    floors_item7 = CostFloors(
+        cost_base=36500.0,
+        zero_margin_10=36500.0 / 0.90,
+        zero_margin_8=36500.0 / 0.92,
+        floor_alfa=(36500.0 + 500.0) / 0.90,
+        floor_digi_10=(36500.0 + 500.0) / 0.90,
+        floor_digi_8=(36500.0 + 500.0) / 0.92,
+    )
+    offers_item7 = [
+        ScrapedOffer(vendor_name="Fahad Electronics", price=43000.0, is_sold_out=False, raw_title="DW-10090"),
+        ScrapedOffer(vendor_name="Electro Ease", price=44849.0, is_sold_out=False, raw_title="DW-10090"),
+    ]
+    res_item7 = evaluate_alfa_pricing(cost_floors=floors_item7, offers=offers_item7)
+    assert res_item7.final_price == 42499
+    assert len(res_item7.dropped) == 0
+    tbl7 = build_platform_decision_table(res_item7, dummy_digi, offers_item7, [])
+    txt7 = " ".join(str(cell) for col in tbl7.columns for cell in col._cells)
+    assert "[bold green]Rs. 42,499 (WINNING UNDERCUT)[/]" in txt7
+    status7 = determine_platform_status(res_item7.final_price, res_item7.min_price, res_item7.reason, "")
+    assert status7 == "WIN (-501)"
+    summary7 = _format_summary_price(
+        price_val=res_item7.final_price, min_comp_price=res_item7.min_price, reason=res_item7.reason
+    )
+    assert "[bold green]WIN (-501)[/]" in summary7
 
-
+    # Item #10: Dawlance DW 14145 (Cost Base 32,000, Floor 36,140) - 0 sub-floor dropped!
+    floors_item10 = CostFloors(
+        cost_base=32000.0,
+        zero_margin_10=32000.0 / 0.90,
+        zero_margin_8=32000.0 / 0.92,
+        floor_alfa=(32000.0 + 500.0) / 0.90,
+        floor_digi_10=(32000.0 + 500.0) / 0.90,
+        floor_digi_8=(32000.0 + 500.0) / 0.92,
+    )
+    offers_item10 = [
+        ScrapedOffer(vendor_name="Fahad Electronics", price=38199.0, is_sold_out=False, raw_title="DW-14145"),
+        ScrapedOffer(vendor_name="Electro Ease", price=39849.0, is_sold_out=False, raw_title="DW-14145"),
+    ]
+    res_item10 = evaluate_alfa_pricing(cost_floors=floors_item10, offers=offers_item10)
+    assert res_item10.final_price == 37499
+    assert len(res_item10.dropped) == 0
+    tbl10 = build_platform_decision_table(res_item10, dummy_digi, offers_item10, [])
+    txt10 = " ".join(str(cell) for col in tbl10.columns for cell in col._cells)
+    assert "[bold green]Rs. 37,499 (WINNING SWEET-SPOT)[/]" in txt10
+    status10 = determine_platform_status(res_item10.final_price, res_item10.min_price, res_item10.reason, "")
+    assert status10 == "CAPPED (-700)"
+    summary10 = _format_summary_price(
+        price_val=res_item10.final_price, min_comp_price=res_item10.min_price, reason=res_item10.reason
+    )
+    assert "[bold green]CAPPED (-700)[/]" in summary10

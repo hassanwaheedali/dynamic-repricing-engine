@@ -1538,7 +1538,7 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
         personal_comm_pct=5.0,
     )
     rendered_text2 = " ".join(str(cell) for col in tbl2.columns for cell in col._cells)
-    assert "(WINNING SWEET-SPOT)" in rendered_text2
+    assert "(CAPPED)" in rendered_text2
     assert "(MONOPOLY WIN)" in rendered_text2
 
     # Case 3: Safe Fallback & Digi 50% Split Midpoint
@@ -1574,13 +1574,13 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     """Verify determine_platform_status accurately identifies pure and viable wins without uncompetitive text."""
     from pricing_engine.pipeline import determine_5pct_goal_status, determine_platform_status
 
-    # Sub-floor filtered, but viable competitor undercut standardly
+    # Sub-floor filtered, so it is a CAPPED adjustment, not a pure winning undercut
     s1 = determine_platform_status(
         price_val=36499,
         min_comp_price=35000,  # Cheaper junk seller was dropped (< floor)
-        reason="Filtered 2 sub-floor offer(s). Undercut viable competitor to winning price Rs. 36,499.",
+        reason="Filtered 2 sub-floor offer(s). Undercut viable competitor to capped price Rs. 36,499.",
     )
-    assert s1 == "WIN"
+    assert s1 == "CAPPED"
     # Because sub-floor competitors exist in the mall, this is NOT a pure win against the whole platform
     assert determine_5pct_goal_status(s1, real_profit=1500, target_profit_5pct=526, active_sellers=5) == "SUB-FLOOR CHEAPER"
 

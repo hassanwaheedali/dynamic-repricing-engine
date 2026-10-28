@@ -519,7 +519,7 @@ def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -
     assert result.final_price == 83899
     assert "Filtered sub-floor offers" in result.reason
     assert "Applied dynamic adaptive split (69%)" in result.reason
-    assert "capped winning sweet-spot price" in result.reason
+    assert "to capped sweet-spot price" in result.reason
     assert any("SubFloorSeller" in d for d in result.dropped)
     assert any("UpperSeller10k" in a for a in result.active_pool)
 
@@ -551,7 +551,7 @@ def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
     assert "Filtered sub-floor offers" in result.reason
     assert "Triggered emergency 8% Faysal Bank rate" in result.reason
     assert "Applied dynamic adaptive split" in result.reason
-    assert "capped winning sweet-spot price" in result.reason
+    assert "to capped sweet-spot price" in result.reason
     assert any("LossSeller" in d for d in result.dropped)
     assert any("UpperSeller8pct" in a for a in result.active_pool)
 
