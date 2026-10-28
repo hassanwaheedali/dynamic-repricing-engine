@@ -51,15 +51,53 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
     return MarketRange(min_price=min(prices), max_price=max(prices), offer_count=len(prices))
 
 
+def format_fallback_descriptions(mod: str, source: str = "target") -> tuple[str, str, str]:
+    """Generates (audit_text, reason_prefix, banner_text) for active modifier fallbacks."""
+    if " vs " in mod:
+        parts = mod.split(" vs ")
+        t_part = parts[0].replace("Target ", "").strip("'\" ")
+        m_part = parts[1].replace("Market ", "").strip("'\" ")
+        audit = f"⚠️ VARIANT MISMATCH: Target '{t_part}' vs Market '{m_part}'"
+        reason = (
+            f"[FALLBACK MODEL: Target specified '{t_part}', but market listings specified '{m_part}'; "
+            f"repriced against base model]"
+        )
+        banner = (
+            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Target specified [bold cyan]'{t_part}'[/], "
+            f"but marketplace listings have [bold cyan]'{m_part}'[/]. "
+            f"Repriced against closest verified [bold green]base model[/] listings."
+        )
+    elif source == "market" or mod.startswith("Market Variant ") or mod.startswith("Market "):
+        clean_name = mod.replace("Market Variant ", "").replace("Market ", "").strip("'\" ")
+        audit = f"⚠️ MARKET VARIANT '{clean_name}' DETECTED"
+        reason = (
+            f"[FALLBACK MODEL: Marketplace listings specified '{clean_name}' (omitted in target); "
+            f"repriced against base model]"
+        )
+        banner = (
+            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Marketplace listings specified [bold cyan]'{clean_name}'[/] "
+            f"(omitted in target). Repriced against verified [bold green]base model[/] listings."
+        )
+    else:
+        audit = f"⚠️ MODIFIER '{mod}' OMITTED BY MARKET"
+        reason = (
+            f"[FALLBACK MODEL: Target specified '{mod}', but market listings omitted it; "
+            f"repriced against base model]"
+        )
+        banner = (
+            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Target specified [bold cyan]'{mod}'[/], "
+            f"but marketplace listings omitted it. Repriced against verified [bold green]base model[/] listings."
+        )
+    return audit, reason, banner
+
+
 def _annotate_fallback_reason(
     res: PlatformPricingResult, active_fallback: str | None
 ) -> PlatformPricingResult:
     """Prepend explicit fallback notification to pricing reason when market omitted target modifier."""
     if active_fallback and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
-        new_reason = (
-            f"[FALLBACK MODEL: Target specified '{active_fallback}', but market listings omitted it; "
-            f"repriced against base model] {res.reason}"
-        )
+        _, reason_prefix, _ = format_fallback_descriptions(active_fallback)
+        new_reason = f"{reason_prefix} {res.reason}"
         return replace(res, reason=new_reason)
     return res
 

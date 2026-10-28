@@ -11,7 +11,12 @@ from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
 from pricing_engine.matcher import referee_match
-from pricing_engine.models import ScrapedOffer, ScrapeResult, is_non_competitor_vendor
+from pricing_engine.models import (
+    AmbiguousVariantConflict,
+    ScrapedOffer,
+    ScrapeResult,
+    is_non_competitor_vendor,
+)
 
 # Configure UTF-8 encoding safely for Windows CLI terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -249,13 +254,28 @@ async def _execute_waterfall(
     if collected_offers:
         final_offers = collected_offers
         active_fallback = None
+        ambiguity = None
     elif collected_base_offers:
         # Priority 2: When zero exact matches exist and target had an auxiliary modifier, fallback to base model
         final_offers = collected_base_offers
         active_fallback = detected_missing_modifier or "Base Model"
+        # Pure Dynamic Multi-Variant Conflict Referee (Zero Static Lists)
+        variant_groups: dict[str, list[ScrapedOffer]] = {}
+        for off in collected_base_offers:
+            if off.detected_variant:
+                variant_groups.setdefault(off.detected_variant, []).append(off)
+        if len(variant_groups.keys()) > 1:
+            ambiguity = AmbiguousVariantConflict(
+                stem_model=target_model,
+                detected_variants=sorted(variant_groups.keys()),
+                variant_offers=variant_groups,
+            )
+        else:
+            ambiguity = None
     else:
         final_offers = []
         active_fallback = None
+        ambiguity = None
 
     return ScrapeResult(
         offers=final_offers,
@@ -268,6 +288,7 @@ async def _execute_waterfall(
         executed_queries=executed_queries,
         matched_tier=matched_tier,
         tier_summary=tier_summary,
+        ambiguity_conflict=ambiguity,
     )
 
 
@@ -306,12 +327,24 @@ def _parse_offers_from_raw_items(
         vendor_handle = vendor_obj.get("handle") or ""
         is_non_comp = is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(str(vendor_handle))
 
+        cand_var: str | None = None
+        if is_base and decision.missing_modifier and "candidate has variant suffix" in decision.reason.lower():
+            raw_mod = decision.missing_modifier.strip()
+            upper_mod = raw_mod.upper()
+            if upper_mod.startswith("MARKET VARIANT "):
+                cand_var = upper_mod.replace("MARKET VARIANT ", "").strip()
+            elif upper_mod.startswith("VARIANT "):
+                cand_var = upper_mod.replace("VARIANT ", "").strip()
+            else:
+                cand_var = upper_mod
+
         if price > 0:
             offer = ScrapedOffer(
                 vendor_name=str(vendor),
                 price=price,
                 is_sold_out=sold_out,
                 raw_title=title,
+                detected_variant=cand_var,
             )
             if is_non_comp:
                 own_offers.append(offer)

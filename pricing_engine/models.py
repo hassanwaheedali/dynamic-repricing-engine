@@ -82,7 +82,17 @@ class ScrapedOffer:
     is_sold_out: bool
     raw_title: str
     duplicate_count: int = 1
+    detected_variant: str | None = None
 
+
+
+@dataclass(frozen=True, slots=True)
+class AmbiguousVariantConflict:
+    """Represents a conflict where an un-suffixed base model matches multiple distinct marketplace variants."""
+
+    stem_model: str
+    detected_variants: list[str] = field(default_factory=list)
+    variant_offers: dict[str, list[ScrapedOffer]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,8 +107,10 @@ class ScrapeResult:
     matched_tier: str | None = None
     tier_summary: dict[str, int] = field(default_factory=dict)
     active_modifier_fallback: str | None = None
+    active_modifier_source: str = "target"
     base_offers: list[ScrapedOffer] = field(default_factory=list)
     own_offers: list[ScrapedOffer] = field(default_factory=list)
+    ambiguity_conflict: AmbiguousVariantConflict | None = None
 
     def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)
@@ -150,3 +162,18 @@ class ProductInput:
     net_price: float
     profit: float
     raw_row: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CheckpointState:
+    """Persistent run state for resuming partial or interrupted catalog runs."""
+
+    catalog_name: str
+    catalog_path: str
+    catalog_mtime: float
+    total_items: int
+    completed_records: dict[int, dict[str, Any]] = field(default_factory=dict)
+    row_fingerprints: dict[int, str] = field(default_factory=dict)
+    pending_indices: list[int] = field(default_factory=list)
+    pending_reasons: dict[int, str] = field(default_factory=dict)
+    updated_at: str = ""

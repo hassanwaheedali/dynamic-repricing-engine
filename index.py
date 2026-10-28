@@ -113,6 +113,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Shortcut for --personal-comm 5.0 (5%% Personal Commission + Rs. 500 Floor + Winning Products export)",
     )
+    parser.add_argument(
+        "--no-resume",
+        "--fresh",
+        dest="resume",
+        action="store_false",
+        default=True,
+        help="Ignore any existing checkpoint and start processing fresh from row 1",
+    )
     return parser.parse_args()
 
 
@@ -304,6 +312,7 @@ async def main() -> int:
                 use_structured_export=(effective_out is None),
                 platform=target_platform,
                 personal_comm_pct=personal_comm_pct,
+                resume=args.resume,
             )
         except Exception as exc:
             console.print(

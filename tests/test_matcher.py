@@ -1544,3 +1544,59 @@ def test_adversarial_review_regressions() -> None:
     dec_pel = referee_match("PEL 120 Fully Automatic Washing Machine", cand_hwm, brand="PEL")
     assert dec_pel.is_match is False
     assert "Brand initial collision" in dec_pel.reason
+
+
+def test_dynamic_brand_collision_rejects_foreign_brands_and_categories() -> None:
+    """Verify dynamic brand collision rejects foreign products (e.g. Royal washer, Pierre Cardin watch) against Dawlance."""
+    target = "Dawlance DWT 1016 DDM INV Prima Automatic Top Load Washing Machine"
+
+    # 1. Foreign brand washing machine (Royal RWM-1016)
+    c_royal = "Royal Top Load 10KG (RWM-1016-FT)"
+    dec_royal = referee_match(target, c_royal, brand="Dawlance")
+    assert dec_royal.is_match is False
+    assert dec_royal.is_base_match is False
+    assert "Brand collision" in dec_royal.reason or "Brand initial collision" in dec_royal.reason
+    assert "ROYAL" in dec_royal.reason or "RWM" in dec_royal.reason
+
+    # 2. Foreign brand watch (Pierre Cardin CF.1016)
+    c_watch = "Pierre Cardin CF.1016.MS.3 Metal Band Men Watch"
+    dec_watch = referee_match(target, c_watch, brand="Dawlance")
+    assert dec_watch.is_match is False
+    assert dec_watch.is_base_match is False
+    assert "Brand collision" in dec_watch.reason
+    assert "PIERRE" in dec_watch.reason
+
+    # 3. Genuine Dawlance base model (Dawlance DWT1016-PRIMA without inverter)
+    c_dawlance = "DAWLANCE 10 kg Top Load Washing Machine | DWT1016-PRIMA"
+    dec_dawlance = referee_match(target, c_dawlance, brand="Dawlance")
+    assert dec_dawlance.is_match is False
+    assert dec_dawlance.is_base_match is True
+    assert dec_dawlance.missing_modifier == "INVERTER"
+
+
+def test_dynamic_multi_block_segmented_search_patterns() -> None:
+    """Verify dynamic segmentation generates canonical hyphenated search patterns (e.g. HW-90-BP12357-S8)."""
+    p = generate_search_patterns(
+        "Haier HW90-BP12357S8 9KG Inverter Front Load Fully Automatic Washing Machine - Grey",
+        brand="Haier",
+    )
+    tier_1 = p.get("tier_1", [])
+    tier_2 = p.get("tier_2", [])
+    assert "HW-90-BP12357-S8" in tier_1
+    assert "Haier HW-90-BP12357-S8" in tier_1
+    assert "HW-90-BP12357-S8" in tier_2
+
+
+def test_dw6570_twin_tub_double_washing_machine_and_onestop_seller_cleanup() -> None:
+    """Verify DW-6570 Twin Tub Double Washing Machine matches OneStop with seller signature."""
+    target = "Dawlance DW-6570 Twin Tub Double Washing Machine"
+    cand_onestop = (
+        "Dawlance Twin Tub Washing Machine DW 6570 Semi Automatic 8Kg "
+        "Washing Capacity On Installment By OneStop Naya Nazimabad"
+    )
+    dec = referee_match(target, cand_onestop, brand="Dawlance")
+    assert dec.is_match is True
+    assert "Accepted" in dec.reason
+
+
+

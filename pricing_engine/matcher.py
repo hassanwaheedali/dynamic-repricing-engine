@@ -57,6 +57,7 @@ class MatchDecision:
     candidate_slots: ProductSlots | None = None
     is_base_match: bool = False
     missing_modifier: str | None = None
+    modifier_source: str = "target"
 
 
 # ==============================================================================
@@ -242,7 +243,7 @@ CATEGORY_PATTERNS = re.compile(
     r"\b(?:AWM|AUTO\s+W/M|FRONT\s+LOAD(?:ING)?(?:\s+W/M)?|TOP\s+LOAD(?:ING)?(?:\s+W/M)?|W/M|WASHING\s+MACHINE|WASH\s*(?:&|AND)\s*SPIN|SHOWER\s+RINSE|AIR\s+CONDITIONER|M/OVEN|M/O|MWO|D/F|R/F|W/D|SPLIT\s+AC|SPLIT|FLOOR(?:\s+STANDING)?|DISHWASHER|SPINNER|DRYER)\b"
     r"|\b(?:AIR\s*CURTAIN|AIR\s*COOLER|ROOM\s*COOLER|DESERT\s*COOLER|EVAPORATIVE\s*COOLER|AIR\s*FRYER|WATER\s+HEATER|INSTANT\s+GEYSER|GAS\s+GEYSER|ELECTRIC\s+GEYSER|GEYSER|WATER\s+DISPENSER|WATER\s+PURIFIER|INSECT\s+KILLER|JUG\s+KETTLE|HOT\s+PLATE|COOKING\s+RANGE|KITCHEN\s+HOOD|CHOPPER|BLENDER|IRON|LED|MICROWAVE|OVEN|SANDWI?T?CH\s+MAKER)\b"
     r"|\b(?:MINI\s*BAR|MINIBAR|ROOM\s*FRIDGE|BEDROOM\s*SERIES|REFRIGERATOR|FRIDGE|DEEP\s*FREEZER|CHEST\s*FREEZER|VERTICAL\s*FREEZER|FREEZER)\b"
-    r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE|SINGLE\s*TUB|TWIN\s*TUB|TWIN\s*DOOR)\b"
+    r"|\b(?:SINGLE\s*DOOR|DOUBLE\s*DOOR|TRIPLE\s*DOOR|FOUR\s*DOOR|FRENCH\s*DOOR|SIDE\s*BY\s*SIDE|SINGLE\s*TUB|TWIN\s*TUB|DOUBLE\s*TUB|TWIN\s*DOOR|DOUBLE\s*(?:WASHING\s*)?(?:MACHINE|WASHER))\b"
     r"|\b(?:FULLY\s+AUTOMATIC|SEMI[\s\-]*AUTOMATIC|AUTOMATIC|INVERTER|NORMAL|SERIES|DIGITAL|GLASS\s+DOOR|CLEAR\s+LID|OPAQUE(?:\s+LID)?|NO[\s\-]*FROST|CVT|SMART|WIFI|WI-FI|IOT|4K|8K|FHD|UHD|HD|QLED|OLED|GOOGLE\s*TV|ANDROID\s*TV|GAS\+ELECTRIC|BUILT-IN|FIX(?:ED)?\s*SPEED|ENERGY\s*SAVER|ENERGY\s*SAVING|ENERGY\s*SAVE|POWER\s*SAVER|ECO\s*SAVER|EXTENDED\s*DURABILITY|DURABILITY|SIGNATURE|REGULAR(?:\s+SERIES)?|STUCCO(?:\s+PCM)?|PCM)\b"
     r"|\b(?:HEATING|SOLO|GRILL|IN\s+GRILL|BEZEL\s*LESS|FRAMELESS)\b"
     r"|\b\d+(?:\.\d+)?[\s\-_]*(?:(?:TON|ΤΟΝ|KG|KGS|GM|LTR|LITRE|LITRES?|LITERS?|L|SETS|SETS?|FEET|FT|CU\s*FT|CU\.FT|CFT|CU|INCH(?:ES)?|MM|CM|WATTS?|GALLONS?|GAL)\b|[\"\'])",
@@ -302,6 +303,7 @@ NON_SKU_TOKENS = {
     "BAR",
     "TUB",
     "TWIN",
+    "DOUBLE",
     "SPIN",
     "DRYER",
     "AIRFRYER",
@@ -653,6 +655,7 @@ def clean_marketplace_noise(text: str) -> str:
     # 1. Pipe and dash trailers: ' | Fast Drying Solution', ' – Electric Clothes Spinner', ' - ElectroEase'
     t = re.sub(r"\s*[|–—].*$", "", text.strip())
     t = re.sub(r"\s*(?:[-|/]|--)\s*(?:By\s+|Official\s+)?[A-Z][A-Za-z0-9\s.]{2,}$", "", t)
+    t = re.sub(r"\s+\b(?:By|From)\s+[A-Z][A-Za-z0-9\s.]{2,}$", "", t, flags=re.IGNORECASE)
     # 2. Structural promotional and transactional expressions
     return MARKETPLACE_NOISE_RE.sub(" ", t).strip()
 
@@ -2020,6 +2023,29 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
                 if detected_brand:
                     tier_3.append(_with_brand(detected_brand, f"{cap_svn}SVN"))
 
+        # Dynamic Multi-Block Segmented Appliance Patterns (e.g. HW90-BP12357S8 -> HW-90-BP12357-S8)
+        # Matches any brand form-factor prefix (2-4 letters) + capacity (50-250) + series/sub-model
+        m_drum_multi = re.match(r"^([A-Za-z]{2,4})(\d{2,3})[-_ ]?([A-Za-z0-9].*)$", bare_stem)
+        if m_drum_multi and 50 <= int(m_drum_multi.group(2)) <= 250:
+            d_pfx, d_cap, d_rest = m_drum_multi.groups()
+            m_sub = re.match(r"^([A-Za-z0-9]+?)[-_ ]?([A-Za-z]\d|\b[A-Za-z]\b)$", d_rest)
+            segmented_variants: list[str] = []
+            if m_sub:
+                sub_stem, sub_tag = m_sub.group(1), m_sub.group(2)
+                segmented_variants.append(f"{d_pfx}-{d_cap}-{sub_stem}-{sub_tag}")
+                segmented_variants.append(f"{d_pfx} {d_cap} {sub_stem} {sub_tag}")
+            segmented_variants.append(f"{d_pfx}-{d_cap}-{d_rest}")
+            segmented_variants.append(f"{d_pfx} {d_cap} {d_rest}")
+
+            for sv in segmented_variants:
+                if "-" in sv:
+                    tier_1.append(sv)
+                    if detected_brand:
+                        tier_1.append(_with_brand(detected_brand, sv))
+                    tier_2.append(sv)
+                else:
+                    tier_3.append(sv)
+
         # Tier 3: Spaced, glued, and prefixed permutations
         if "-" in bare_stem:
             spaced = bare_stem.replace("-", " ")
@@ -2810,15 +2836,17 @@ def referee_match(
     target_slots = extract_product_slots(target, brand=brand) if isinstance(target, str) else target
     cand_slots = extract_product_slots(candidate_title, brand=brand)
 
-    # 0. Zero-Tolerance Brand Collision Guard & Fuzzy Brand Recognition
+    # 0. Zero-Tolerance Brand Collision Guard & Dynamic Brand Extraction
     if brand:
         b_target = brand.strip().upper()
-        KNOWN_BRANDS = {
-            "DAWLANCE", "HAIER", "GREE", "PEL", "KENWOOD", "ORIENT", "TCL",
-            "ECOSTAR", "WAVES", "DANY", "BEURER", "SAMSUNG", "SUPER ASIA",
-            "CHANGHONG", "CHANGHONG RUBA", "SONY", "AUDIONIC", "XIAOMI", "ANKER",
-        }
-        cand_words = [w.strip("()[]-.,_ \"'/") for w in candidate_title.upper().split() if w.strip("()[]-.,_ \"'/")]
+        target_init = b_target[0]
+        cand_words = [
+            w.strip("()[]-.,_ \"'/|:;#")
+            for w in candidate_title.upper().split()
+            if w.strip("()[]-.,_ \"'/|:;#")
+        ]
+
+        # 0a. Check if target brand is present in candidate title
         has_target_brand = False
         if re.search(rf"\b{re.escape(b_target)}\b", candidate_title, re.IGNORECASE):
             has_target_brand = True
@@ -2828,33 +2856,88 @@ def referee_match(
                     has_target_brand = True
                     break
 
-        for b in KNOWN_BRANDS:
-            if (
-                b != b_target
-                and not has_target_brand
-                and re.search(rf"\b{re.escape(b)}\b", candidate_title, re.IGNORECASE)
-            ):
+        # 0b. Dynamic Candidate Brand Extraction (from beginning of listing title)
+        # Filter out numbers, dimensions/units, appliance types, and generic product words
+        NON_BRAND_TOKENS = {
+            # Units & dimensions
+            "TON", "TONS", "KG", "KGS", "INCH", "INCHES", "LTR", "LTRS", "LITER", "LITERS",
+            "CUFT", "FT", "MM", "CM", "V", "VOLT", "W", "WATT", "WATTS",
+            # Common marketing / status descriptors
+            "NEW", "LATEST", "ORIGINAL", "GENUINE", "IMPORTED", "AUTHENTIC", "OFFICIAL", "PREMIUM", "SALE", "HOT", "BEST",
+            # Generic structure / tech words
+            "MODEL", "SERIES", "EDITION", "TYPE", "COLOR", "COLOUR", "SIZE", "AUTOMATIC", "SEMI", "MANUAL",
+            "TOP", "FRONT", "LOAD", "LOADING", "INVERTER", "NON-INVERTER", "FIXED", "SPEED", "DC", "SMART",
+            "PRIMA", "ECO", "PLUS", "PRO", "MAX", "ULTRA", "LVS", "GREEN", "ENERGY", "SAVER",
+            # Appliance categories
+            "AC", "AIR", "CONDITIONER", "REFRIGERATOR", "FRIDGE", "FREEZER", "WASHING", "MACHINE", "WASHER",
+            "SPINNER", "DRYER", "LED", "TV", "TELEVISION", "MICROWAVE", "OVEN", "DISPENSER", "COOLER", "HEATER", "GEYSER", "FAN"
+        }
+
+        cand_leading_brands = []
+        for w in cand_words:
+            # Skip numbers, units, measurements (e.g. 1.5, 10KG, 55")
+            if re.match(r"^\d+(\.\d+)?(KG|TON|INCH|LTR|L)?$", w) or any(c.isdigit() for c in w):
+                continue
+            # Skip non-brand descriptive words
+            if w in NON_BRAND_TOKENS:
+                continue
+            # Alpha token >= 2 chars that is not a generic descriptor is a brand token
+            if w.isalpha():
+                cand_leading_brands.append(w)
+                if len(cand_leading_brands) >= 2:
+                    break
+
+        cand_brand_1 = cand_leading_brands[0] if cand_leading_brands else ""
+        cand_brand_2 = " ".join(cand_leading_brands[:2]) if len(cand_leading_brands) >= 2 else cand_brand_1
+
+        # Check if detected brand matches target brand
+        is_leading_target = (
+            cand_brand_1 == b_target
+            or cand_brand_2 == b_target
+            or (len(cand_brand_1) >= 4 and SequenceMatcher(None, cand_brand_1, b_target).ratio() >= 0.85)
+            or (len(cand_brand_2) >= 4 and SequenceMatcher(None, cand_brand_2, b_target).ratio() >= 0.85)
+        )
+
+        if not has_target_brand and not is_leading_target and cand_brand_1:
+            # Candidate title has a foreign brand (e.g. ROYAL, PIERRE, HAIER)
+            # Only allow if cand_brand_1 is a model prefix starting with target initial (e.g. DWT, DW for Dawlance)
+            is_target_prefix = (
+                cand_brand_1.startswith(target_init)
+                and (
+                    (target_slots.anchor and cand_brand_1.startswith(target_slots.anchor.split("-")[0].upper()))
+                    or bool(re.match(rf"^{re.escape(target_init)}[A-Za-z]{{1,3}}$", cand_brand_1))
+                )
+            )
+            if not is_target_prefix:
+                # Distinguish between 2-4 letter SKU prefixes attached/spaced to digits (e.g. HWM 120, RWM-1016) and standalone brand names
+                if re.search(rf"\b{re.escape(cand_brand_1)}[-_ ]?\d+", candidate_title):
+                    return MatchDecision(
+                        is_match=False,
+                        reason=f"Brand initial collision: target is {brand} vs candidate prefix '{cand_brand_1}'",
+                        target_slots=target_slots,
+                        candidate_slots=cand_slots,
+                    )
+                detected_other_brand = cand_brand_2 if len(cand_leading_brands) >= 2 else cand_brand_1
                 return MatchDecision(
                     is_match=False,
-                    reason=f"Brand collision: target is {brand} vs candidate mentions {b}",
+                    reason=f"Brand collision: target is {brand} vs candidate mentions {detected_other_brand}",
                     target_slots=target_slots,
                     candidate_slots=cand_slots,
                 )
 
-        # Dynamic Brand-Initial Prefix Verification if brand omitted in title
-        if not has_target_brand:
-            check_anchor_or_title = f"{cand_slots.anchor} {candidate_title}".strip()
-            m_pfx = re.search(r"\b([A-Za-z]{2,4})[-_ ]?\d+", check_anchor_or_title)
-            if m_pfx:
-                pfx = m_pfx.group(1).upper()
-                target_init = b_target[0]
-                if pfx[0] != target_init and any(pfx.startswith(ob[0]) for ob in KNOWN_BRANDS if ob != b_target and len(ob) >= 3):
-                    return MatchDecision(
-                        is_match=False,
-                        reason=f"Brand initial collision: target is {brand} vs candidate prefix '{pfx}'",
-                        target_slots=target_slots,
-                        candidate_slots=cand_slots,
-                    )
+        # 0c. Dynamic Brand-Initial Prefix Collision (e.g. RWM-1016 vs DWT-1016, HWM vs DWT)
+        # Even if brand name is omitted, check candidate's SKU prefix initial against target
+        check_anchor_or_title = f"{cand_slots.anchor} {candidate_title}".strip()
+        m_pfx = re.search(r"\b([A-Za-z]{2,4})[-_ ]?\d+", check_anchor_or_title)
+        if m_pfx:
+            pfx = m_pfx.group(1).upper()
+            if pfx not in NON_BRAND_TOKENS and pfx[0] != target_init and not has_target_brand:
+                return MatchDecision(
+                    is_match=False,
+                    reason=f"Brand initial collision: target is {brand} vs candidate prefix '{pfx}'",
+                    target_slots=target_slots,
+                    candidate_slots=cand_slots,
+                )
 
     # 1. Zero-Tolerance Hardware Tub Series Guard (e.g. WB vs GB)
     if (
@@ -3120,12 +3203,12 @@ def referee_match(
         c_var = _extract_stem_single_letter_variant(candidate_title, cand_slots.anchor)
         target_has_clear_lid = (
             "CLEAR LID" in target_slots.residuals
-            or "CLEAR LID" in raw_t_check.upper()
+            or bool(re.search(r"\bCLEAR\s+(?:FLAT\s+)?LID\b|\bCLEAR\s+LID\b", raw_t_check, re.IGNORECASE))
         )
         effective_t_var = "C" if target_has_clear_lid else t_var
         cand_has_clear_lid = (
             "CLEAR LID" in cand_slots.residuals
-            or "CLEAR LID" in candidate_title.upper()
+            or bool(re.search(r"\bCLEAR\s+(?:FLAT\s+)?LID\b|\bCLEAR\s+LID\b", candidate_title, re.IGNORECASE))
         )
         effective_c_var = "C" if cand_has_clear_lid else c_var
 
@@ -3145,6 +3228,7 @@ def referee_match(
                 candidate_slots=cand_slots,
                 is_base_match=True,
                 missing_modifier=mod_name,
+                modifier_source="target",
             )
         if not effective_t_var and effective_c_var:
             return MatchDecision(
@@ -3154,6 +3238,7 @@ def referee_match(
                 candidate_slots=cand_slots,
                 is_base_match=True,
                 missing_modifier=f"Variant {effective_c_var}",
+                modifier_source="market",
             )
 
     # 2. Dynamic Series and Sub-series Check (Pure Token-Based Set Logic, Zero Hardcoding)

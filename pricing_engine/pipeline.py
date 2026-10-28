@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import inspect
 import logging
 import sys
@@ -24,8 +25,20 @@ from pricing_engine.calculator import (
     resolve_fallback_shipping,
     split_real_profit,
 )
+from pricing_engine.checkpoint import (
+    compute_row_fingerprint,
+    delete_checkpoint,
+    detect_dirty_or_pending_rows,
+    load_checkpoint,
+    merge_records_in_order,
+    save_checkpoint,
+)
 from pricing_engine.db import SupabaseClient
-from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
+from pricing_engine.evaluator import (
+    evaluate_alfa_pricing,
+    evaluate_digi_pricing,
+    format_fallback_descriptions,
+)
 from pricing_engine.exporter import (
     export_results,
     export_winning_5pct_results,
@@ -48,6 +61,7 @@ from pricing_engine.matcher import (
 from pricing_engine.models import (
     STATUS_SERVER_DOWN,
     WINNING_5PCT_GOALS,
+    CheckpointState,
     CostFloors,
     PlatformPricingResult,
     ProductInput,
@@ -140,6 +154,8 @@ def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> 
     Returns:
         One of 'SERVER_DOWN', 'NEGATIVE_MARGIN', 'SAFE_FALLBACK', 'THIN_BUFFER', 'NONE', or '' if skipped.
     """
+    if "ambiguous" in res.reason.lower() or res.status == "AMBIGUOUS":
+        return "AMBIGUOUS_VARIANT"
     if res.status == "SKIPPED":
         return ""
     if (
@@ -394,6 +410,12 @@ def build_output_record(
         if k in sno_aliases or k_str.lower().startswith("unnamed:") or not k_str:
             continue
         out_record[k] = v
+
+    # Option A: Guarantee Name/Title reflects the resolved variant model name
+    for name_key in ("Name", "Name ", "Title", "Product Name", "Product Title"):
+        if name_key in out_record:
+            out_record[name_key] = product.name
+            break
 
     out_record["Shipping Estimate"] = shipping
     out_record["Commision"] = "10.00%"
@@ -1117,8 +1139,9 @@ def render_audit_card(
         if isinstance(offers_res, ScrapeResult) and offers_res.active_modifier_fallback:
             mod = offers_res.active_modifier_fallback
             count = len(offers_res.offers)
+            audit_text, _, _ = format_fallback_descriptions(mod)
             return (
-                f"[{p_color}]{p_name}:[/] [bold yellow]⚠️ MODIFIER '{mod}' OMITTED BY MARKET[/] -> "
+                f"[{p_color}]{p_name}:[/] [bold yellow]{audit_text}[/] -> "
                 f"[bold green]Matched {count} base model offer{'s' if count != 1 else ''} (DO CROSS-CHECK)[/]"
             )
         if isinstance(offers_res, ScrapeResult) and offers_res.executed_queries:
@@ -1184,9 +1207,9 @@ def render_audit_card(
         )
     )
     if active_fallback_mod:
+        _, _, banner_text = format_fallback_descriptions(active_fallback_mod)
         warning_banner = Panel(
-            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Target specified [bold cyan]'{active_fallback_mod}'[/], but marketplace listings omitted it. "
-            f"Repriced against verified [bold green]base model[/] listings.",
+            banner_text,
             border_style="yellow",
             box=box.ROUNDED,
             padding=(0, 1),
@@ -1315,15 +1338,88 @@ async def process_item_async(
             alfa_offers = ScrapeResult(offers=[])
             digi_offers = ScrapeResult(offers=[])
 
-    if plat in ("all", "alfa"):
-        alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
-    else:
-        alfa_res = create_skipped_platform_result("AlfaMall")
+    conflict = (
+        alfa_offers.ambiguity_conflict
+        if isinstance(alfa_offers, ScrapeResult) and alfa_offers.ambiguity_conflict
+        else (
+            digi_offers.ambiguity_conflict
+            if isinstance(digi_offers, ScrapeResult) and digi_offers.ambiguity_conflict
+            else None
+        )
+    )
+    selected_variant: str | None = None
+    if conflict:
+        if sys.stdin.isatty():
+            lock_to_use = render_lock if render_lock is not None else asyncio.Lock()
+            async with lock_to_use:
+                console.print()
+                con_tbl = Table(
+                    title=f"[bold yellow]⚠️  AMBIGUOUS MULTI-VARIANT CONFLICT: ITEM #{((row_idx or 0) + 1)}[/]",
+                    box=box.ROUNDED,
+                )
+                con_tbl.add_column("Option", style="bold cyan")
+                con_tbl.add_column("Variant", style="bold green")
+                con_tbl.add_column("Market Listings", style="white")
 
-    if plat in ("all", "digi"):
-        digi_res = evaluate_digi_pricing(floors, digi_offers)
+                for opt_i, v_name in enumerate(conflict.detected_variants, start=1):
+                    v_offs = conflict.variant_offers.get(v_name, [])
+                    min_v_p = min((o.price for o in v_offs), default=0.0)
+                    price_str = f" — Lowest: Rs. {int(min_v_p):,}" if min_v_p > 0 else ""
+                    con_tbl.add_row(
+                        f"[{opt_i}]",
+                        f"Variant {v_name}",
+                        f"{len(v_offs)} offer(s){price_str}",
+                    )
+                con_tbl.add_row("[S]", "Skip this item", "Save to checkpoint and edit CSV later")
+                console.print(con_tbl)
+
+                try:
+                    user_input = input(
+                        f"Select variant for '{product.name}' [1-{len(conflict.detected_variants)}, S] (default S): "
+                    ).strip().upper()
+                    if user_input.isdigit() and 1 <= int(user_input) <= len(conflict.detected_variants):
+                        selected_variant = conflict.detected_variants[int(user_input) - 1]
+                except (EOFError, KeyboardInterrupt):
+                    selected_variant = None
+
+        if selected_variant:
+            # Re-filter offers for chosen variant
+            v = selected_variant
+            if isinstance(alfa_offers, ScrapeResult):
+                a_filt = [o for o in alfa_offers.offers if o.detected_variant == v]
+                alfa_offers = ScrapeResult(offers=a_filt, base_offers=a_filt, is_success=True)
+            if isinstance(digi_offers, ScrapeResult):
+                d_filt = [o for o in digi_offers.offers if o.detected_variant == v]
+                digi_offers = ScrapeResult(offers=d_filt, base_offers=d_filt, is_success=True)
+
+            # Option A: Update product name with resolved variant suffix
+            product = dataclasses.replace(product, name=f"{product.name} {v}")
+
+    if conflict and not selected_variant:
+        alfa_res = PlatformPricingResult(
+            min_price=None,
+            max_price=None,
+            final_price=None,
+            status="SKIPPED",
+            reason=f"SKIPPED (Ambiguous variants {conflict.detected_variants} found in market - specify in CSV)",
+        )
+        digi_res = PlatformPricingResult(
+            min_price=None,
+            max_price=None,
+            final_price=None,
+            status="SKIPPED",
+            reason=f"SKIPPED (Ambiguous variants {conflict.detected_variants} found in market - specify in CSV)",
+        )
     else:
-        digi_res = create_skipped_platform_result("DigiMall")
+        if plat in ("all", "alfa"):
+            alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
+        else:
+            alfa_res = create_skipped_platform_result("AlfaMall")
+
+        if plat in ("all", "digi"):
+            digi_res = evaluate_digi_pricing(floors, digi_offers)
+        else:
+            digi_res = create_skipped_platform_result("DigiMall")
 
     # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
     target_slots = extract_product_slots(product.name, brand=product.brand)
@@ -1724,6 +1820,7 @@ async def run_pipeline(
     export_dir: str | Path | None = None,
     platform: str = "all",
     personal_comm_pct: float = 0.0,
+    resume: bool = True,
 ) -> pd.DataFrame:
     """Run dynamic repricing pipeline on an input CSV and export results to output CSV.
 
@@ -1731,6 +1828,7 @@ async def run_pipeline(
     - Micro-staggered launch (200ms) to prevent T=0 burst wave / WAF socket drops.
     - True bounded concurrency via asyncio.Semaphore(concurrency).
     - Atomic terminal audit rendering protected by asyncio.Lock.
+    - Checkpoint and Resume Engine with row fingerprint change detection.
     - 100% deterministic output row sorting preserving original CSV row sequence.
     - Optional structured export to data/outputs/ with timestamp and latest copy.
     - Target platform filtering ('all', 'alfa', or 'digi').
@@ -1745,6 +1843,7 @@ async def run_pipeline(
         export_dir: Directory where structured outputs are saved (default: data/outputs).
         platform: Target e-commerce platform ('all', 'alfa', or 'digi', default: 'all').
         personal_comm_pct: Personal commission percentage on Net Price (default: 0.0).
+        resume: Whether to resume from existing checkpoint if available (default: True).
 
     Returns:
         Processed DataFrame with repriced data.
@@ -1781,6 +1880,25 @@ async def run_pipeline(
         )
         banner_output_path = resolved_export_dir / "csv" / f"{input_path.stem}_repriced_latest.csv"
 
+    checkpoint_state = load_checkpoint(input_path) if resume else None
+    rows_to_run: list[int] = []
+    cached_records: dict[int, dict[str, Any]] = {}
+    row_fingerprints: dict[int, str] = {}
+
+    for idx, row in df.iterrows():
+        i = int(idx)
+        row_fingerprints[i] = compute_row_fingerprint(row)
+
+    if checkpoint_state is not None:
+        rows_to_run, cached_records = detect_dirty_or_pending_rows(df, checkpoint_state)
+        if verbose and cached_records:
+            console.print(
+                f"[bold green]⚡ Resumed from checkpoint:[/] Loaded {len(cached_records)} completed item(s) from cache; "
+                f"executing {len(rows_to_run)} pending/modified item(s)."
+            )
+    else:
+        rows_to_run = [int(idx) for idx in df.index]
+
     if verbose:
         render_start_banner(
             input_path=input_path,
@@ -1794,10 +1912,17 @@ async def run_pipeline(
     semaphore = asyncio.Semaphore(concurrency)
     render_lock = asyncio.Lock()
     dispatcher = InOrderCardDispatcher(lock=render_lock) if verbose else None
+
+    # Advance dispatcher for pre-cached rows so it doesn't stall waiting for them
+    if dispatcher is not None:
+        for c_idx in sorted(cached_records.keys()):
+            await dispatcher.skip(c_idx)
+
     tasks: list[asyncio.Task[dict[str, Any]]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
-        for idx, row in df.iterrows():
+        for run_i, idx in enumerate(rows_to_run):
+            row = df.iloc[idx]
             product = parse_product_input(idx, row)
             task = asyncio.create_task(
                 _process_item_worker(
@@ -1813,22 +1938,59 @@ async def run_pipeline(
                 )
             )
             tasks.append(task)
-            if idx < len(df) - 1:
+            if run_i < len(rows_to_run) - 1:
                 # Micro-stagger launch by 400ms to eliminate burst wave against WAF
                 await asyncio.sleep(0.4)
 
         try:
-            raw_records = await asyncio.gather(*tasks)
+            raw_records = await asyncio.gather(*tasks) if tasks else []
         finally:
             if dispatcher is not None:
                 await dispatcher.flush()
 
-    # Guarantee deterministic 1:1 original CSV row sorting
-    raw_records.sort(key=lambda r: int(r.get("_original_idx", 0)))
-    records: list[dict[str, Any]] = []
+    newly_resolved_records: dict[int, dict[str, Any]] = {}
     for r in raw_records:
-        r.pop("_original_idx", None)
-        records.append(r)
+        orig_idx = int(r.pop("_original_idx", 0))
+        newly_resolved_records[orig_idx] = r
+
+    # Deterministically merge cached and newly resolved records in exact original 0..N-1 row order
+    records = merge_records_in_order(
+        cached_records=cached_records,
+        newly_resolved_records=newly_resolved_records,
+        total_items=len(df),
+    )
+
+    # Persist or clean up checkpoint state
+    all_completed = {**cached_records, **newly_resolved_records}
+    pending_indices: list[int] = []
+    pending_reasons: dict[int, str] = {}
+
+    for i, rec in all_completed.items():
+        is_ambiguous = (
+            "AMBIGUOUS" in str(rec.get("Alfa Risk Alert", ""))
+            or "AMBIGUOUS" in str(rec.get("Digi Risk Alert", ""))
+            or "SKIPPED (Ambiguous" in str(rec.get("Alfa Reason", ""))
+            or "SKIPPED (Ambiguous" in str(rec.get("Digi Reason", ""))
+        )
+        if is_ambiguous:
+            pending_indices.append(i)
+            pending_reasons[i] = str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
+
+    if pending_indices:
+        clean_completed = {i: rec for i, rec in all_completed.items() if i not in pending_indices}
+        new_state = CheckpointState(
+            catalog_name=input_path.name,
+            catalog_path=str(input_path),
+            catalog_mtime=input_path.stat().st_mtime,
+            total_items=len(df),
+            completed_records=clean_completed,
+            row_fingerprints=row_fingerprints,
+            pending_indices=pending_indices,
+            pending_reasons=pending_reasons,
+        )
+        save_checkpoint(input_path, new_state)
+    else:
+        delete_checkpoint(input_path)
 
     out_df = pd.DataFrame(records)
 
