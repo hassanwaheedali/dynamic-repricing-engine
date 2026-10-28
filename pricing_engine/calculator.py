@@ -463,6 +463,21 @@ def get_fallback_psychological_price(
     return candidate
 
 
+def calculate_dynamic_retention_pct(gap: float) -> float:
+    """Calculate dynamic retention percentage for Tier 2 gaps (2,000 to 10,000 PKR).
+
+    Glides smoothly from 80% at 2,000 PKR down to 50% at 10,000 PKR.
+    Clamped between 0.50 (50%) and 0.80 (80%).
+    """
+    clamped_gap = max(2000.0, min(10000.0, gap))
+    return 0.80 - ((clamped_gap - 2000.0) / 8000.0) * 0.30
+
+
+def format_dynamic_retention_pct(gap: float) -> str:
+    """Return formatted dynamic retention percentage string for telemetry (e.g. '78%')."""
+    return f"{round(calculate_dynamic_retention_pct(gap) * 100)}%"
+
+
 def calculate_adaptive_target_price(
     floor_min: float,
     competitor_price: float,
@@ -515,7 +530,7 @@ def calculate_adaptive_target_price(
 
     # Tier 2: Gap 2,000 to 9,999 PKR (3 Zeros) -> Unified Dynamic Glide (80% at 2k down to 50% at 10k)
     if gap < 10000.0:
-        retention_pct = 0.80 - ((gap - 2000.0) / 8000.0) * 0.30
+        retention_pct = calculate_dynamic_retention_pct(gap)
         buffer = max(gap * retention_pct, min_buffer_3_zeros)
         return floor_min + buffer
 

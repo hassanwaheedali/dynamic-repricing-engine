@@ -4,10 +4,12 @@ from pricing_engine.calculator import (
     calculate_adaptive_target_price,
     calculate_baseline,
     calculate_cost_base,
+    calculate_dynamic_retention_pct,
     calculate_floors,
     calculate_shipping_estimate,
     calculate_volumetric_weight,
     find_winning_psychological_price,
+    format_dynamic_retention_pct,
     get_fallback_psychological_price,
     get_monopoly_psychological_price,
 )
@@ -130,6 +132,34 @@ def test_adaptive_target_tier2_2000_to_10000_gap() -> None:
     assert calculate_adaptive_target_price(floor_min=floor, competitor_price=75000.0) == 73437.5
     # Gap = 9,000 -> 53.75% is 4,837.5 -> 74,837.5
     assert calculate_adaptive_target_price(floor_min=floor, competitor_price=79000.0) == 74837.5
+
+
+def test_dynamic_retention_helpers_dry() -> None:
+    # 2,000 PKR boundary -> exactly 80% (0.80)
+    assert calculate_dynamic_retention_pct(2000.0) == 0.80
+    assert format_dynamic_retention_pct(2000.0) == "80%"
+
+    # 5,000 PKR midpoint -> exactly 68.75% (0.6875) -> rounds to 69%
+    assert calculate_dynamic_retention_pct(5000.0) == 0.6875
+    assert format_dynamic_retention_pct(5000.0) == "69%"
+
+    # 10,000 PKR boundary -> exactly 50% (0.50)
+    assert calculate_dynamic_retention_pct(10000.0) == 0.50
+    assert format_dynamic_retention_pct(10000.0) == "50%"
+
+    # Clamping tests:
+    # Below 2,000 PKR -> clamped to 80%
+    assert calculate_dynamic_retention_pct(1000.0) == 0.80
+    assert format_dynamic_retention_pct(1000.0) == "80%"
+
+    # Above 10,000 PKR -> clamped to 50%
+    assert calculate_dynamic_retention_pct(15000.0) == 0.50
+    assert format_dynamic_retention_pct(15000.0) == "50%"
+
+    # Exact fractional rounding:
+    # Gap = 2,445 -> 0.80 - (445 / 8000) * 0.30 = 0.7833125 -> "78%"
+    assert round(calculate_dynamic_retention_pct(2445.0), 4) == 0.7833
+    assert format_dynamic_retention_pct(2445.0) == "78%"
 
 
 def test_adaptive_target_4_zeros_large_gap_item1() -> None:
