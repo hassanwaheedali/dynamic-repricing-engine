@@ -272,7 +272,7 @@ def test_export_range_results_locked_xlsx_does_not_crash(tmp_path: Path) -> None
     def flaky(self: pd.DataFrame, target: object, *a: object, **k: object) -> None:
         if str(target).endswith("_range_latest.xlsx"):
             raise PermissionError("locked by Excel")
-        real(self, target, *a, **k)  # type: ignore[arg-type]
+        real(self, target, *a, **k)
 
     with patch.object(pd.DataFrame, "to_excel", flaky):
         man = export_range_results(_range_df(), "l.csv", output_dir=tmp_path, render_panel=False)

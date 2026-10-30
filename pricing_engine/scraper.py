@@ -152,7 +152,7 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
 
 async def _execute_waterfall(
     single_scraper_fn: Callable[..., Coroutine[Any, Any, ScrapeResult]],
-    session: AsyncSession,
+    session: AsyncSession[Any],
     patterns: dict[str, list[str]],
     target_model: str,
     timeout: float,
@@ -360,7 +360,7 @@ def _parse_offers_from_raw_items(
 
 async def _scrape_platform_single_query(
     config: PlatformConfig,
-    session: AsyncSession,
+    session: AsyncSession[Any],
     query: str,
     target_model: str,
     timeout: float = 10.0,
@@ -612,7 +612,7 @@ async def _scrape_platform_single_query(
 
 
 async def _scrape_alfamall_single_query(
-    session: AsyncSession,
+    session: AsyncSession[Any],
     query: str,
     target_model: str,
     timeout: float = 10.0,
@@ -636,7 +636,7 @@ async def _scrape_alfamall_single_query(
 
 
 async def scrape_alfamall(
-    session: AsyncSession,
+    session: AsyncSession[Any],
     query: str | dict[str, list[str]],
     target_model: str,
     timeout: float = 10.0,
@@ -687,7 +687,7 @@ async def scrape_alfamall(
 
 
 async def _scrape_digimall_single_query(
-    session: AsyncSession,
+    session: AsyncSession[Any],
     query: str,
     target_model: str,
     timeout: float = 10.0,
@@ -711,7 +711,7 @@ async def _scrape_digimall_single_query(
 
 
 async def scrape_digimall(
-    session: AsyncSession,
+    session: AsyncSession[Any],
     query: str | dict[str, list[str]],
     target_model: str,
     timeout: float = 10.0,

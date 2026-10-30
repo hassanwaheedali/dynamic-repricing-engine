@@ -63,7 +63,7 @@ class SupabaseClient:
             self.key = key
 
         self.timeout = timeout
-        self._session: AsyncSession | None = None
+        self._session: AsyncSession[Any] | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -75,7 +75,7 @@ class SupabaseClient:
             and "placeholder" not in self.url.lower()
         )
 
-    def _ensure_session(self) -> AsyncSession:
+    def _ensure_session(self) -> AsyncSession[Any]:
         if self._session is None:
             self._session = AsyncSession(impersonate="chrome120")
         return self._session

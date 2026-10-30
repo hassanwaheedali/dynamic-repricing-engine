@@ -31,7 +31,7 @@ def test_alfa_monopoly_when_zero_offers(sample_floors: CostFloors) -> None:
     assert result.final_price is not None
     # Base target = (72000 + 4000) / 0.90 = 84444.44 -> Monopoly price 84499
     assert result.final_price == 84499
-    assert result.real_profit >= 4000
+    assert result.real_profit is not None and result.real_profit >= 4000
 
 
 def test_alfa_safe_fallback_when_all_sellers_below_floor(sample_floors: CostFloors) -> None:
@@ -44,7 +44,7 @@ def test_alfa_safe_fallback_when_all_sellers_below_floor(sample_floors: CostFloo
     assert result.status == "Safe Fallback"
     assert result.final_price is not None
     assert result.final_price >= sample_floors.floor_alfa
-    assert result.real_profit >= 1500
+    assert result.real_profit is not None and result.real_profit >= 1500
     assert len(result.dropped) == 2
     assert "Safe Fallback Price" in result.reason
 
@@ -62,7 +62,7 @@ def test_alfa_competitive_win_undercut(sample_floors: CostFloors) -> None:
     assert result.final_price >= sample_floors.floor_alfa
     assert result.final_price == 82299
     assert "Applied dynamic adaptive split" in result.reason
-    assert result.real_profit > 500
+    assert result.real_profit is not None and result.real_profit > 500
 
 
 def test_alfa_ignores_sold_out_offers(sample_floors: CostFloors) -> None:
@@ -159,7 +159,7 @@ def test_digi_safe_fallback_when_all_below_8_percent(sample_floors: CostFloors) 
     assert result.status == "Safe Fallback"
     assert result.final_price is not None
     assert result.final_price >= sample_floors.floor_digi_8
-    assert result.real_profit >= 1500
+    assert result.real_profit is not None and result.real_profit >= 1500
     assert result.effective_comm == "8.00%"
     assert "Safe Fallback Price" in result.reason
 

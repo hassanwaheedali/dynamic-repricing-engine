@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -1065,19 +1066,19 @@ def test_build_scraped_sellers_table_smart_formatting() -> None:
     ]
 
     alfa_res = PlatformPricingResult(
-        final_price=88499.0,
+        final_price=88499,
         min_price=88499.0,
         max_price=88499.0,
-        real_profit=746.0,
+        real_profit=746,
         reason="Undercut lowest viable",
         status="Won",
         effective_comm="10.00%",
     )
     digi_res = PlatformPricingResult(
-        final_price=88499.0,
+        final_price=88499,
         min_price=88499.0,
         max_price=88499.0,
-        real_profit=2516.0,
+        real_profit=2516,
         reason="Won at 10%",
         status="Won",
         effective_comm="10.00%",
@@ -1126,19 +1127,19 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
     ]
 
     alfa_res = PlatformPricingResult(
-        final_price=89999.0,
+        final_price=89999,
         min_price=89999.0,
         max_price=89999.0,
-        real_profit=2096.0,
+        real_profit=2096,
         reason="All competitors selling at loss",
         status="Safe Fallback",
         effective_comm="10.00%",
     )
     digi_res = PlatformPricingResult(
-        final_price=89999.0,
+        final_price=89999,
         min_price=89999.0,
         max_price=89999.0,
-        real_profit=3896.0,
+        real_profit=3896,
         reason="All competitors selling at loss",
         status="Safe Fallback",
         effective_comm="8.00%",
@@ -1178,19 +1179,19 @@ def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
     ]
 
     alfa_res = PlatformPricingResult(
-        final_price=88499.0,
+        final_price=88499,
         min_price=88499.0,
         max_price=88499.0,
-        real_profit=746.0,
+        real_profit=746,
         reason="Won",
         status="Won",
         effective_comm="10.00%",
     )
     digi_res = PlatformPricingResult(
-        final_price=86499.0,
+        final_price=86499,
         min_price=86499.0,
         max_price=86499.0,
-        real_profit=677.0,
+        real_profit=677,
         reason="Triggered emergency 8% switch",
         status="Won",
         effective_comm="8.00%",
@@ -1238,19 +1239,19 @@ def test_build_scraped_sellers_table_target_predecessor_visibility() -> None:
     ]
 
     alfa_res = PlatformPricingResult(
-        final_price=34299.0,
+        final_price=34299,
         min_price=34400.0,
         max_price=34400.0,
-        real_profit=869.0,
+        real_profit=869,
         reason="Undercut lowest viable",
         status="Won",
         effective_comm="10.00%",
     )
     digi_res = PlatformPricingResult(
-        final_price=34299.0,
+        final_price=34299,
         min_price=34400.0,
         max_price=34400.0,
-        real_profit=1557.0,
+        real_profit=1557,
         reason="Won",
         status="Won",
         effective_comm="10.00%",
@@ -1362,7 +1363,7 @@ def test_in_order_card_dispatcher_sequence() -> None:
 
     printed_order: list[int] = []
 
-    def make_renderer(val: int):
+    def make_renderer(val: int) -> Callable[[], None]:
         return lambda: printed_order.append(val)
 
     async def _test() -> None:
@@ -1391,7 +1392,7 @@ def test_in_order_card_dispatcher_skip_on_error() -> None:
 
     printed_order: list[int] = []
 
-    def make_renderer(val: int):
+    def make_renderer(val: int) -> Callable[[], None]:
         return lambda: printed_order.append(val)
 
     async def _test() -> None:
@@ -1433,10 +1434,10 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
         ],
     )
     alfa_res = PlatformPricingResult(
-        final_price=84499.0,
+        final_price=84499,
         min_price=None,
         max_price=None,
-        real_profit=4049.0,
+        real_profit=4049,
         reason="[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000] Applied Monopoly pricing.",
         status="Monopoly Win",
         effective_comm="10.00%",
@@ -1451,10 +1452,10 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
         ],
     )
     digi_res = PlatformPricingResult(
-        final_price=82899.0,
+        final_price=82899,
         min_price=83000.0,
         max_price=83000.0,
-        real_profit=4267.0,
+        real_profit=4267,
         reason="[OFFICIAL STORE: Haier Official Store @ Rs. 92,000] Undercut competitor.",
         status="Competitive Win",
         effective_comm="8.00%",

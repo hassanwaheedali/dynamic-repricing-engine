@@ -155,7 +155,7 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
 
 async def process_range_item_async(
     product: ProductInput,
-    session: AsyncSession,
+    session: AsyncSession[Any],
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock | None = None,
     verbose: bool = False,

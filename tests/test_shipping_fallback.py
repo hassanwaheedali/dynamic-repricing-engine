@@ -264,7 +264,7 @@ class TestTerminalAuditCardFormatting:
             floor_alfa=53888.89,
             floor_digi_10=53888.89,
             floor_digi_8=52717.39,
-            personal_comm=0.0,
+            personal_comm=0,
         )
 
         mock_alfa_res = PlatformPricingResult(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import openpyxl
@@ -189,7 +190,7 @@ def test_export_winning_5pct_results_filters_and_sorts_a_to_z(tmp_path: Path) ->
     )
     df_in.to_csv(input_csv, index=False)
 
-    async def _mock_scrape_alfa(session, patterns, target_model, **kwargs):
+    async def _mock_scrape_alfa(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
         if "18AITH21W" in target_model:
             # 1 seller, viable above 5% floor
             return ScrapeResult(
@@ -210,7 +211,7 @@ def test_export_winning_5pct_results_filters_and_sorts_a_to_z(tmp_path: Path) ->
             offers=[ScrapedOffer("DumpingVendor", 82000.0, False, "Dawlance 9178LF")]
         )
 
-    async def _mock_scrape_digi(session, patterns, target_model, **kwargs):
+    async def _mock_scrape_digi(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
         if "9178LF" in target_model:
             return ScrapeResult(
                 offers=[ScrapedOffer("DumpingVendor", 82000.0, False, "Dawlance 9178LF")]

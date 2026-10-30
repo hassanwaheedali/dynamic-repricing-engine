@@ -1,6 +1,7 @@
 """Unit and integration tests for Multi-Variant Conflict Referee and Checkpoint Engine."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -249,12 +250,12 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
     res_gree = ScrapeResult(offers=[offer_g])
     res_empty = ScrapeResult(offers=[])
 
-    async def mock_scrape_alfa(session, patterns, target_model, **kwargs):
+    async def mock_scrape_alfa(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
         if "DWT" in target_model.upper():
             return res_ambig
         return res_gree
 
-    async def mock_scrape_digi(session, patterns, target_model, **kwargs):
+    async def mock_scrape_digi(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
         return res_empty
 
     async def _test_flow() -> None:
@@ -293,7 +294,7 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
 
         gree_call_count = 0
 
-        async def mock_scrape_alfa_resume(session, patterns, target_model, **kwargs):
+        async def mock_scrape_alfa_resume(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
             nonlocal gree_call_count
             if "12AITH21W" in target_model.upper():
                 gree_call_count += 1
