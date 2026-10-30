@@ -20,6 +20,9 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
      - **Dynamic Brand-Initial Verification**: Numeric stems must be validated against brand initials dynamically (`{brand[0]}[a-z]{1,3}[- ]?{model}`).
      - **Single Source of Truth**: Data mappings (e.g. AC capacity codes) must be defined once and referenced everywhere.
      - **Strict Ingestion Validation**: Catalogs must provide valid brands; guessing brands from title strings is strictly forbidden.
+  7. **No Lazy Shortcuts Under Any Circumstances:**
+   - Never write a one-off quick fix or narrow conditional just to satisfy a single failing test case.
+   - Every algorithmic change must be designed universally from first principles, verified against the entire catalog logic, and tested for adversarial cross-brand isolation.
 
 ---
 

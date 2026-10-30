@@ -1,31 +1,39 @@
-# Implementation Plan: Unified Dynamic Glide Split (80% -> 50%)
+# Implementation Plan: Dynamic Excel Calculation & Platform-Isolated Exports
 
 ## Overview
-Upgrade the adaptive pricing Tier 2 algorithm ($2,000 \le \text{Gap} < 10,000$ PKR) from a flat 50% split midpoint to a **Unified Dynamic Glide Split**. 
-On smaller gaps (Rs. 2,000 – Rs. 4,000), the merchant retains up to 80% of the surplus margin while offering a compelling customer discount (20%). As the competitor gap widens up to Rs. 10,000, the formula smoothly glides down to 50%, seamlessly transitioning into Tier 1 (~Rs. 10,000 profit cap).
+Decompose implementation of dynamic Excel calculation formula referencing `Commision` column, bulletproof percentage cell formatting, and platform-specific column filtering (`filter_digi_only_columns` alongside existing `filter_alfa_only_columns`, elimination of redundant commission columns in single-platform views, and dual platform exports in `all` mode).
 
 ## Architecture Decisions
-- **Formula**: $\text{Retention \%} = 0.80 - \left(\frac{\text{Gap} - 2000}{8000}\right) \times 0.30$.
-- **Buffer**: $\text{Buffer} = \max(\text{Gap} \times \text{Retention \%},\, 1000.0)$.
-- **Strict Monotonicity**: Target ceiling strictly increases with competitor price; zero price cliffs.
-- **Dynamic Telemetry**: Strategy reason logs exact dynamic split percentage: `Applied dynamic adaptive split (XX%) to capped winning psychological price...`.
+- **Cell Reference over Hardcoded Constant**: Replace hardcoded `/ 0.90` with dynamic Excel formula `=ROUND((Net + Ship + Profit)/(1 - Commision), 0)`.
+- **Numeric Float Storage in Excel**: Store commission values as numeric floats (`0.10` or `0.08`) with `cell.number_format = '0.00%'` so arithmetic operations in Excel evaluate without `#VALUE!` errors.
+- **Strict Column Isolation**: Exclude all Alfa columns and `Digi Effective Commision` from Digi-only export; retain single standard `Commision` column representing actual effective rate.
+- **Dual Export on All Platforms Mode**: When running `all` mode, produce both the backwards-compatible unified comparison workbook and dedicated platform-isolated workbooks.
 
-## Task List
+## Task Breakdown
 
-### Phase 1: Core Math Engine
-- [ ] Task 1.1: Update `calculate_adaptive_target_price()` in `pricing_engine/calculator.py` with Unified Dynamic Glide formula.
-- [ ] Task 1.2: Update unit test `test_adaptive_target_tier2_2000_to_10000_gap()` in `tests/test_calculator.py`.
+### Phase 1: Math & Pipeline Adaptation
+- [ ] Task 1.1: Update `calculate_baseline` in `pricing_engine/calculator.py` to support dynamic payout rates (0.90 vs 0.92).
+- [ ] Task 1.2: Update `format_output_record` in `pricing_engine/pipeline.py` to populate `Commision` with `digi_res.effective_comm` in Digi mode and calculate baseline using active rate.
 
-### Phase 2: Evaluator & Strategy Reasons
-- [ ] Task 2.1: Update `_evaluate_alfa_core()` in `pricing_engine/evaluator.py` to format dynamic split percentage.
-- [ ] Task 2.2: Update `_evaluate_digi_core()` in `pricing_engine/evaluator.py` across Step A, Step B, and Step C.
-- [ ] Task 2.3: Update evaluator assertions in `tests/test_evaluator.py`.
+### Checkpoint: Math & Pipeline
+- [ ] Run `pytest tests/test_personal_commission.py tests/test_platform_selection.py` to ensure core calculations remain green.
 
-### Phase 3: Pipeline & Badging Telemetry
-- [ ] Task 3.1: Update `determine_platform_status()` and `build_platform_decision_table()` in `pricing_engine/pipeline.py`.
-- [ ] Task 3.2: Update pipeline badging tests in `tests/test_pipeline.py`.
+### Phase 2: Exporter & Excel Dynamic Formulas
+- [ ] Task 2.1: Implement `filter_digi_only_columns` in `pricing_engine/exporter.py` excluding Alfa columns and redundant `Digi Effective Commision`.
+- [ ] Task 2.2: Update `export_excel_workbook` in `pricing_engine/exporter.py` to format `Commision` as numeric float percentage and inject dynamic formula `=ROUND((Net + Ship + Profit)/(1 - Commision), 0)`.
+- [ ] Task 2.3: Update `export_results`, `export_winning_5pct_results`, and `export_structured_results` in `pricing_engine/exporter.py` to support `platform == "digi"` and dual platform outputs.
 
-### Phase 4: Quality Gates & Verification
-- [ ] Task 4.1: Run `pytest` (must be 100% green, 376+ passing).
-- [ ] Task 4.2: Run `ruff check .` (0 errors).
-- [ ] Task 4.3: Run `mypy pricing_engine index.py` (0 type issues).
+### Checkpoint: Exporter & Excel Formulas
+- [ ] Run `pytest tests/test_exporter_formulas.py tests/test_exporter.py` to verify formula generation and column filtering.
+
+### Phase 3: Test Suite Expansion & End-to-End Verification
+- [ ] Task 3.1: Add unit tests for `filter_digi_only_columns` and Digi-only export in `tests/test_exporter.py`.
+- [ ] Task 3.2: Update formula assertions in `tests/test_exporter_formulas.py` for dynamic commission reference.
+- [ ] Task 3.3: Run full test suite `pytest -v` (all 392+ tests green) and `ruff check .`.
+
+## Risks and Mitigations
+| Risk | Impact | Mitigation |
+| :--- | :--- | :--- |
+| Excel `#VALUE!` on text percentage | High | Write commission as float `0.10`/`0.08` with `0.00%` number format and wrap formula with `IF(ISNUMBER(...))` |
+| Breaking backwards compatibility | High | Maintain standard `{stem}_repriced_latest.{csv,xlsx}` unified file in `all` mode alongside platform-isolated files |
+| Existing tests expecting `Digi Effective Commision` in combined mode | Medium | Keep `Digi Effective Commision` in unified combined mode, drop only in Digi-isolated export |

@@ -321,17 +321,23 @@ def calculate_floors(
     )
 
 
-def calculate_baseline(cost_base: float, target_profit: float) -> float:
+def calculate_baseline(
+    cost_base: float,
+    target_profit: float,
+    payout_rate: float | None = None,
+) -> float:
     """Calculate standard baseline price for comparison.
 
     Args:
         cost_base: Landed cost base.
         target_profit: Target profit margin from input catalog.
+        payout_rate: Bank payout rate multiplier (default: config.get_alfa_payout_rate() -> 0.90).
 
     Returns:
-        Baseline catalog price at standard AlfaMall commission.
+        Baseline catalog price at given or standard platform commission payout rate.
     """
-    return (cost_base + target_profit) / config.get_alfa_payout_rate()
+    rate = config.get_alfa_payout_rate() if payout_rate is None else payout_rate
+    return (cost_base + target_profit) / rate
 
 
 def find_winning_psychological_price(

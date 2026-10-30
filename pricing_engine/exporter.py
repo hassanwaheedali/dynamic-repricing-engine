@@ -191,6 +191,12 @@ def export_excel_workbook(
                     row_vals.append(val)
             elif col_name == "S.NO":
                 row_vals.append(format_export_sno(val))
+            elif col_name in ("Commision", "Digi Effective Commision"):
+                try:
+                    clean = str(val).replace("%", "").strip()
+                    row_vals.append(float(clean) / 100.0 if clean else None)
+                except (ValueError, TypeError):
+                    row_vals.append(val)
             else:
                 row_vals.append(val)
 
@@ -205,6 +211,7 @@ def export_excel_workbook(
         p_col = col_map.get("Profit")
         ship = col_map.get("Shipping Estimate")
         comm = col_map.get("Digi Effective Commision")
+        comm_col = col_map.get("Commision")
         twop = col_map.get("Total Without Profit")
         calc = col_map.get("Calculation")
         final_alfa = col_map.get("Final Price Alfa")
@@ -221,21 +228,27 @@ def export_excel_workbook(
                 ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 0)"
 
         # 2. Total Without Profit
+        eff_comm = comm or comm_col
         if twop and net and ship:
-            if comm:
+            if eff_comm:
                 ws[f"{twop}{r}"] = (
-                    f'=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({comm}{r}), 1-{comm}{r}, '
-                    f'IF(ISNUMBER(FIND("8", {comm}{r})), 0.92, 0.90)), 0)'
+                    f'=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({eff_comm}{r}), 1-{eff_comm}{r}, '
+                    f'IF(ISNUMBER(FIND("8", {eff_comm}{r})), 0.92, 0.90)), 0)'
                 )
             else:
                 ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/0.90, 0)"
 
-        # 3. Calculation (Baseline Target)
+        # 3. Dynamic Calculation (Referencing Commission Cell)
         if calc and net and ship:
-            if p_col:
-                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+IF(ISBLANK({p_col}{r}), 500, {p_col}{r}))/0.90, 0)"
+            p_expr = f"IF(ISBLANK({p_col}{r}), 500, {p_col}{r})" if p_col else "500"
+            if comm_col:
+                comm_expr = (
+                    f'IF(ISNUMBER({comm_col}{r}), {comm_col}{r}, '
+                    f'IF(ISNUMBER(FIND("8", {comm_col}{r})), 0.08, 0.10))'
+                )
+                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/(1-{comm_expr}), 0)"
             else:
-                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+500)/0.90, 0)"
+                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/0.90, 0)"
 
         # 4. Alfa Real Profit
         if prof_alfa and final_alfa and net and ship:
@@ -245,10 +258,11 @@ def export_excel_workbook(
 
         # 7. Digi Real Profit
         if prof_digi and final_digi and net and ship:
-            if comm:
+            digi_comm_col = comm or comm_col
+            if digi_comm_col:
                 ws[f"{prof_digi}{r}"] = (
                     f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*'
-                    f'IF(ISNUMBER({comm}{r}), 1-{comm}{r}, IF(ISNUMBER(FIND("8", {comm}{r})), 0.92, 0.90)))'
+                    f'IF(ISNUMBER({digi_comm_col}{r}), 1-{digi_comm_col}{r}, IF(ISNUMBER(FIND("8", {digi_comm_col}{r})), 0.92, 0.90)))'
                     f'-({net}{r}+{ship}{r}), 0))'
                 )
             else:
@@ -289,9 +303,10 @@ def export_excel_workbook(
             if col_name in price_cols_set:
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")
+            elif col_name in ("Commision", "Digi Effective Commision"):
+                cell.number_format = "0.00%"
+                cell.alignment = Alignment(horizontal="center")
             elif col_name in {
-                "Commision",
-                "Digi Effective Commision",
                 "S.NO",
                 "Alfa Status",
                 "Digi Status",
@@ -408,6 +423,29 @@ def filter_alfa_only_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[retained_cols]
 
 
+def filter_digi_only_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter DataFrame to exclude alfa-key columns and redundant digi commission column when Digi-only export is requested.
+
+    Preserves input columns, general cost/shipping columns, and Digi columns,
+    while excluding any column containing 'alfa' (case-insensitive) and redundant 'Digi Effective Commision'.
+    If 'Digi Effective Commision' exists, its value is assigned to 'Commision'.
+    """
+    clean_df = df.copy()
+    if "Digi Effective Commision" in clean_df.columns:
+        has_digi_comm = (
+            clean_df["Digi Effective Commision"].notna()
+            & (clean_df["Digi Effective Commision"].astype(str).str.strip() != "")
+        )
+        if "Commision" in clean_df.columns:
+            clean_df.loc[has_digi_comm, "Commision"] = clean_df.loc[has_digi_comm, "Digi Effective Commision"]
+
+    retained_cols = [
+        col for col in clean_df.columns
+        if "alfa" not in str(col).lower() and str(col).strip() != "Digi Effective Commision"
+    ]
+    return clean_df[retained_cols]
+
+
 def export_results(
     df: pd.DataFrame,
     source_filename: str | Path,
@@ -465,8 +503,11 @@ def export_results(
     ]
     if unnamed_cols:
         export_df = export_df.drop(columns=unnamed_cols)
-    if platform.lower().strip() == "alfa":
+    plat_key = platform.lower().strip()
+    if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)
+    elif plat_key == "digi":
+        export_df = filter_digi_only_columns(export_df)
     if "S.NO" in export_df.columns:
         export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
 
@@ -492,6 +533,33 @@ def export_results(
 
     export_df.to_csv(timestamped_csv_path, index=False)
     shutil.copyfile(timestamped_csv_path, latest_csv_path)
+
+    # 3. Generate dedicated platform files when running unified dual mode (all)
+    if plat_key == "all":
+        try:
+            # Dedicated Alfa files
+            alfa_df = filter_alfa_only_columns(df.copy())
+            if "S.NO" in alfa_df.columns:
+                alfa_df["S.NO"] = alfa_df["S.NO"].apply(format_export_sno)
+            alfa_xlsx = xlsx_dir / f"{stem}_repriced_alfa_latest.xlsx"
+            export_excel_workbook(alfa_df, alfa_xlsx, personal_comm_pct=personal_comm_pct)
+            for col in PRICE_INT_COLUMNS:
+                if col in alfa_df.columns:
+                    alfa_df[col] = alfa_df[col].apply(format_export_price)
+            alfa_df.to_csv(csv_dir / f"{stem}_repriced_alfa_latest.csv", index=False)
+
+            # Dedicated Digi files
+            digi_df = filter_digi_only_columns(df.copy())
+            if "S.NO" in digi_df.columns:
+                digi_df["S.NO"] = digi_df["S.NO"].apply(format_export_sno)
+            digi_xlsx = xlsx_dir / f"{stem}_repriced_digi_latest.xlsx"
+            export_excel_workbook(digi_df, digi_xlsx, personal_comm_pct=personal_comm_pct)
+            for col in PRICE_INT_COLUMNS:
+                if col in digi_df.columns:
+                    digi_df[col] = digi_df[col].apply(format_export_price)
+            digi_df.to_csv(csv_dir / f"{stem}_repriced_digi_latest.csv", index=False)
+        except Exception as exc:
+            console.print(f"[bold yellow]⚠️  Dual platform export notice:[/] {exc}")
 
     manifest = ExportManifest(
         timestamped_path=timestamped_csv_path,
@@ -589,8 +657,11 @@ def export_winning_5pct_results(
     ]
     if unnamed_cols:
         export_df = export_df.drop(columns=unnamed_cols)
-    if platform.lower().strip() == "alfa":
+    plat_key = platform.lower().strip()
+    if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)
+    elif plat_key == "digi":
+        export_df = filter_digi_only_columns(export_df)
     if "S.NO" in export_df.columns:
         export_df["S.NO"] = export_df["S.NO"].apply(format_export_sno)
 
@@ -710,8 +781,11 @@ def export_range_results(
     ]
     if unnamed_cols:
         working_df = working_df.drop(columns=unnamed_cols)
-    if platform.lower().strip() == "alfa":
+    plat_key = platform.lower().strip()
+    if plat_key == "alfa":
         working_df = filter_alfa_only_columns(working_df)
+    elif plat_key == "digi":
+        working_df = filter_digi_only_columns(working_df)
 
     csv_path = csv_dir / f"{stem}_range_{ts_str}.csv"
     csv_latest = csv_dir / f"{stem}_range_latest.csv"

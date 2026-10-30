@@ -43,6 +43,7 @@ from pricing_engine.exporter import (
     export_results,
     export_winning_5pct_results,
     filter_alfa_only_columns,
+    filter_digi_only_columns,
     resolve_option_output_dir,
 )
 from pricing_engine.ingestion import (
@@ -385,6 +386,7 @@ def build_output_record(
     alfa_res: PlatformPricingResult,
     digi_res: PlatformPricingResult,
     personal_comm_pct: float = 0.0,
+    platform: str = "all",
 ) -> dict[str, Any]:
     """Combine input row data and calculated platform results into final output dictionary.
 
@@ -396,6 +398,7 @@ def build_output_record(
         alfa_res: PlatformPricingResult for AlfaMall.
         digi_res: PlatformPricingResult for DigiMall.
         personal_comm_pct: Optional personal commission percentage on Net Price (e.g. 5.0).
+        platform: Target platform ('all', 'alfa', or 'digi').
 
     Returns:
         Dictionary adhering to the target CSV schema.
@@ -418,7 +421,13 @@ def build_output_record(
             break
 
     out_record["Shipping Estimate"] = shipping
-    out_record["Commision"] = "10.00%"
+    plat_lower = platform.lower().strip()
+    if plat_lower == "digi" and digi_res.status != "SKIPPED":
+        out_record["Commision"] = (
+            digi_res.effective_comm if digi_res.effective_comm else "10.00%"
+        )
+    else:
+        out_record["Commision"] = "10.00%"
     out_record["Digi Effective Commision"] = (
         digi_res.effective_comm if digi_res.status != "SKIPPED" else ""
     )
@@ -512,6 +521,7 @@ def process_product_with_offers(
     alfa_offers: list[ScrapedOffer] | ScrapeResult,
     digi_offers: list[ScrapedOffer] | ScrapeResult,
     personal_comm_pct: float = 0.0,
+    platform: str = "all",
 ) -> dict[str, Any]:
     """Execute complete cost math and pricing decisions given fetched competitor offers.
 
@@ -520,6 +530,7 @@ def process_product_with_offers(
         alfa_offers: Offers scraped from AlfaMall (or ScrapeResult).
         digi_offers: Offers scraped from DigiMall (or ScrapeResult).
         personal_comm_pct: Optional personal commission percentage on Net Price (e.g. 5.0).
+        platform: Target platform ('all', 'alfa', or 'digi').
 
     Returns:
         Repriced output dictionary.
@@ -539,6 +550,11 @@ def process_product_with_offers(
     alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
     digi_res = evaluate_digi_pricing(floors, digi_offers)
 
+    if platform.lower().strip() == "digi" and digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
+        baseline_calc = calculate_baseline(
+            cost_base, target_profit=effective_target_profit, payout_rate=0.92
+        )
+
     return build_output_record(
         product=product,
         shipping=shipping,
@@ -547,6 +563,7 @@ def process_product_with_offers(
         alfa_res=alfa_res,
         digi_res=digi_res,
         personal_comm_pct=personal_comm_pct,
+        platform=platform,
     )
 
 
@@ -1274,7 +1291,7 @@ class InOrderCardDispatcher:
 
 async def process_item_async(
     product: ProductInput,
-    session: AsyncSession,
+    session: AsyncSession[Any],
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock | None = None,
     verbose: bool = True,
@@ -1421,6 +1438,11 @@ async def process_item_async(
         else:
             digi_res = create_skipped_platform_result("DigiMall")
 
+        if plat == "digi" and digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
+            baseline_calc = calculate_baseline(
+                cost_base, target_profit=effective_target_profit, payout_rate=0.92
+            )
+
     # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
     target_slots = extract_product_slots(product.name, brand=product.brand)
     all_raw_offers: list[ScrapedOffer] = []
@@ -1489,13 +1511,14 @@ async def process_item_async(
         alfa_res=alfa_res,
         digi_res=digi_res,
         personal_comm_pct=personal_comm_pct,
+        platform=plat,
     )
 
 
 async def _process_item_worker(
     idx: int,
     product: ProductInput,
-    session: AsyncSession,
+    session: AsyncSession[Any],
     semaphore: asyncio.Semaphore,
     render_lock: asyncio.Lock,
     dispatcher: InOrderCardDispatcher | None = None,
@@ -2029,6 +2052,8 @@ async def run_pipeline(
         export_df = out_df.copy()
         if plat == "alfa":
             export_df = filter_alfa_only_columns(export_df)
+        elif plat == "digi":
+            export_df = filter_digi_only_columns(export_df)
         export_df.to_csv(target_out, index=False)
         effective_finish_path = target_out
         if personal_comm_pct > 0:

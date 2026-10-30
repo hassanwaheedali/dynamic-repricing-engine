@@ -1,22 +1,23 @@
-# Task Breakdown: Unified Dynamic Glide Split (80% -> 50%)
+# Task List: Dynamic Excel Calculation & Platform-Isolated Exports
 
-- [x] **Task 1: Core Math Engine (`pricing_engine/calculator.py`)**
-  - Implement dynamic linear interpolation formula for Tier 2: `retention_pct = 0.80 - ((gap - 2000.0) / 8000.0) * 0.30`
-  - Update `test_adaptive_target_tier2_2000_to_10000_gap()` in `tests/test_calculator.py`
-  - *Acceptance:* Gap 2k -> 80% (buffer 1600), Gap 5k -> 68.75% (buffer 3437.5), Gap 10k -> 50% (buffer 5000)
+- [x] **Phase 1: Math & Pipeline Adaptation**
+  - [x] Task 1.1: Add optional `payout_rate` parameter to `calculate_baseline` in `pricing_engine/calculator.py`
+  - [x] Task 1.2: Update `format_output_record` in `pricing_engine/pipeline.py` to set `Commision` to effective rate and compute baseline accordingly under `platform == "digi"`
+  - [x] Task 1.3: Update `run_pipeline` in `pricing_engine/pipeline.py` to route `plat == "digi"` through `filter_digi_only_columns`
 
-- [x] **Task 2: Evaluator Dynamic Telemetry (`pricing_engine/evaluator.py`)**
-  - In `_evaluate_alfa_core`: compute dynamic `pct_str` and format reason: `Applied dynamic adaptive split ({pct_str}) to capped winning psychological price...`
-  - In `_evaluate_digi_core`: apply dynamic `pct_str` across Step A (10% Tier), Step B (Emergency 8% Switch), and Step C (Upper Band 10% & 8%)
-  - *Acceptance:* Exact percentage (e.g. 76%, 69%, 58%) rendered in reason string for both platforms
+- [x] **Checkpoint 1: Core Pipeline Math**
+  - [x] Run focused math & platform tests: `pytest -v tests/test_platform_selection.py tests/test_personal_commission.py` (All passed)
 
-- [x] **Task 3: Pipeline & Badging Consistency (`pricing_engine/pipeline.py`)**
-  - Verify `determine_platform_status()` tags `CAPPED (-diff)` on market wins with dynamic adaptive split
-  - Verify `build_platform_decision_table()` renders `(CAPPED SWEET-SPOT)` and `(CAPPED SWEET-SPOT (8% RATE))`
-  - *Acceptance:* Terminal audit cards display bold yellow `(CAPPED SWEET-SPOT)`
+- [x] **Phase 2: Exporter & Excel Dynamic Formulas**
+  - [x] Task 2.1: Add `filter_digi_only_columns(df)` in `pricing_engine/exporter.py`
+  - [x] Task 2.2: Update `export_excel_workbook` in `pricing_engine/exporter.py` for numeric percentage formatting and dynamic `(1 - Commision)` formula
+  - [x] Task 2.3: Integrate `filter_digi_only_columns` into `export_results`, `export_winning_5pct_results`, and `export_structured_results`
+  - [x] Task 2.4: Implement dual platform exports (`_alfa_latest` and `_digi_latest`) when `platform == "all"`
 
-- [x] **Task 4: Automated Testing & Quality Gates**
-  - Update existing test assertions in `tests/test_evaluator.py` and `tests/test_pipeline.py`
-  - Run `pytest` (100% green, 376 passed)
-  - Run `ruff check .` (0 errors)
-  - Run `mypy pricing_engine index.py` (0 errors)
+- [x] **Checkpoint 2: Export & Excel Generation**
+  - [x] Run exporter tests: `pytest -v tests/test_exporter.py tests/test_exporter_formulas.py` (All passed)
+
+- [x] **Phase 3: Test Suite & Quality Verification**
+  - [x] Task 3.1: Add tests for `filter_digi_only_columns` and `--digi-only` export in `tests/test_exporter.py`
+  - [x] Task 3.2: Update assertions in `tests/test_exporter_formulas.py` for dynamic formula
+  - [x] Task 3.3: Execute full suite `pytest -v` (396 passed) and `ruff check .` (All checks passed)

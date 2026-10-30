@@ -15,6 +15,7 @@ from pricing_engine.exporter import (
     export_results,
     export_winning_5pct_results,
     filter_alfa_only_columns,
+    filter_digi_only_columns,
     format_export_price,
     resolve_option_output_dir,
 )
@@ -352,6 +353,46 @@ def test_filter_alfa_only_columns_unit() -> None:
     assert "S.NO" in filtered.columns
 
 
+def test_filter_digi_only_columns_unit() -> None:
+    """Verify filter_digi_only_columns excludes every alfa-key column and redundant Digi Effective Commision."""
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name": "GS-18AITH21W",
+                "Net Price": 100000,
+                "Commision": "10.00%",
+                "Digi Effective Commision": "8.00%",
+                "Minimum Price Alfa": 120000,
+                "Maximum Price Alfa": 130000,
+                "Minimum Price Digi": 119000,
+                "Maximum Price Digi": 129000,
+                "Final Price Alfa": 124899,
+                "Final Price Digi": 123899,
+                "Alfa Real Profit": 8909,
+                "Digi Real Profit": 10487,
+                "Alfa Reason": "Undercut competitor",
+                "Digi Reason": "Undercut at 8%",
+                "Alfa Risk Alert": "NONE",
+                "Digi Risk Alert": "NONE",
+            }
+        ]
+    )
+    filtered = filter_digi_only_columns(df)
+    for col in filtered.columns:
+        assert "alfa" not in col.lower(), f"Unexpected alfa column in filtered output: {col}"
+    assert "Digi Effective Commision" not in filtered.columns
+    assert filtered["Commision"].iloc[0] == "8.00%"
+    assert "Minimum Price Digi" in filtered.columns
+    assert "Final Price Digi" in filtered.columns
+    assert "Digi Real Profit" in filtered.columns
+    assert "Digi Reason" in filtered.columns
+    assert "Digi Risk Alert" in filtered.columns
+    assert "Net Price" in filtered.columns
+    assert "S.NO" in filtered.columns
+
+
 def test_export_results_with_alfa_flag_excludes_digi_in_csv_and_xlsx(tmp_path: Path) -> None:
     """Verify export_results with platform='alfa' produces consistent CSV and XLSX without digi columns."""
     import openpyxl
@@ -412,6 +453,134 @@ def test_export_results_with_alfa_flag_excludes_digi_in_csv_and_xlsx(tmp_path: P
 
     # 3. CSV and XLSX columns must be 100% consistent with each other
     assert csv_cols == xlsx_cols
+
+
+def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: Path) -> None:
+    """Verify export_results with platform='digi' produces consistent CSV and XLSX without alfa columns and redundant digi commission."""
+    import openpyxl
+
+    out_dir = tmp_path / "export_digi"
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name": "GS-18AITH21W",
+                "Net Price": 100000,
+                "Shipping Estimate": 3500,
+                "Commision": "10.00%",
+                "Digi Effective Commision": "8.00%",
+                "Total Without Profit": 112500,
+                "Calculation": 115000,
+                "Minimum Price Alfa": 120000,
+                "Maximum Price Alfa": 130000,
+                "Minimum Price Digi": 119000,
+                "Maximum Price Digi": 129000,
+                "Final Price Alfa": 124899,
+                "Final Price Digi": 123899,
+                "Alfa Real Profit": 8909,
+                "Digi Real Profit": 10487,
+                "Alfa Reason": "Undercut competitor",
+                "Digi Reason": "Undercut at 8%",
+                "Alfa Risk Alert": "NONE",
+                "Digi Risk Alert": "NONE",
+            }
+        ]
+    )
+
+    manifest = export_results(
+        df=df,
+        source_filename="catalog.csv",
+        output_dir=out_dir,
+        platform="digi",
+    )
+
+    # 1. Check CSV output
+    csv_df = pd.read_csv(manifest.latest_path)
+    csv_cols = list(csv_df.columns)
+    for col in csv_cols:
+        assert "alfa" not in col.lower(), f"Alfa column '{col}' found in CSV"
+    assert "Digi Effective Commision" not in csv_cols
+    assert csv_df["Commision"].iloc[0] == "8.00%"
+    assert "Final Price Digi" in csv_cols
+    assert "Digi Real Profit" in csv_cols
+
+    # 2. Check XLSX output
+    assert manifest.latest_xlsx_path is not None and manifest.latest_xlsx_path.is_file()
+    wb = openpyxl.load_workbook(manifest.latest_xlsx_path)
+    ws = wb.active
+    xlsx_cols = [cell.value for cell in ws[1]]
+    for col in xlsx_cols:
+        assert "alfa" not in str(col).lower(), f"Alfa column '{col}' found in XLSX"
+    assert "Digi Effective Commision" not in xlsx_cols
+    assert "Final Price Digi" in xlsx_cols
+    assert "Digi Real Profit" in xlsx_cols
+
+    # 3. CSV and XLSX columns must be 100% consistent with each other
+    assert csv_cols == xlsx_cols
+
+
+def test_export_results_dual_platform_files_in_all_mode(tmp_path: Path) -> None:
+    """Verify export_results with platform='all' generates dedicated platform files alongside unified files."""
+    out_dir = tmp_path / "export_all_dual"
+    df = pd.DataFrame(
+        [
+            {
+                "S.NO": 1,
+                "Brand": "Gree",
+                "Name": "GS-18AITH21W",
+                "Net Price": 100000,
+                "Shipping Estimate": 3500,
+                "Commision": "10.00%",
+                "Digi Effective Commision": "8.00%",
+                "Total Without Profit": 112500,
+                "Calculation": 115000,
+                "Minimum Price Alfa": 120000,
+                "Maximum Price Alfa": 130000,
+                "Minimum Price Digi": 119000,
+                "Maximum Price Digi": 129000,
+                "Final Price Alfa": 124899,
+                "Final Price Digi": 123899,
+                "Alfa Real Profit": 8909,
+                "Digi Real Profit": 10487,
+                "Alfa Reason": "Undercut competitor",
+                "Digi Reason": "Undercut at 8%",
+                "Alfa Risk Alert": "NONE",
+                "Digi Risk Alert": "NONE",
+            }
+        ]
+    )
+
+    manifest = export_results(
+        df=df,
+        source_filename="catalog.csv",
+        output_dir=out_dir,
+        platform="all",
+    )
+
+    # 1. Unified files exist
+    assert manifest.latest_path.is_file()
+    assert manifest.latest_xlsx_path is not None and manifest.latest_xlsx_path.is_file()
+
+    # 2. Dedicated Alfa files exist
+    alfa_csv = out_dir / "csv" / "catalog_repriced_alfa_latest.csv"
+    alfa_xlsx = out_dir / "xlsx" / "catalog_repriced_alfa_latest.xlsx"
+    assert alfa_csv.is_file()
+    assert alfa_xlsx.is_file()
+    alfa_df = pd.read_csv(alfa_csv)
+    for col in alfa_df.columns:
+        assert "digi" not in col.lower()
+
+    # 3. Dedicated Digi files exist
+    digi_csv = out_dir / "csv" / "catalog_repriced_digi_latest.csv"
+    digi_xlsx = out_dir / "xlsx" / "catalog_repriced_digi_latest.xlsx"
+    assert digi_csv.is_file()
+    assert digi_xlsx.is_file()
+    digi_df = pd.read_csv(digi_csv)
+    for col in digi_df.columns:
+        assert "alfa" not in col.lower()
+    assert "Digi Effective Commision" not in digi_df.columns
+    assert digi_df["Commision"].iloc[0] == "8.00%"
 
 
 def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:

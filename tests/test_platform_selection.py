@@ -99,6 +99,55 @@ def test_build_output_record_alfa_only() -> None:
     assert record["Digi Status"] == ""
 
 
+def test_build_output_record_digi_only() -> None:
+    product = ProductInput(
+        sno=1,
+        brand="Gree",
+        name="Gree Fairy 1.5 Ton GS-18FITH1G",
+        length=100.0,
+        width=35.0,
+        height=45.0,
+        net_price=150000.0,
+        profit=500.0,
+        raw_row={"Brand": "Gree", "Name": "Gree Fairy 1.5 Ton GS-18FITH1G"},
+    )
+    floors = CostFloors(
+        cost_base=153000.0,
+        zero_margin_10=170000.0,
+        zero_margin_8=166304.0,
+        floor_alfa=170556.0,
+        floor_digi_10=170556.0,
+        floor_digi_8=166848.0,
+    )
+    alfa_res = create_skipped_platform_result("AlfaMall")
+    digi_res = PlatformPricingResult(
+        min_price=172000.0,
+        max_price=178000.0,
+        final_price=171899,
+        real_profit=5147,
+        status="Target Undercut",
+        reason="Undercut at 8% rate",
+        effective_comm="8.00%",
+    )
+
+    record = build_output_record(
+        product=product,
+        shipping=3000.0,
+        floors=floors,
+        baseline_calc=166848.0,
+        alfa_res=alfa_res,
+        digi_res=digi_res,
+        platform="digi",
+    )
+
+    assert record["Final Price Digi"] == 171899
+    assert record["Digi Real Profit"] == 5147
+    assert record["Digi Risk Alert"] == "NONE"
+    assert record["Digi Effective Commision"] == "8.00%"
+    assert record["Commision"] == "8.00%"
+    assert record["Final Price Alfa"] is None
+
+
 def test_process_item_async_alfa_only_skips_digimall_scraper() -> None:
     product = ProductInput(
         sno=1,

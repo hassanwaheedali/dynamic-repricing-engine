@@ -99,10 +99,16 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     assert f"{col_map['Net Price']}2" in twop_val
     assert f"{col_map['Shipping Estimate']}2" in twop_val
 
-    # Calculation formula check
+    # Calculation formula check (dynamic cell reference to Commision)
     calc_val = ws[f"{col_map['Calculation']}2"].value
     assert isinstance(calc_val, str) and calc_val.startswith("=ROUND")
     assert f"{col_map['Profit']}2" in calc_val
+    assert f"{col_map['Commision']}2" in calc_val
+
+    # Commission cell numeric percentage check
+    comm_cell = ws[f"{col_map['Commision']}2"]
+    assert comm_cell.value == 0.10
+    assert comm_cell.number_format == "0.00%"
 
     # Minimum Price Alfa & Digi check (real scraped market numbers, NOT formulas)
     min_alfa_val = ws[f"{col_map['Minimum Price Alfa']}2"].value
