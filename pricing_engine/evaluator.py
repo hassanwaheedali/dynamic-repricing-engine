@@ -53,6 +53,14 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
 
 def format_fallback_descriptions(mod: str, source: str = "target") -> tuple[str, str, str]:
     """Generates (audit_text, reason_prefix, banner_text) for active modifier fallbacks."""
+    if mod.startswith("Dual-Color"):
+        audit = f"⚠️ {mod.upper()} LISTING MATCHED"
+        reason = f"[CROSS-CHECK NOTICE: Matched combined {mod} marketplace listing]"
+        banner = (
+            f"[bold yellow]⚠️  NOTICE (DO CROSS-CHECK):[/] Matched combined [bold cyan]'{mod}'[/] "
+            f"marketplace listing."
+        )
+        return audit, reason, banner
     if " vs " in mod:
         parts = mod.split(" vs ")
         t_part = parts[0].replace("Target ", "").strip("'\" ")

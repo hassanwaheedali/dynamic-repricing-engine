@@ -83,6 +83,8 @@ class ScrapedOffer:
     raw_title: str
     duplicate_count: int = 1
     detected_variant: str | None = None
+    missing_modifier: str | None = None
+    product_handle: str | None = None
 
 
 
