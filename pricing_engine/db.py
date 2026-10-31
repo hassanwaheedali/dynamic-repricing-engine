@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from curl_cffi.requests import AsyncSession
 
@@ -43,9 +46,7 @@ class SupabaseClient:
         _load_env_file()
         if url is None:
             self.url = (
-                os.getenv("SUPABASE_URL")
-                or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-                or ""
+                os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL") or ""
             ).rstrip("/")
         else:
             self.url = url.rstrip("/")
@@ -80,6 +81,22 @@ class SupabaseClient:
             self._session = AsyncSession(impersonate="chrome120")
         return self._session
 
+    async def close(self) -> None:
+        """Close the underlying native curl_cffi AsyncSession if open."""
+        if self._session is not None:
+            session = self._session
+            self._session = None
+            try:
+                await session.close()
+            except Exception as exc:
+                logger.debug("Supabase AsyncSession close ignored error: %s", exc)
+
+    async def __aenter__(self) -> SupabaseClient:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
     def _headers(self, prefer: str | None = None) -> dict[str, str]:
         headers = {
             "apikey": self.key,
@@ -102,7 +119,8 @@ class SupabaseClient:
 
         endpoint = f"{self.url}/rest/v1/capacity_registry?select=*&status=eq.APPROVED"
         if brand.strip():
-            endpoint += f"&brand=eq.{brand.strip().upper()}"
+            encoded_brand = quote(brand.strip().upper(), safe="_")
+            endpoint += f"&brand=eq.{encoded_brand}"
 
         session = self._ensure_session()
         try:
@@ -129,9 +147,11 @@ class SupabaseClient:
 
         endpoint = f"{self.url}/rest/v1/synonym_registry?select=*&status=eq.APPROVED"
         if brand.strip():
-            endpoint += f"&brand=eq.{brand.strip().upper()}"
+            encoded_brand = quote(brand.strip().upper(), safe="_")
+            endpoint += f"&brand=eq.{encoded_brand}"
         if category.strip():
-            endpoint += f"&category=eq.{category.strip().upper()}"
+            encoded_cat = quote(category.strip().upper(), safe="_")
+            endpoint += f"&category=eq.{encoded_cat}"
 
         session = self._ensure_session()
         try:

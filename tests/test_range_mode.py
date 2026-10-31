@@ -152,9 +152,7 @@ def _run(path: Path, tmp_path: Path, alfa: AsyncMock, digi: AsyncMock) -> pd.Dat
 
 def test_range_pipeline_brand_name_only_and_order(tmp_path: Path) -> None:
     cat = _write_catalog(tmp_path / "list.csv", "Brand,Name\nGree,GS-12XPH32\nHaier,HSU-18\n")
-    alfa = AsyncMock(
-        side_effect=[ScrapeResult(offers=[_offer("A", 100), _offer("B", 150)])] * 2
-    )
+    alfa = AsyncMock(side_effect=[ScrapeResult(offers=[_offer("A", 100), _offer("B", 150)])] * 2)
     digi = AsyncMock(side_effect=[ScrapeResult(offers=[_offer("D", 90)])] * 2)
     df = _run(cat, tmp_path, alfa, digi)
     assert list(df["S.NO"]) == [1, 2]
@@ -192,7 +190,10 @@ def test_range_pipeline_missing_brand_raises(tmp_path: Path) -> None:
 def test_range_pipeline_accepts_common_column_aliases(tmp_path: Path) -> None:
     """Range mode accepts 'Title', 'Product Name', 'Model' as aliases for 'Name' just like main pipeline."""
     for col_alias in ("Title", "Product Name", "Product Title", "Model"):
-        cat = _write_catalog(tmp_path / f"list_{col_alias.replace(' ', '_')}.csv", f"Brand,{col_alias}\nGree,GS-12XPH32\n")
+        cat = _write_catalog(
+            tmp_path / f"list_{col_alias.replace(' ', '_')}.csv",
+            f"Brand,{col_alias}\nGree,GS-12XPH32\n",
+        )
         alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 100)]))
         digi = AsyncMock(return_value=ScrapeResult(offers=[_offer("D", 90)]))
         df = _run(cat, tmp_path, alfa, digi)
@@ -207,7 +208,9 @@ def test_range_pipeline_missing_name_column_raises(tmp_path: Path) -> None:
 
 def test_range_pipeline_name_only_auto_derives_brand(tmp_path: Path) -> None:
     """If Brand column is omitted, range mode auto-derives Brand from the leading word of Name."""
-    cat = _write_catalog(tmp_path / "list.csv", "Name\nTCL 55 Inch 55C6KS UHD\nDawlance DW-6550 C\n")
+    cat = _write_catalog(
+        tmp_path / "list.csv", "Name\nTCL 55 Inch 55C6KS UHD\nDawlance DW-6550 C\n"
+    )
     alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 100)]))
     digi = AsyncMock(return_value=ScrapeResult(offers=[_offer("D", 90)]))
     df = _run(cat, tmp_path, alfa, digi)
@@ -283,7 +286,9 @@ def test_export_range_results_locked_xlsx_does_not_crash(tmp_path: Path) -> None
 
 
 def test_range_pipeline_headerless_single_column(tmp_path: Path) -> None:
-    cat = _write_catalog(tmp_path / "raw_titles.csv", "Haier HRF-276 EBD 276 Liters\nDawlance 9173WB 12 Cu Ft\n")
+    cat = _write_catalog(
+        tmp_path / "raw_titles.csv", "Haier HRF-276 EBD 276 Liters\nDawlance 9173WB 12 Cu Ft\n"
+    )
     alfa = AsyncMock(return_value=ScrapeResult(offers=[_offer("A", 80_000)]))
     digi = AsyncMock(return_value=ScrapeResult(offers=[]))
     df = _run(cat, tmp_path, alfa, digi)
@@ -291,4 +296,3 @@ def test_range_pipeline_headerless_single_column(tmp_path: Path) -> None:
     assert list(df["S.NO"]) == [1, 2]
     assert df.loc[0, "Name"] == "Haier HRF-276 EBD 276 Liters"
     assert df.loc[1, "Name"] == "Dawlance 9173WB 12 Cu Ft"
-

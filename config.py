@@ -79,17 +79,36 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
             "id": "washing_machine",
             "name": "Washing Machine",
             "keywords": [
-                "washing machine", "washer", "single tub", "twin tub",
-                "spinner", "dryer", "hwm", "dwt", "wm", "front load", "top load",
-                "automatic", "fully automatic", "semi automatic", "semi-automatic", "semi auto", "semi-auto",
+                "washing machine",
+                "washer",
+                "single tub",
+                "twin tub",
+                "spinner",
+                "dryer",
+                "hwm",
+                "dwt",
+                "wm",
+                "front load",
+                "top load",
+                "automatic",
+                "fully automatic",
+                "semi automatic",
+                "semi-automatic",
+                "semi auto",
+                "semi-auto",
             ],
             "capacity_unit": "kg",
             "sub_types": [
                 {
                     "name": "Twin Tub Washer",
                     "keywords": [
-                        "twin tub", "twin-tub", "twin", "semi auto",
-                        "semi-auto", "semi automatic", "semi-automatic",
+                        "twin tub",
+                        "twin-tub",
+                        "twin",
+                        "semi auto",
+                        "semi-auto",
+                        "semi automatic",
+                        "semi-automatic",
                     ],
                     "brackets": [
                         {"max_kg": 8.5, "rate": 3000.0},
@@ -109,7 +128,13 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 },
                 {
                     "name": "Automatic Washer",
-                    "keywords": ["automatic", "front load", "top load", "inverter", "fully automatic"],
+                    "keywords": [
+                        "automatic",
+                        "front load",
+                        "top load",
+                        "inverter",
+                        "fully automatic",
+                    ],
                     "is_default": True,
                     "brackets": [
                         {"max_kg": 10.0, "rate": 3500.0},
@@ -123,7 +148,17 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
         {
             "id": "air_conditioner",
             "name": "Air Conditioner",
-            "keywords": ["split", "ac", "air conditioner", "inverter ac", "heat & cool", "ton", "aith", "hfn", "econo"],
+            "keywords": [
+                "split",
+                "ac",
+                "air conditioner",
+                "inverter ac",
+                "heat & cool",
+                "ton",
+                "aith",
+                "hfn",
+                "econo",
+            ],
             "sub_types": [
                 {
                     "name": "Air Conditioner (2.0 Ton)",
@@ -147,7 +182,16 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
         {
             "id": "refrigerator",
             "name": "Refrigerator",
-            "keywords": ["refrigerator", "fridge", "freezer", "deep freezer", "hrf", "df", "glass door", "vertical freezer"],
+            "keywords": [
+                "refrigerator",
+                "fridge",
+                "freezer",
+                "deep freezer",
+                "hrf",
+                "df",
+                "glass door",
+                "vertical freezer",
+            ],
             "sub_types": [
                 {
                     "name": "Refrigerator (Small / Mini Bar)",
@@ -156,7 +200,14 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 },
                 {
                     "name": "Refrigerator (Large / Side-by-Side)",
-                    "keywords": ["side by side", "4 door", "four door", "french door", "large", "500l"],
+                    "keywords": [
+                        "side by side",
+                        "4 door",
+                        "four door",
+                        "french door",
+                        "large",
+                        "500l",
+                    ],
                     "rate": 7500.0,
                 },
             ],

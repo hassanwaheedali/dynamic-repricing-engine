@@ -60,6 +60,6 @@ data/outputs/range/
 scratch/
 
 # Repomix & Local Dumps
-repomix-output.xml
+repomix-output.*
 price_part*.txt
 scratch_*

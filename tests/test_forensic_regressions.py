@@ -180,7 +180,9 @@ def test_task05_glued_single_letter_e_and_spaced_haier_drum_models() -> None:
 
 def test_task05_spaced_alphanumeric_haier_drum_stem_preserved() -> None:
     """TASK-05 / BUG-09: Spaced 'Haier HWM 130 B699S8' preserves 'B699S8' in anchor."""
-    slots = extract_product_slots("Haier HWM 130 B699S8 13KG Top Load Washing Machine", brand="Haier")
+    slots = extract_product_slots(
+        "Haier HWM 130 B699S8 13KG Top Load Washing Machine", brand="Haier"
+    )
     assert "B699S8" in slots.anchor
     dec = referee_match(
         "Haier HWM 130-B699S8 13KG Top Load Washing Machine",
@@ -192,7 +194,9 @@ def test_task05_spaced_alphanumeric_haier_drum_stem_preserved() -> None:
 
 def test_task06_ads_plus_capability_extraction_and_isolation() -> None:
     """TASK-06 / BUG-01d: ADS+ is extracted as capability 'ADS'; base model rejects upgraded ADS+."""
-    s_ads = extract_product_slots("Dawlance DWT 1166 ADS+ Top Load Washing Machine", brand="Dawlance")
+    s_ads = extract_product_slots(
+        "Dawlance DWT 1166 ADS+ Top Load Washing Machine", brand="Dawlance"
+    )
     assert "ADS" in s_ads.guarded_facets.capabilities
     assert s_ads.series == ""
 
@@ -515,10 +519,14 @@ def test_task13_5digit_dawlance_freezer_gd_omission_still_checks_anchor() -> Non
 
 def test_task14_search_patterns_include_glued_variants_and_haier_hwm_prefix() -> None:
     """TASK-14 / BUG-12: generate_search_patterns includes DWT260C and HWM 150-826."""
-    p_daw = generate_search_patterns("Dawlance DWT 260 C LVS+ Top Load Washing Machine", brand="Dawlance")
+    p_daw = generate_search_patterns(
+        "Dawlance DWT 260 C LVS+ Top Load Washing Machine", brand="Dawlance"
+    )
     assert "DWT260C" in p_daw["tier_2"]
 
-    p_haier = generate_search_patterns("Haier HWM 150-826 E Top Load Washing Machine", brand="Haier")
+    p_haier = generate_search_patterns(
+        "Haier HWM 150-826 E Top Load Washing Machine", brand="Haier"
+    )
     combined_t1_t2 = p_haier["tier_1"] + p_haier["tier_2"]
     assert "HWM 150-826" in combined_t1_t2
     assert "HWM-150-826" in combined_t1_t2
@@ -562,6 +570,7 @@ def test_task15_exhaustive_parameter_supported_on_scrape_functions() -> None:
 
 def test_task16_winning_offer_modifier_selected_over_expensive_first_offer() -> None:
     """TASK-16 / BUG-13: active_modifier_fallback reflects the lowest-priced in-stock base offer."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp = MagicMock()
@@ -598,6 +607,7 @@ def test_task16_winning_offer_modifier_selected_over_expensive_first_offer() -> 
 
 def test_task16_sold_out_exact_offer_falls_back_to_instock_base_offers() -> None:
     """TASK-16 / BUG-14: When all exact offers are sold out, waterfall falls back to in-stock base offers."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp = MagicMock()
@@ -648,6 +658,7 @@ def test_task16_sold_out_exact_offer_falls_back_to_instock_base_offers() -> None
 
 def test_task16_own_store_offers_preserve_missing_modifier_metadata() -> None:
     """TASK-16 / BUG-18: Own-store offers matched via base fallback retain missing_modifier."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp = MagicMock()
@@ -701,6 +712,7 @@ def test_task17_unknown_vendor_offers_with_distinct_handles_not_collapsed() -> N
 
 def test_task17_vendor_handle_used_when_vendor_name_missing() -> None:
     """TASK-17 / BUG-16: When vendor.name is absent, vendor.handle is used as vendor_name."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp = MagicMock()
@@ -726,6 +738,7 @@ def test_task17_vendor_handle_used_when_vendor_name_missing() -> None:
 
 def test_task18_cached_page1_raw_items_triggers_page2_probe_when_floor_requires() -> None:
     """TASK-18 / BUG-15: Cached Page-1 raw items do not suppress Page-2 probing for higher floor_price."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp_p1 = MagicMock()
@@ -758,13 +771,23 @@ def test_task18_cached_page1_raw_items_triggers_page2_probe_when_floor_requires(
         sess.get.side_effect = [resp_p1, resp_p2]
 
         r1 = await scrape_alfamall(
-            sess, "120-826S6", "120-826S6", floor_price=None, brand="Haier", target_desc="Haier 120-826S6"
+            sess,
+            "120-826S6",
+            "120-826S6",
+            floor_price=None,
+            brand="Haier",
+            target_desc="Haier 120-826S6",
         )
         assert len(r1.offers) == 1
         assert sess.get.call_count == 1
 
         r2 = await scrape_alfamall(
-            sess, "120-826S6", "120-826S6", floor_price=80000.0, brand="Haier", target_desc="Haier 120-826S6 GC"
+            sess,
+            "120-826S6",
+            "120-826S6",
+            floor_price=80000.0,
+            brand="Haier",
+            target_desc="Haier 120-826S6 GC",
         )
         assert len(r2.offers) == 2
         assert sess.get.call_count == 2
@@ -774,6 +797,7 @@ def test_task18_cached_page1_raw_items_triggers_page2_probe_when_floor_requires(
 
 def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> None:
     """TASK-19 / BUG-20: Empty Tier 1 (200 OK) + Failed Tier 2 (HTTP 429/503) returns is_success=False."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp_t1_empty = MagicMock()
@@ -813,6 +837,7 @@ def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> No
 
 def test_task19_partial_waterfall_failure_succeeds_if_valid_offers_found() -> None:
     """TASK-19: If Tier 1 finds valid offers and Tier 2 fails with 503, result is still is_success=True."""
+
     async def _run() -> None:
         clear_scraper_cache()
         resp_t1_ok = MagicMock()
@@ -848,4 +873,6 @@ def test_task19_partial_waterfall_failure_succeeds_if_valid_offers_found() -> No
 def test_task20_legacy_is_strict_model_match_contract_preserved() -> None:
     """TASK-20 / BUG-21: Legacy is_strict_model_match remains callable and accurate for backward compatibility."""
     assert is_strict_model_match("Haier HWM 120-826S6 Top Load", "120-826S6", brand="Haier") is True
-    assert is_strict_model_match("Haier HWM 100-826S6 Top Load", "120-826S6", brand="Haier") is False
+    assert (
+        is_strict_model_match("Haier HWM 100-826S6 Top Load", "120-826S6", brand="Haier") is False
+    )

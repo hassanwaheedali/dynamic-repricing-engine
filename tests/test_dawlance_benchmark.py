@@ -8,7 +8,6 @@ Validates:
 5. Color Optionality Rule (Conflicting color rejected, omitted color accepted).
 """
 
-
 from pricing_engine.matcher import (
     clean_marketplace_noise,
     extract_search_query_and_model,

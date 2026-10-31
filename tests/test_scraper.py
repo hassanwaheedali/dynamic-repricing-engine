@@ -451,7 +451,9 @@ def test_scraper_deduplicates_seller_duplicate_spam_at_same_price() -> None:
         assert len(th_85000) == 1
         assert th_85000[0].duplicate_count == 1
 
-        osm_81500 = [o for o in result.offers if o.price == 81500 and o.vendor_name == "One Stop Mall"]
+        osm_81500 = [
+            o for o in result.offers if o.price == 81500 and o.vendor_name == "One Stop Mall"
+        ]
         assert len(osm_81500) == 1
         assert osm_81500[0].duplicate_count == 1
 
@@ -479,7 +481,6 @@ def test_scraper_uses_limit_100_for_single_call_market_depth() -> None:
         assert digi_params.get("limit") == "100"
 
     asyncio.run(_test())
-
 
 
 def test_scraper_subfloor_probe_fetches_page_2_when_page_1_is_all_subfloor() -> None:
@@ -518,9 +519,7 @@ def test_scraper_subfloor_probe_fetches_page_2_when_page_1_is_all_subfloor() -> 
         mock_session = AsyncMock()
         mock_session.get.side_effect = [resp_p1, resp_p2]
 
-        result = await scrape_alfamall(
-            mock_session, "120-316S6", "120-316S6", floor_price=88000.0
-        )
+        result = await scrape_alfamall(mock_session, "120-316S6", "120-316S6", floor_price=88000.0)
         assert result.is_success is True
         # Should have called page 1 then page 2
         assert mock_session.get.call_count == 2
@@ -561,9 +560,7 @@ def test_scraper_subfloor_probe_skips_page_2_when_viable_seller_found_on_page_1(
         mock_session = AsyncMock()
         mock_session.get.return_value = resp_p1
 
-        result = await scrape_alfamall(
-            mock_session, "120-316S6", "120-316S6", floor_price=88000.0
-        )
+        result = await scrape_alfamall(mock_session, "120-316S6", "120-316S6", floor_price=88000.0)
         assert result.is_success is True
         # Should NOT call page 2! Zero unnecessary latency
         assert mock_session.get.call_count == 1
@@ -596,7 +593,6 @@ def test_deduplicate_offers_tracks_duplicate_counts() -> None:
     assert kc.duplicate_count == 1
 
 
-
 def test_subfloor_probe_skips_when_count_less_than_or_equal_to_page_items() -> None:
     async def _test() -> None:
         # Page 1 has 15 items, all sub-floor, but total catalog count is 15 (no more items)
@@ -618,9 +614,7 @@ def test_subfloor_probe_skips_when_count_less_than_or_equal_to_page_items() -> N
         mock_session = AsyncMock()
         mock_session.get.return_value = resp_p1
 
-        result = await scrape_alfamall(
-            mock_session, "120-316S6", "120-316S6", floor_price=88000.0
-        )
+        result = await scrape_alfamall(mock_session, "120-316S6", "120-316S6", floor_price=88000.0)
         assert result.is_success is True
         # Should NOT probe page 2 because count (15) <= len(raw_items) (15)
         assert mock_session.get.call_count == 1
@@ -664,9 +658,7 @@ def test_digimall_subfloor_probe_fetches_page_2_when_needed() -> None:
         mock_session = AsyncMock()
         mock_session.get.side_effect = [resp_p1, resp_p2]
 
-        result = await scrape_digimall(
-            mock_session, "120-316S6", "120-316S6", floor_price=86307.0
-        )
+        result = await scrape_digimall(mock_session, "120-316S6", "120-316S6", floor_price=86307.0)
         assert result.is_success is True
         assert mock_session.get.call_count == 2
         p2_call = mock_session.get.call_args_list[1].kwargs.get("params") or {}
@@ -723,7 +715,3 @@ def test_scraper_collects_own_offers_without_contaminating_competitor_offers() -
         assert "Haier Official Store" in own_vendors
 
     asyncio.run(_test())
-
-
-
-

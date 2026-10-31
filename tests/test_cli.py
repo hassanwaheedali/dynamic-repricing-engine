@@ -182,4 +182,3 @@ def test_main_alfa_flag_passes_platform_alfa(tmp_path: Path) -> None:
         assert asyncio.run(main()) == 0
         mock_pipe.assert_called_once()
         assert mock_pipe.call_args.kwargs.get("platform") == "alfa"
-

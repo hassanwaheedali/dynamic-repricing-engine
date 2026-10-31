@@ -38,7 +38,9 @@ def test_technical_slash_dc_never_splits_into_alternative_series() -> None:
     t1_24 = p24["tier_1"]
     assert any("HE-DC" in q or "HEDC" in q or "24 HE" in q for q in t1_24)
     # Ensure neither tier_1 nor tier_2 has standalone "DC" as a series search
-    assert not any(q.strip().upper() == "DC" or q.strip().upper() == "HAIER DC" for q in p24["tier_2"])
+    assert not any(
+        q.strip().upper() == "DC" or q.strip().upper() == "HAIER DC" for q in p24["tier_2"]
+    )
 
     # 2. 48 CE/DC
     norm_48 = normalize_technical_slashes("48 CE/DC")
@@ -102,7 +104,9 @@ def test_haier_referee_dynamic_brand_initial_synthesis() -> None:
     assert dec_11lf.is_match is True
 
     # 13hfn -> HSU-13HFN
-    dec_13hfn = referee_match("13hfn", "Haier Inverter Air Conditioner 1 Ton HSU-13HFN", brand="Haier")
+    dec_13hfn = referee_match(
+        "13hfn", "Haier Inverter Air Conditioner 1 Ton HSU-13HFN", brand="Haier"
+    )
     assert dec_13hfn.is_match is True
 
 
@@ -199,7 +203,7 @@ def test_haier_descriptive_series_and_tv_screen_matching() -> None:
 
     # 32" D2 LED TV
     dec_tv = referee_match(
-        "32\" D2",
+        '32" D2',
         "Haier 32 Inch HD LED TV 32D2 Official Warranty",
         brand="Haier",
     )
@@ -241,7 +245,9 @@ def test_haier_hsu_19hfs_golden_and_dark_grey_matching() -> None:
         "Wi-Fi Golden Color- HSU-19HFS(G) - (SNS60)"
     )
     cand_sg = "Haier T3 PRO 1.5-Ton Inverter AC (HSU-19HFS) (S-G)"
-    cand_hyphen_g = "HAIER 1.5 TON SUPER T3 PRO INVERTER AC Model HSU-19HFS-G(WITH 0% MARKUP ON 3 AND 6 MONTHS)"
+    cand_hyphen_g = (
+        "HAIER 1.5 TON SUPER T3 PRO INVERTER AC Model HSU-19HFS-G(WITH 0% MARKUP ON 3 AND 6 MONTHS)"
+    )
 
     assert referee_match(target_g, cand_golden, brand="Haier").is_match is True
     assert referee_match(target_g, cand_sg, brand="Haier").is_match is True
@@ -263,5 +269,3 @@ def test_haier_hsu_19hfs_golden_and_dark_grey_matching() -> None:
     target_dg = "Haier HSU-19HFS (DG) T3 Pro 1.5 Ton Super Air Conditioner"
     assert referee_match(target_dg, cand_dg, brand="Haier").is_match is True
     assert referee_match(target_dg, cand_golden, brand="Haier").is_match is False
-
-

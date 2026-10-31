@@ -6,6 +6,19 @@ from typing import Any
 STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
 WINNING_5PCT_GOALS: frozenset[str] = frozenset({"WIN + 5% ACHIEVED", "SOLO (5% COVERED)"})
 
+
+def format_comm_pct_label(personal_comm_pct: float = 5.0) -> str:
+    """Format personal commission percentage for dynamic column headers and badges (e.g. '5', '8', '3.5')."""
+    eff_pct = personal_comm_pct if personal_comm_pct > 0 else 5.0
+    return f"{eff_pct:g}"
+
+
+def get_winning_comm_goals(personal_comm_pct: float = 5.0) -> frozenset[str]:
+    """Return winning goal badge strings for a given personal commission percentage."""
+    lbl = format_comm_pct_label(personal_comm_pct)
+    return frozenset({f"WIN + {lbl}% ACHIEVED", f"SOLO ({lbl}% COVERED)"})
+
+
 # List of vendor names/handles excluded from competitor pricing and market discovery
 # (e.g. brand-owned official flagship stores or own merchant stores that shouldn't be competed against)
 NON_COMPETITOR_VENDORS: set[str] = {
@@ -51,7 +64,6 @@ def is_non_competitor_vendor(vendor_name: str | None) -> bool:
     return classify_non_competitor_vendor(vendor_name) is not None
 
 
-
 @dataclass(frozen=True, slots=True)
 class CostFloors:
     """Represents calculated margin thresholds and hard floors for a product."""
@@ -84,8 +96,8 @@ class ScrapedOffer:
     duplicate_count: int = 1
     detected_variant: str | None = None
     missing_modifier: str | None = None
+    modifier_source: str = "target"
     product_handle: str | None = None
-
 
 
 @dataclass(frozen=True, slots=True)

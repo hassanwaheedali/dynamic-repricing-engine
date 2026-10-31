@@ -401,7 +401,9 @@ def test_category1_soft_descriptor_sd_and_dd_isolation() -> None:
     # Must match with-tag listing
     assert referee_match(target, "Dawlance Minibar DMB-4467 SD", brand=brand).is_match is True
     # Must match fullform expansion
-    assert referee_match(target, "Dawlance Minibar DMB-4467 Single Door", brand=brand).is_match is True
+    assert (
+        referee_match(target, "Dawlance Minibar DMB-4467 Single Door", brand=brand).is_match is True
+    )
     # Must match base model listing seamlessly (physically identical machine)
     assert referee_match(target, "Dawlance Minibar DMB-4467", brand=brand).is_match is True
 
@@ -494,14 +496,22 @@ def test_category2_hardware_modifier_fallback_and_cross_check_notices() -> None:
         floors = calculate_floors(150000.0)
         alfa_eval = evaluate_alfa_pricing(floors, res)
         assert alfa_eval.status == "Competitive Win"
-        assert "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]" in alfa_eval.reason
+        assert (
+            "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]"
+            in alfa_eval.reason
+        )
 
         digi_eval = evaluate_digi_pricing(floors, res)
         assert "Safe Win" in digi_eval.status
-        assert "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]" in digi_eval.reason
+        assert (
+            "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]"
+            in digi_eval.reason
+        )
 
         # Executive summary table badge
-        disp_price = _format_summary_price(alfa_eval.final_price, min_comp_price=190000.0, reason=alfa_eval.reason)
+        disp_price = _format_summary_price(
+            alfa_eval.final_price, min_comp_price=190000.0, reason=alfa_eval.reason
+        )
         assert "CROSS-CHECK" in disp_price
 
     asyncio.run(_test_fallback())
@@ -582,7 +592,10 @@ def test_category1_single_door_and_double_door_isolation() -> None:
     target = "DMB-4467 SD"
 
     # Must match full form Single Door
-    assert referee_match(target, "Dawlance DMB-4467 Single Door Refrigerator", brand=brand).is_match is True
+    assert (
+        referee_match(target, "Dawlance DMB-4467 Single Door Refrigerator", brand=brand).is_match
+        is True
+    )
     # Must match baseline listing where seller omitted SD (ZERO fallback warning, direct normal match)
     dec_base = referee_match(target, "Dawlance DMB-4467 Refrigerator", brand=brand)
     assert dec_base.is_match is True
@@ -883,11 +896,15 @@ def test_led_quote_and_screen_size_handling() -> None:
     )
 
     # 1. Double quote capacity extraction
-    slots_32_quote = extract_product_slots('TCL 32" S5400A Full HD Smart Android LED TV', brand="TCL")
+    slots_32_quote = extract_product_slots(
+        'TCL 32" S5400A Full HD Smart Android LED TV', brand="TCL"
+    )
     assert slots_32_quote.guarded_facets.capacity == "32INCH"
     assert slots_32_quote.anchor == "S5400A"
 
-    slots_40_quote = extract_product_slots('TCL 40" S5400A Full HD Smart Android LED TV', brand="TCL")
+    slots_40_quote = extract_product_slots(
+        'TCL 40" S5400A Full HD Smart Android LED TV', brand="TCL"
+    )
     assert slots_40_quote.guarded_facets.capacity == "40INCH"
 
     # 2. Strict Cross-Screen Rejection (32" vs 40")
@@ -897,7 +914,10 @@ def test_led_quote_and_screen_size_handling() -> None:
         brand="TCL",
     )
     assert dec_diff_screen.is_match is False
-    assert "screen size mismatch" in dec_diff_screen.reason.lower() or "capacity" in dec_diff_screen.reason.lower()
+    assert (
+        "screen size mismatch" in dec_diff_screen.reason.lower()
+        or "capacity" in dec_diff_screen.reason.lower()
+    )
 
     # 3. Double quote vs spelled-out Inch vs hyphenated inch
     dec_quote_vs_inch = referee_match(
@@ -937,7 +957,9 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         determine_platform_status,
     )
 
-    dummy_digi = PlatformPricingResult(min_price=None, max_price=None, final_price=None, status="SKIPPED")
+    dummy_digi = PlatformPricingResult(
+        min_price=None, max_price=None, final_price=None, status="SKIPPED"
+    )
 
     # Item #4: Dawlance 80085 (Cost Base 20,500, Floor 23,363)
     floors_item4 = CostFloors(
@@ -949,9 +971,15 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         floor_digi_8=(20500.0 + 500.0) / 0.92,
     )
     offers_item4 = [
-        ScrapedOffer(vendor_name="Fahad Electronics", price=23300.0, is_sold_out=False, raw_title="DW-80085"),
-        ScrapedOffer(vendor_name="Electro Ease", price=28249.0, is_sold_out=False, raw_title="DW-80085"),
-        ScrapedOffer(vendor_name="Home Cart", price=31199.0, is_sold_out=False, raw_title="DW-80085"),
+        ScrapedOffer(
+            vendor_name="Fahad Electronics", price=23300.0, is_sold_out=False, raw_title="DW-80085"
+        ),
+        ScrapedOffer(
+            vendor_name="Electro Ease", price=28249.0, is_sold_out=False, raw_title="DW-80085"
+        ),
+        ScrapedOffer(
+            vendor_name="Home Cart", price=31199.0, is_sold_out=False, raw_title="DW-80085"
+        ),
     ]
     res_item4 = evaluate_alfa_pricing(cost_floors=floors_item4, offers=offers_item4)
     assert res_item4.final_price == 26499
@@ -962,7 +990,9 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     txt4 = " ".join(str(cell) for col in tbl4.columns for cell in col._cells)
     assert "[bold yellow]Rs. 26,499 (CAPPED)[/]" in txt4
     assert "(WINNING" not in txt4
-    status4 = determine_platform_status(res_item4.final_price, res_item4.min_price, res_item4.reason, "")
+    status4 = determine_platform_status(
+        res_item4.final_price, res_item4.min_price, res_item4.reason, ""
+    )
     assert status4 == "CAPPED"
     summary4 = _format_summary_price(
         price_val=res_item4.final_price, min_comp_price=res_item4.min_price, reason=res_item4.reason
@@ -980,8 +1010,15 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         floor_digi_8=(29000.0 + 500.0) / 0.92,
     )
     offers_item3 = [
-        ScrapedOffer(vendor_name="Electronics World", price=31522.0, is_sold_out=False, raw_title="HWM 130-1217"),
-        ScrapedOffer(vendor_name="Tech House", price=34500.0, is_sold_out=False, raw_title="HWM 130-1217"),
+        ScrapedOffer(
+            vendor_name="Electronics World",
+            price=31522.0,
+            is_sold_out=False,
+            raw_title="HWM 130-1217",
+        ),
+        ScrapedOffer(
+            vendor_name="Tech House", price=34500.0, is_sold_out=False, raw_title="HWM 130-1217"
+        ),
     ]
     res_item3 = evaluate_alfa_pricing(cost_floors=floors_item3, offers=offers_item3)
     assert res_item3.final_price == 33999
@@ -991,7 +1028,9 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     txt3 = " ".join(str(cell) for col in tbl3.columns for cell in col._cells)
     assert "[bold yellow]Rs. 33,999 (CAPPED)[/]" in txt3
     assert "(WINNING" not in txt3
-    status3 = determine_platform_status(res_item3.final_price, res_item3.min_price, res_item3.reason, "")
+    status3 = determine_platform_status(
+        res_item3.final_price, res_item3.min_price, res_item3.reason, ""
+    )
     assert status3 == "CAPPED"
     summary3 = _format_summary_price(
         price_val=res_item3.final_price, min_comp_price=res_item3.min_price, reason=res_item3.reason
@@ -1009,8 +1048,12 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         floor_digi_8=(36500.0 + 500.0) / 0.92,
     )
     offers_item7 = [
-        ScrapedOffer(vendor_name="Fahad Electronics", price=43000.0, is_sold_out=False, raw_title="DW-10090"),
-        ScrapedOffer(vendor_name="Electro Ease", price=44849.0, is_sold_out=False, raw_title="DW-10090"),
+        ScrapedOffer(
+            vendor_name="Fahad Electronics", price=43000.0, is_sold_out=False, raw_title="DW-10090"
+        ),
+        ScrapedOffer(
+            vendor_name="Electro Ease", price=44849.0, is_sold_out=False, raw_title="DW-10090"
+        ),
     ]
     res_item7 = evaluate_alfa_pricing(cost_floors=floors_item7, offers=offers_item7)
     assert res_item7.final_price == 42499
@@ -1018,7 +1061,9 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     tbl7 = build_platform_decision_table(res_item7, dummy_digi, offers_item7, [])
     txt7 = " ".join(str(cell) for col in tbl7.columns for cell in col._cells)
     assert "[bold green]Rs. 42,499 (WINNING UNDERCUT)[/]" in txt7
-    status7 = determine_platform_status(res_item7.final_price, res_item7.min_price, res_item7.reason, "")
+    status7 = determine_platform_status(
+        res_item7.final_price, res_item7.min_price, res_item7.reason, ""
+    )
     assert status7 == "WIN (-501)"
     summary7 = _format_summary_price(
         price_val=res_item7.final_price, min_comp_price=res_item7.min_price, reason=res_item7.reason
@@ -1035,8 +1080,12 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         floor_digi_8=(32000.0 + 500.0) / 0.92,
     )
     offers_item10 = [
-        ScrapedOffer(vendor_name="Fahad Electronics", price=38199.0, is_sold_out=False, raw_title="DW-14145"),
-        ScrapedOffer(vendor_name="Electro Ease", price=39849.0, is_sold_out=False, raw_title="DW-14145"),
+        ScrapedOffer(
+            vendor_name="Fahad Electronics", price=38199.0, is_sold_out=False, raw_title="DW-14145"
+        ),
+        ScrapedOffer(
+            vendor_name="Electro Ease", price=39849.0, is_sold_out=False, raw_title="DW-14145"
+        ),
     ]
     res_item10 = evaluate_alfa_pricing(cost_floors=floors_item10, offers=offers_item10)
     assert res_item10.final_price == 37499
@@ -1044,9 +1093,13 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     tbl10 = build_platform_decision_table(res_item10, dummy_digi, offers_item10, [])
     txt10 = " ".join(str(cell) for col in tbl10.columns for cell in col._cells)
     assert "[bold green]Rs. 37,499 (WINNING SWEET-SPOT)[/]" in txt10
-    status10 = determine_platform_status(res_item10.final_price, res_item10.min_price, res_item10.reason, "")
+    status10 = determine_platform_status(
+        res_item10.final_price, res_item10.min_price, res_item10.reason, ""
+    )
     assert status10 == "WIN (-700)"
     summary10 = _format_summary_price(
-        price_val=res_item10.final_price, min_comp_price=res_item10.min_price, reason=res_item10.reason
+        price_val=res_item10.final_price,
+        min_comp_price=res_item10.min_price,
+        reason=res_item10.reason,
     )
     assert "[bold green]WIN (-700)[/]" in summary10

@@ -229,8 +229,12 @@ async def run_single_product_test(session: AsyncSession, p_data: dict[str, Any])
     floors = calculate_floors(cost_base, min_profit=500.0)
 
     # Scrape both platforms
-    alfa_task = scrape_alfamall(session, patterns, target_model, floor_price=floors.floor_alfa, brand=prod.brand)
-    digi_task = scrape_digimall(session, patterns, target_model, floor_price=floors.floor_digi_8, brand=prod.brand)
+    alfa_task = scrape_alfamall(
+        session, patterns, target_model, floor_price=floors.floor_alfa, brand=prod.brand
+    )
+    digi_task = scrape_digimall(
+        session, patterns, target_model, floor_price=floors.floor_digi_8, brand=prod.brand
+    )
     alfa_res, digi_res = await asyncio.gather(alfa_task, digi_task)
 
     # Evaluate pricing
@@ -250,8 +254,12 @@ async def run_single_product_test(session: AsyncSession, p_data: dict[str, Any])
         if cache_key in _raw_items_cache:
             digi_raw_items.extend(_raw_items_cache[cache_key])
 
-    alfa_matched, alfa_rejected = audit_raw_items_against_matcher(alfa_raw_items, target_model, prod.brand)
-    digi_matched, digi_rejected = audit_raw_items_against_matcher(digi_raw_items, target_model, prod.brand)
+    alfa_matched, alfa_rejected = audit_raw_items_against_matcher(
+        alfa_raw_items, target_model, prod.brand
+    )
+    digi_matched, digi_rejected = audit_raw_items_against_matcher(
+        digi_raw_items, target_model, prod.brand
+    )
 
     return {
         "product": p_data,
@@ -337,24 +345,37 @@ async def main():
                 alfa = res["alfa_audit"]
                 digi = res["digi_audit"]
                 print(f"  Model: '{res['target_model']}' | Anchor: '{res['slots']['anchor']}'")
-                print(f"  AlfaMall: {alfa['total_raw_scraped']} raw items -> {alfa['matched_count']} matched, {alfa['rejected_count']} rejected")
-                print(f"    -> Final Price: {alfa['pricing']['final_price']} | Profit: Rs. {alfa['pricing']['real_profit']} | Reason: {alfa['pricing']['reason'][:60]}...")
-                print(f"  DigiMall: {digi['total_raw_scraped']} raw items -> {digi['matched_count']} matched, {digi['rejected_count']} rejected")
-                print(f"    -> Final Price: {digi['pricing']['final_price']} | Profit: Rs. {digi['pricing']['real_profit']} | Comm: {digi['pricing']['effective_comm']}")
+                print(
+                    f"  AlfaMall: {alfa['total_raw_scraped']} raw items -> {alfa['matched_count']} matched, {alfa['rejected_count']} rejected"
+                )
+                print(
+                    f"    -> Final Price: {alfa['pricing']['final_price']} | Profit: Rs. {alfa['pricing']['real_profit']} | Reason: {alfa['pricing']['reason'][:60]}..."
+                )
+                print(
+                    f"  DigiMall: {digi['total_raw_scraped']} raw items -> {digi['matched_count']} matched, {digi['rejected_count']} rejected"
+                )
+                print(
+                    f"    -> Final Price: {digi['pricing']['final_price']} | Profit: Rs. {digi['pricing']['real_profit']} | Comm: {digi['pricing']['effective_comm']}"
+                )
 
                 if alfa["rejected_items"]:
                     print("    [Alfa Rejections Sample]:")
                     for rej in alfa["rejected_items"][:2]:
-                        print(f"      ❌ '{rej['title'][:55]}...' -> REASON: {rej['decision']['reason']}")
+                        print(
+                            f"      ❌ '{rej['title'][:55]}...' -> REASON: {rej['decision']['reason']}"
+                        )
 
                 if digi["rejected_items"]:
                     print("    [Digi Rejections Sample]:")
                     for rej in digi["rejected_items"][:2]:
-                        print(f"      ❌ '{rej['title'][:55]}...' -> REASON: {rej['decision']['reason']}")
+                        print(
+                            f"      ❌ '{rej['title'][:55]}...' -> REASON: {rej['decision']['reason']}"
+                        )
 
             except Exception as e:
                 print(f"  ❌ FAILED with error: {e}")
                 import traceback
+
                 traceback.print_exc()
 
     out_file = Path("scripts/live_stress_test_results.json")

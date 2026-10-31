@@ -170,7 +170,12 @@ def test_process_item_async_alfa_only_skips_digimall_scraper() -> None:
         ):
             mock_alfa.return_value = ScrapeResult(
                 offers=[
-                    ScrapedOffer(vendor_name="Comp A", price=175000.0, is_sold_out=False, raw_title="Gree Fairy")
+                    ScrapedOffer(
+                        vendor_name="Comp A",
+                        price=175000.0,
+                        is_sold_out=False,
+                        raw_title="Gree Fairy",
+                    )
                 ]
             )
             # Process with platform="alfa"
@@ -213,7 +218,12 @@ def test_process_item_async_digi_only_skips_alfamall_scraper() -> None:
         ):
             mock_digi.return_value = ScrapeResult(
                 offers=[
-                    ScrapedOffer(vendor_name="Comp B", price=172000.0, is_sold_out=False, raw_title="Gree Fairy")
+                    ScrapedOffer(
+                        vendor_name="Comp B",
+                        price=172000.0,
+                        is_sold_out=False,
+                        raw_title="Gree Fairy",
+                    )
                 ]
             )
             # Process with platform="digi"
@@ -295,12 +305,21 @@ def test_range_process_item_alfa_only_skips_digimall() -> None:
 
     async def _test() -> None:
         with (
-            patch("pricing_engine.range_pipeline.scrape_alfamall", new_callable=AsyncMock) as mock_alfa,
-            patch("pricing_engine.range_pipeline.scrape_digimall", new_callable=AsyncMock) as mock_digi,
+            patch(
+                "pricing_engine.range_pipeline.scrape_alfamall", new_callable=AsyncMock
+            ) as mock_alfa,
+            patch(
+                "pricing_engine.range_pipeline.scrape_digimall", new_callable=AsyncMock
+            ) as mock_digi,
         ):
             mock_alfa.return_value = ScrapeResult(
                 offers=[
-                    ScrapedOffer(vendor_name="Comp A", price=175000.0, is_sold_out=False, raw_title="Gree Fairy")
+                    ScrapedOffer(
+                        vendor_name="Comp A",
+                        price=175000.0,
+                        is_sold_out=False,
+                        raw_title="Gree Fairy",
+                    )
                 ]
             )
             rec = await process_range_item_async(

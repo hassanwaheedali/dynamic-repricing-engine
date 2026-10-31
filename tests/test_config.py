@@ -91,8 +91,12 @@ def test_per_platform_personal_commission_from_config() -> None:
             product, offers, offers, personal_comm_pct=config.DEFAULT_PERSONAL_COMM_PCT
         )
         # Verify company profit deducts personal commission from real profit
-        alfa_c = calculate_personal_commission(rec["Alfa Real Profit"], config.DEFAULT_PERSONAL_COMM_PCT)
-        digi_c = calculate_personal_commission(rec["Digi Real Profit"], config.DEFAULT_PERSONAL_COMM_PCT)
+        alfa_c = calculate_personal_commission(
+            rec["Alfa Real Profit"], config.DEFAULT_PERSONAL_COMM_PCT
+        )
+        digi_c = calculate_personal_commission(
+            rec["Digi Real Profit"], config.DEFAULT_PERSONAL_COMM_PCT
+        )
         assert rec["Alfa Company Profit"] == rec["Alfa Real Profit"] - alfa_c
         assert rec["Digi Company Profit"] == rec["Digi Real Profit"] - digi_c
         assert calculate_personal_commission(1000.0) == 50

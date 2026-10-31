@@ -190,12 +190,12 @@ def test_export_winning_5pct_results_filters_and_sorts_a_to_z(tmp_path: Path) ->
     )
     df_in.to_csv(input_csv, index=False)
 
-    async def _mock_scrape_alfa(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
+    async def _mock_scrape_alfa(
+        session: Any, patterns: Any, target_model: str, **kwargs: Any
+    ) -> ScrapeResult:
         if "18AITH21W" in target_model:
             # 1 seller, viable above 5% floor
-            return ScrapeResult(
-                offers=[ScrapedOffer("V1", 125000.0, False, "Gree GS-18AITH21W")]
-            )
+            return ScrapeResult(offers=[ScrapedOffer("V1", 125000.0, False, "Gree GS-18AITH21W")])
         if "18HFN" in target_model:
             # 4 sellers (Higher Demand!), viable above 5% floor
             return ScrapeResult(
@@ -211,7 +211,9 @@ def test_export_winning_5pct_results_filters_and_sorts_a_to_z(tmp_path: Path) ->
             offers=[ScrapedOffer("DumpingVendor", 82000.0, False, "Dawlance 9178LF")]
         )
 
-    async def _mock_scrape_digi(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
+    async def _mock_scrape_digi(
+        session: Any, patterns: Any, target_model: str, **kwargs: Any
+    ) -> ScrapeResult:
         if "9178LF" in target_model:
             return ScrapeResult(
                 offers=[ScrapedOffer("DumpingVendor", 82000.0, False, "Dawlance 9178LF")]
@@ -406,4 +408,3 @@ def test_export_winning_5pct_results_sorts_by_sno_ascending_preserving_data(tmp_
     # Verify input data and custom columns preserved completely intact:
     assert list(w_df["Custom Tag"]) == ["Tag-Haier", "Tag-Dawlance-A", "Tag-Gree", "Tag-Dawlance-B"]
     assert list(w_df["Net Price"]) == [70000, 33000, 180000, 35000]
-

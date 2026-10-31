@@ -9,6 +9,7 @@ DigiMall, plus how many in-stock offers back those numbers.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -26,11 +27,22 @@ from pricing_engine.exporter import (
     export_range_results,
     resolve_option_output_dir,
 )
-from pricing_engine.ingestion import normalize_catalog_columns, read_catalog_csv
-from pricing_engine.matcher import extract_search_query_and_model, generate_search_patterns
+from pricing_engine.ingestion import (
+    INVALID_BRAND_VALUES,
+    INVALID_NAME_VALUES,
+    normalize_catalog_columns,
+    read_catalog_csv,
+)
+from pricing_engine.matcher import (
+    ALL_COLOR_WORDS,
+    CATEGORY_PATTERNS,
+    NON_SKU_TOKENS,
+    extract_search_query_and_model,
+    generate_search_patterns,
+)
 from pricing_engine.models import MarketRange, ProductInput, ScrapeResult
 from pricing_engine.pipeline import parse_product_input
-from pricing_engine.scraper import scrape_alfamall, scrape_digimall
+from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 console = Console(legacy_windows=False)
 
@@ -119,6 +131,72 @@ def build_range_record(
     return record
 
 
+def _derive_brand_from_title(raw_title: Any) -> str:
+    """Generically derive leading brand (single- or multi-word) when Brand column is omitted.
+
+    Enforces zero hardcoded brand dictionaries:
+    - Rejects numeric/punctuation tokens and category/appliance keywords as brands.
+    - Supports connector brands (e.g. 'Black & Decker ...') and 2-word brands
+      (e.g. 'Super Asia SA-240', 'Changhong Ruba ...') while keeping single-word
+      brands intact when followed by SKU prefixes, series+digits, or category words.
+    """
+    if raw_title is None or pd.isna(raw_title):
+        return ""
+    text = str(raw_title).strip()
+    if not text:
+        return ""
+    tokens = text.split()
+    if not tokens:
+        return ""
+
+    w0 = tokens[0].strip(",;:|()")
+    if (
+        not re.fullmatch(r"[A-Za-z][A-Za-z\-]{1,}", w0)
+        or w0.lower() in INVALID_BRAND_VALUES
+        or CATEGORY_PATTERNS.fullmatch(w0)
+    ):
+        return ""
+
+    # Connector brand pattern: 'Black & Decker ...', 'Russell + Hobbs ...'
+    if len(tokens) >= 3 and tokens[1].lower() in {"&", "+", "and"}:
+        w2 = tokens[2].strip(",;:|()")
+        if re.fullmatch(r"[A-Za-z]{2,}", w2) and not CATEGORY_PATTERNS.fullmatch(w2):
+            return f"{w0} {tokens[1]} {w2}"
+
+    if len(tokens) >= 2:
+        w1 = tokens[1].strip(",;:|()")
+        w1_up = w1.upper()
+        rest = [t.strip(",;:|()") for t in tokens[2:]]
+        compound_cat = bool(rest and CATEGORY_PATTERNS.match(f"{w1} {rest[0]}"))
+        if (
+            re.fullmatch(r"[A-Za-z]{3,}", w1)
+            and w1.lower() not in INVALID_BRAND_VALUES
+            and w1_up not in NON_SKU_TOKENS
+            and w1_up not in ALL_COLOR_WORDS
+            and not CATEGORY_PATTERNS.fullmatch(w1)
+            and not compound_cat
+        ):
+            two_init = (w0[0] + w1[0]).upper()
+            # 1. Explicit 2-word initialism SKU prefix in title (e.g. 'Super Asia SA-240')
+            if any(re.match(rf"^{re.escape(two_init)}[-_]?\d", t, re.IGNORECASE) for t in rest):
+                return f"{w0} {w1}"
+            # 2. Single-word brand initial SKU prefix (e.g. 'Haier PuriCool HSU-18', 'Gree Fairy GS-18')
+            single_sku_re = re.compile(rf"^{re.escape(w0[0])}[A-Za-z]{{1,3}}-\d", re.IGNORECASE)
+            if any(single_sku_re.match(t) and not t.upper().startswith(two_init) for t in rest):
+                return w0
+            # 3. Series or spaced SKU prefix directly preceding digits (e.g. 'Dawlance Avante 9178', 'Haier HWM 120')
+            if rest and re.match(r"^\d", rest[0]):
+                return w0
+            # 4. TitleCase brand followed by short ALL-CAPS SKU acronym (e.g. 'Haier HSU')
+            if w1.isupper() and len(w1) <= 4 and not w0.isupper():
+                return w0
+            return f"{w0} {w1}"
+
+    if w0.upper() in ALL_COLOR_WORDS or w0.upper() in NON_SKU_TOKENS:
+        return ""
+    return w0
+
+
 def load_range_products(input_path: Path) -> list[ProductInput]:
     """Read a Brand+Name list and validate every row before any network call.
 
@@ -133,21 +211,19 @@ def load_range_products(input_path: Path) -> list[ProductInput]:
     name_col = "Name " if "Name " in df.columns else "Name"
     if name_col not in df.columns:
         if len(df.columns) == 1:
-            df = pd.read_csv(input_path, header=None, names=["Name"])
+            df = pd.read_csv(input_path, header=None, names=["Name"], encoding="utf-8-sig")
             name_col = "Name"
         else:
             raise ValueError(f"Missing required column 'Name' in {input_path.name}.")
 
     if "Brand" not in df.columns:
-        # Gracefully derive Brand from leading token of Name when Brand column is omitted
-        df["Brand"] = df[name_col].apply(
-            lambda x: str(x).strip().split()[0] if str(x).strip() and not pd.isna(x) else ""
-        )
+        # Derive Brand generically (supporting multi-word brands like 'Super Asia') when Brand column is omitted
+        df["Brand"] = df[name_col].apply(_derive_brand_from_title)
 
     products: list[ProductInput] = []
     for idx, row in df.iterrows():
         product = parse_product_input(int(idx), row)
-        if not product.name or product.name.lower() in ("nan", "none", "product"):
+        if not product.name or product.name.lower() in INVALID_NAME_VALUES:
             raise ValueError(f"Row {int(idx) + 1}: product 'Name' is empty or missing.")
         products.append(product)
     return products
@@ -366,6 +442,7 @@ async def run_range_pipeline(
         raise FileNotFoundError(f"Input file not found at: {path}")
 
     products = load_range_products(path)
+    clear_scraper_cache()
     start = time.perf_counter()
 
     if verbose:
@@ -399,15 +476,13 @@ async def run_range_pipeline(
                     total_items=len(products),
                 )
             tasks.append(asyncio.create_task(coro))
-            if i < concurrency - 1 and RANGE_STAGGER_SECONDS > 0:
+            if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:
                 await asyncio.sleep(RANGE_STAGGER_SECONDS)
         records = await asyncio.gather(*tasks)  # gather preserves submission order
 
     out_df = pd.DataFrame(records)
     resolved_export_dir = (
-        Path(export_dir)
-        if export_dir is not None
-        else resolve_option_output_dir(path, option=2)
+        Path(export_dir) if export_dir is not None else resolve_option_output_dir(path, option=2)
     )
     manifest = export_range_results(
         out_df, path, output_dir=resolved_export_dir, render_panel=False, platform=plat
@@ -417,4 +492,3 @@ async def run_range_pipeline(
         render_range_summary(list(records))
         render_range_finish(manifest, len(records), time.perf_counter() - start)
     return out_df
-

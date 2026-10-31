@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import math
 import random
 import re
 import sys
@@ -134,17 +135,46 @@ def _offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float]:
     return (v_norm, round(off.price, 2))
 
 
-def _select_winning_modifier(offers: list[ScrapedOffer], fallback_mod: str | None = None) -> str | None:
-    """Select the missing_modifier from the lowest-priced in-stock offer (or lowest overall)."""
-    in_stock = [o for o in offers if not o.is_sold_out and o.missing_modifier]
+def _select_winning_modifier_meta(
+    offers: list[ScrapedOffer],
+    fallback_mod: str | None = None,
+    fallback_src: str = "target",
+    floor_price: float | None = None,
+) -> tuple[str | None, str]:
+    """Select (missing_modifier, modifier_source) from the winning reference offer.
+
+    Considers ALL in-stock external offers (including exact matches with missing_modifier=None)
+    so an exact single-color winner is never contaminated by a costlier Dual-Color listing,
+    and prefers viable offers (> floor_price) over discarded sub-floor offers.
+    """
+    in_stock = [
+        o for o in offers if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+    ]
     if in_stock:
+        if floor_price is not None:
+            min_int_floor = math.ceil(floor_price)
+            viable = [o for o in in_stock if o.price > min_int_floor]
+            if viable:
+                best = min(viable, key=lambda x: x.price)
+                return best.missing_modifier, best.modifier_source
         best = min(in_stock, key=lambda x: x.price)
-        return best.missing_modifier
-    any_with_mod = [o for o in offers if o.missing_modifier]
-    if any_with_mod:
-        best = min(any_with_mod, key=lambda x: x.price)
-        return best.missing_modifier
-    return fallback_mod
+        return best.missing_modifier, best.modifier_source
+    any_ext = [o for o in offers if not is_non_competitor_vendor(o.vendor_name)]
+    if any_ext:
+        best = min(any_ext, key=lambda x: x.price)
+        return best.missing_modifier, best.modifier_source
+    return fallback_mod, fallback_src
+
+
+def _select_winning_modifier(
+    offers: list[ScrapedOffer],
+    fallback_mod: str | None = None,
+    floor_price: float | None = None,
+) -> str | None:
+    """Select the missing_modifier from the winning reference offer."""
+    return _select_winning_modifier_meta(
+        offers, fallback_mod=fallback_mod, floor_price=floor_price
+    )[0]
 
 
 def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
@@ -154,7 +184,9 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     for off in offers:
         key = _offer_dedupe_key(off)
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
-        if key not in first_seen:
+        if key not in first_seen or (
+            first_seen[key].missing_modifier is not None and off.missing_modifier is None
+        ):
             first_seen[key] = off
 
     unique_offers: list[ScrapedOffer] = []
@@ -170,6 +202,7 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
                     duplicate_count=total_dupes,
                     detected_variant=off.detected_variant,
                     missing_modifier=off.missing_modifier,
+                    modifier_source=off.modifier_source,
                     product_handle=off.product_handle,
                 )
             )
@@ -204,6 +237,7 @@ async def _execute_waterfall(
     seen_base_offers: set[tuple[str, float]] = set()
     seen_own_offers: set[tuple[str, float]] = set()
     detected_missing_modifier: str | None = None
+    detected_missing_source: str = "target"
     any_success = False
     any_failure = False
     first_failure_status: int | None = None
@@ -284,6 +318,7 @@ async def _execute_waterfall(
 
                 if sub_res.active_modifier_fallback and not detected_missing_modifier:
                     detected_missing_modifier = sub_res.active_modifier_fallback
+                    detected_missing_source = sub_res.active_modifier_source
 
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
@@ -297,12 +332,21 @@ async def _execute_waterfall(
     # Priority 1: Exact matches take precedence when in-stock (or when base offers have no in-stock alternatives)
     if collected_offers and (has_instock_exact or not has_instock_base):
         final_offers = collected_offers
-        active_fallback = _select_winning_modifier(collected_offers, None)
+        active_fallback, active_source = _select_winning_modifier_meta(
+            collected_offers, None, "target", floor_price=floor_price
+        )
         ambiguity = None
     elif collected_base_offers:
         # Priority 2: When zero in-stock exact matches exist, fallback to base model offers
         final_offers = collected_base_offers
-        active_fallback = _select_winning_modifier(collected_base_offers, detected_missing_modifier) or "Base Model"
+        sel_mod, sel_src = _select_winning_modifier_meta(
+            collected_base_offers,
+            detected_missing_modifier,
+            detected_missing_source,
+            floor_price=floor_price,
+        )
+        active_fallback = sel_mod or "Base Model"
+        active_source = sel_src if sel_mod else detected_missing_source
         # Pure Dynamic Multi-Variant Conflict Referee (Zero Static Lists)
         variant_groups: dict[str, list[ScrapedOffer]] = {}
         for off in collected_base_offers:
@@ -319,10 +363,24 @@ async def _execute_waterfall(
     else:
         final_offers = []
         active_fallback = None
+        active_source = "target"
         ambiguity = None
 
-    has_any_offers = bool(final_offers or collected_base_offers or collected_own_offers)
-    overall_success = True if has_any_offers else (any_success and not any_failure)
+    # AUD-CRIT-06: During partial waterfall outages (any_failure=True), own-store listings and
+    # sold-out/sub-floor listings do NOT prove healthy external competitor discovery.
+    min_int_floor = math.ceil(floor_price) if floor_price is not None else None
+    has_viable_external_competitor = any(
+        not o.is_sold_out
+        and not is_non_competitor_vendor(o.vendor_name)
+        and (min_int_floor is None or o.price > min_int_floor)
+        for o in final_offers
+    )
+    if any_failure:
+        overall_success = has_viable_external_competitor
+    else:
+        overall_success = any_success or bool(
+            final_offers or collected_base_offers or collected_own_offers
+        )
     final_status = (
         (first_failure_status or last_status)
         if not overall_success
@@ -333,6 +391,7 @@ async def _execute_waterfall(
     return ScrapeResult(
         offers=final_offers,
         active_modifier_fallback=active_fallback,
+        active_modifier_source=active_source,
         base_offers=collected_base_offers,
         own_offers=collected_own_offers,
         is_success=overall_success,
@@ -346,17 +405,22 @@ async def _execute_waterfall(
 
 
 def parse_price_value(price_raw: object) -> float:
-    """Parse marketplace price strings (including 'Rs.', 'PKR', commas, and '/-' suffixes) into float."""
+    """Parse marketplace price strings (including 'Rs.', 'PKR', colons, commas, and '/-' suffixes) into finite float."""
+    if isinstance(price_raw, bool):
+        return 0.0
     if isinstance(price_raw, (int, float)):
-        return float(price_raw)
+        val = float(price_raw)
+        return val if (math.isfinite(val) and val > 0.0) else 0.0
     s = str(price_raw or "").strip()
     if not s:
         return 0.0
-    s_clean = re.sub(r"^(?:RS\.?|PKR)\s*", "", s, flags=re.IGNORECASE)
-    s_clean = re.sub(r"/-+$", "", s_clean).replace(",", "").strip()
+    s_clean = re.sub(r"^(?:RS\.?|PKR)\s*:?\s*", "", s, flags=re.IGNORECASE)
+    s_clean = re.sub(r"(?:\s*(?:RS\.?|PKR)\.?|/-+)+$", "", s_clean, flags=re.IGNORECASE)
+    s_clean = s_clean.replace(",", "").strip()
     m_num = re.search(r"^\d+(?:\.\d+)?$", s_clean)
     if m_num:
-        return float(m_num.group(0))
+        val = float(m_num.group(0))
+        return val if (math.isfinite(val) and val > 0.0) else 0.0
     return 0.0
 
 
@@ -392,11 +456,19 @@ def _parse_offers_from_raw_items(
         vendor_obj = item.get("vendor") or {}
         vendor_handle = str(vendor_obj.get("handle") or "").strip()
         vendor = vendor_obj.get("name") or vendor_handle or "Unknown Vendor"
-        is_non_comp = is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(vendor_handle)
-        item_handle = str(item.get("handle") or item.get("slug") or item.get("id") or "").strip() or None
+        is_non_comp = is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(
+            vendor_handle
+        )
+        item_handle = (
+            str(item.get("handle") or item.get("slug") or item.get("id") or "").strip() or None
+        )
 
         cand_var: str | None = None
-        if is_base and decision.missing_modifier and "candidate has variant suffix" in decision.reason.lower():
+        if (
+            is_base
+            and decision.missing_modifier
+            and "candidate has variant suffix" in decision.reason.lower()
+        ):
             raw_mod = decision.missing_modifier.strip()
             upper_mod = raw_mod.upper()
             if upper_mod.startswith("MARKET VARIANT "):
@@ -414,6 +486,7 @@ def _parse_offers_from_raw_items(
                 raw_title=title,
                 detected_variant=cand_var,
                 missing_modifier=decision.missing_modifier,
+                modifier_source=decision.modifier_source,
                 product_handle=item_handle,
             )
             if is_non_comp:
@@ -453,7 +526,11 @@ async def _scrape_platform_single_query(
     - Conditional sub-floor page 2 probing.
     """
     raw_cache_key = (config.platform_name, query.strip().upper())
-    cache_key = (config.platform_name, query.strip().upper(), (target_desc.strip() or target_model).upper())
+    cache_key = (
+        config.platform_name,
+        query.strip().upper(),
+        (target_desc.strip() or target_model).upper(),
+    )
     if raw_cache_key in _raw_items_cache:
         raw_cached = list(_raw_items_cache[raw_cache_key])
         e_cached, b_cached, d_cached, o_cached = _parse_offers_from_raw_items(
@@ -477,33 +554,40 @@ async def _scrape_platform_single_query(
                 if resp_p2.status_code == 200:
                     data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
                     raw_p2 = data_p2.get("results") or data_p2.get("data") or []
-                    if isinstance(raw_p2, list) and raw_p2:
-                        raw_cached.extend(raw_p2)
-                        _raw_items_cache[raw_cache_key] = list(raw_cached)
-                        e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
-                            raw_p2, target_model, brand=brand, target_desc=target_desc
-                        )
-                        e_cached.extend(e_p2)
-                        b_cached.extend(b_p2)
-                        o_cached.extend(o_p2)
-                        if d_p2 and not d_cached:
-                            d_cached = d_p2
-                _raw_items_meta_cache[raw_cache_key] = (cached_total, True)
+                    if isinstance(raw_p2, list):
+                        if raw_p2:
+                            raw_cached.extend(raw_p2)
+                            _raw_items_cache[raw_cache_key] = list(raw_cached)
+                            e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
+                                raw_p2, target_model, brand=brand, target_desc=target_desc
+                            )
+                            e_cached.extend(e_p2)
+                            b_cached.extend(b_p2)
+                            o_cached.extend(o_p2)
+                            if d_p2 and not d_cached:
+                                d_cached = d_p2
+                        _raw_items_meta_cache[raw_cache_key] = (cached_total, True)
             except Exception as exc_p2:
                 logger.debug("%s cached page 2 probe exception: %s", config.display_name, exc_p2)
 
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
         o_cached = deduplicate_offers(o_cached)
+        d_src_cached = "target"
         if b_cached:
-            d_cached = _select_winning_modifier(b_cached, d_cached)
+            d_cached, d_src_cached = _select_winning_modifier_meta(
+                b_cached, d_cached, "target", floor_price=floor_price
+            )
         elif e_cached:
-            d_cached = _select_winning_modifier(e_cached, d_cached)
+            d_cached, d_src_cached = _select_winning_modifier_meta(
+                e_cached, d_cached, "target", floor_price=floor_price
+            )
         return ScrapeResult(
             offers=e_cached,
             base_offers=b_cached,
             own_offers=o_cached,
             active_modifier_fallback=d_cached,
+            active_modifier_source=d_src_cached,
             is_success=True,
             status_code=200,
             error_detail=None,
@@ -520,6 +604,7 @@ async def _scrape_platform_single_query(
                     duplicate_count=o.duplicate_count,
                     detected_variant=o.detected_variant,
                     missing_modifier=o.missing_modifier,
+                    modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
                 )
                 for o in cached.offers
@@ -533,6 +618,7 @@ async def _scrape_platform_single_query(
                     duplicate_count=o.duplicate_count,
                     detected_variant=o.detected_variant,
                     missing_modifier=o.missing_modifier,
+                    modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
                 )
                 for o in cached.base_offers
@@ -546,11 +632,13 @@ async def _scrape_platform_single_query(
                     duplicate_count=o.duplicate_count,
                     detected_variant=o.detected_variant,
                     missing_modifier=o.missing_modifier,
+                    modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
                 )
                 for o in cached.own_offers
             ],
             active_modifier_fallback=cached.active_modifier_fallback,
+            active_modifier_source=cached.active_modifier_source,
             is_success=cached.is_success,
             status_code=cached.status_code,
             error_detail=cached.error_detail,
@@ -620,16 +708,19 @@ async def _scrape_platform_single_query(
                     and active_probe_offers
                     and all(o.price <= floor_price for o in active_probe_offers)
                 ):
-                    p2_probed = True
                     params_p2 = {**params, "page": "2"}
                     try:
                         resp_p2 = await session.get(
-                            config.search_url, params=params_p2, headers=headers, timeout=timeout
+                            config.search_url,
+                            params=params_p2,
+                            headers=headers,
+                            timeout=timeout,
                         )
                         if resp_p2.status_code == 200:
                             data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
                             raw_p2 = data_p2.get("results") or data_p2.get("data") or []
                             if isinstance(raw_p2, list):
+                                p2_probed = True
                                 combined_raw_items.extend(raw_p2)
                                 e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
                                     raw_p2, target_model, brand=brand, target_desc=target_desc
@@ -645,10 +736,15 @@ async def _scrape_platform_single_query(
                 exact_offers = deduplicate_offers(exact_offers)
                 base_offers = deduplicate_offers(base_offers)
                 own_offers = deduplicate_offers(own_offers)
+                detected_source = "target"
                 if base_offers:
-                    detected_modifier = _select_winning_modifier(base_offers, detected_modifier)
+                    detected_modifier, detected_source = _select_winning_modifier_meta(
+                        base_offers, detected_modifier, "target", floor_price=floor_price
+                    )
                 elif exact_offers:
-                    detected_modifier = _select_winning_modifier(exact_offers, detected_modifier)
+                    detected_modifier, detected_source = _select_winning_modifier_meta(
+                        exact_offers, detected_modifier, "target", floor_price=floor_price
+                    )
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
@@ -656,6 +752,7 @@ async def _scrape_platform_single_query(
                     base_offers=base_offers,
                     own_offers=own_offers,
                     active_modifier_fallback=detected_modifier,
+                    active_modifier_source=detected_source,
                     is_success=True,
                     status_code=200,
                     error_detail=None,
@@ -794,16 +891,18 @@ async def scrape_alfamall(
         ScrapeResult containing verified offers and explicit success/failure flags.
     """
     if isinstance(query, str):
-        return await _scrape_alfamall_single_query(
-            session=session,
-            query=query,
-            target_model=target_model,
-            timeout=timeout,
-            max_retries=max_retries,
-            floor_price=floor_price,
-            brand=brand,
-            target_desc=target_desc,
-        )
+        if not query.strip():
+            return await _scrape_alfamall_single_query(
+                session=session,
+                query=query,
+                target_model=target_model,
+                timeout=timeout,
+                max_retries=max_retries,
+                floor_price=floor_price,
+                brand=brand,
+                target_desc=target_desc,
+            )
+        query = {"tier_1": [query]}
     return await _execute_waterfall(
         single_scraper_fn=_scrape_alfamall_single_query,
         session=session,
@@ -871,16 +970,18 @@ async def scrape_digimall(
         ScrapeResult containing verified offers and explicit success/failure flags.
     """
     if isinstance(query, str):
-        return await _scrape_digimall_single_query(
-            session=session,
-            query=query,
-            target_model=target_model,
-            timeout=timeout,
-            max_retries=max_retries,
-            floor_price=floor_price,
-            brand=brand,
-            target_desc=target_desc,
-        )
+        if not query.strip():
+            return await _scrape_digimall_single_query(
+                session=session,
+                query=query,
+                target_model=target_model,
+                timeout=timeout,
+                max_retries=max_retries,
+                floor_price=floor_price,
+                brand=brand,
+                target_desc=target_desc,
+            )
+        query = {"tier_1": [query]}
     return await _execute_waterfall(
         single_scraper_fn=_scrape_digimall_single_query,
         session=session,

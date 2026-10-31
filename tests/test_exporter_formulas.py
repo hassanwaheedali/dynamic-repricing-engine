@@ -120,7 +120,10 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     prof_alfa_val = ws[f"{col_map['Alfa Real Profit']}2"].value
     prof_digi_val = ws[f"{col_map['Digi Real Profit']}2"].value
     assert isinstance(prof_alfa_val, str) and "0.90" in prof_alfa_val
-    assert isinstance(prof_digi_val, str) and f"{col_map['Digi Effective Commision']}2" in prof_digi_val
+    assert (
+        isinstance(prof_digi_val, str)
+        and f"{col_map['Digi Effective Commision']}2" in prof_digi_val
+    )
 
     # 4. Verify CSV content remains clean integer format for portal upload
     csv_df = pd.read_csv(manifest.latest_path, dtype=str)

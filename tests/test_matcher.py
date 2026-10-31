@@ -859,12 +859,8 @@ def test_gd_vs_inox_hardware_finish_isolation() -> None:
     )
 
     # 3. Other refrigerator catalog pairs
-    assert not is_strict_model_match(
-        "Dawlance 7950 INOX Refrigerator", "7950 GD", brand="Dawlance"
-    )
-    assert not is_strict_model_match(
-        "Dawlance 7950 GD Refrigerator", "7950 INOX", brand="Dawlance"
-    )
+    assert not is_strict_model_match("Dawlance 7950 INOX Refrigerator", "7950 GD", brand="Dawlance")
+    assert not is_strict_model_match("Dawlance 7950 GD Refrigerator", "7950 INOX", brand="Dawlance")
     assert not is_strict_model_match(
         "Dawlance DW7650 INOX Refrigerator", "DW7650 GD IOT", brand="Dawlance"
     )
@@ -886,7 +882,9 @@ def test_inox_sku_tag_extraction_and_search_patterns() -> None:
 
 
 def test_referee_match_gd_inox_collision() -> None:
-    decision1 = referee_match("DSS-9055 GD", "Dawlance DSS-9055 INOX Refrigerator", brand="Dawlance")
+    decision1 = referee_match(
+        "DSS-9055 GD", "Dawlance DSS-9055 INOX Refrigerator", brand="Dawlance"
+    )
     assert not decision1.is_match
     assert "Hardware finish collision" in decision1.reason
 
@@ -945,7 +943,6 @@ def test_search_patterns_numeric_stem_color() -> None:
     assert "Dawlance 9101" in patterns["tier_1"]
 
 
-
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
@@ -965,8 +962,12 @@ def test_single_letter_variant_suffix_isolation(title: str, expected: bool) -> N
 
 
 def test_single_letter_variant_suffix_isolation_260() -> None:
-    assert is_strict_model_match("Dawlance DWT 260 C LVS+ Washing Machine", "DWT-260 C", brand="Dawlance")
-    assert not is_strict_model_match("Dawlance DWT 260 S LVS+ fully automatic", "DWT-260 C", brand="Dawlance")
+    assert is_strict_model_match(
+        "Dawlance DWT 260 C LVS+ Washing Machine", "DWT-260 C", brand="Dawlance"
+    )
+    assert not is_strict_model_match(
+        "Dawlance DWT 260 S LVS+ fully automatic", "DWT-260 C", brand="Dawlance"
+    )
 
 
 def test_tv_model_not_hijacked_by_series_or_descriptors() -> None:
@@ -1009,7 +1010,9 @@ def test_separated_prefix_microwave_models() -> None:
     )
     assert "DBMO" in m1 and "25" in m1
     assert "grill" not in m1.lower()
-    assert is_strict_model_match("Dawlance Built-In Microwave Oven DBMO-25 BG", m1, brand="Dawlance")
+    assert is_strict_model_match(
+        "Dawlance Built-In Microwave Oven DBMO-25 BG", m1, brand="Dawlance"
+    )
 
     _, m2 = extract_search_query_and_model(
         "Dawlance 20 Litres DW 210 Solo White Microwave Oven Large", brand="Dawlance"
@@ -1030,18 +1033,50 @@ def test_separated_prefix_microwave_models() -> None:
 def test_tcl_savein_svn_extraction_and_search_queries() -> None:
     """Verify TCL SaveIN <-> SVN model extraction, queries, and multi-tier search patterns."""
     titles = [
-        ("TCL 1.0 Ton 12SVN-AI-21 SaveIN AI Series DC Inverter Heat & Cool Air Conditioner", "12SVN-AI-21", "12SVN"),
-        ("TCL 1.0 Ton TAC-12SVN-AI-11 SaveIN DC Inverter Heat & Cool Split Air Conditioner", "TAC-12SVN-AI-11", "TAC-12SVN-AI-11"),
-        ("TCL 1.5 Ton TAC-18SVN-EX-31W SaveIN Extreme DC Inverter Heat & Cool Split Air Conditioner", "TAC-18SVN-EX-31W", "TAC-18SVN-EX-31W"),
-        ("TCL 1.0 Ton 12SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "12SaveIN-AI-41 T3", "12SVN"),
-        ("TCL 1.5 Ton 18SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "18SaveIN-AI-41 T3", "18SVN"),
-        ("TCL 2 Ton 24SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner", "24SaveIN-AI-41 T3", "24SVN"),
-        ("TCL 1.0 Ton 12 SVN-AI-CO-31S SaveIN AI Series DC Inverter Cool Only Split Air Conditioner", "12SVN-AI-CO-31S", "12SVN"),
+        (
+            "TCL 1.0 Ton 12SVN-AI-21 SaveIN AI Series DC Inverter Heat & Cool Air Conditioner",
+            "12SVN-AI-21",
+            "12SVN",
+        ),
+        (
+            "TCL 1.0 Ton TAC-12SVN-AI-11 SaveIN DC Inverter Heat & Cool Split Air Conditioner",
+            "TAC-12SVN-AI-11",
+            "TAC-12SVN-AI-11",
+        ),
+        (
+            "TCL 1.5 Ton TAC-18SVN-EX-31W SaveIN Extreme DC Inverter Heat & Cool Split Air Conditioner",
+            "TAC-18SVN-EX-31W",
+            "TAC-18SVN-EX-31W",
+        ),
+        (
+            "TCL 1.0 Ton 12SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner",
+            "12SaveIN-AI-41 T3",
+            "12SVN",
+        ),
+        (
+            "TCL 1.5 Ton 18SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner",
+            "18SaveIN-AI-41 T3",
+            "18SVN",
+        ),
+        (
+            "TCL 2 Ton 24SaveIN-AI-41 T3 WiFi Smart DC Inverter Heat & Cool Split Air Conditioner",
+            "24SaveIN-AI-41 T3",
+            "24SVN",
+        ),
+        (
+            "TCL 1.0 Ton 12 SVN-AI-CO-31S SaveIN AI Series DC Inverter Cool Only Split Air Conditioner",
+            "12SVN-AI-CO-31S",
+            "12SVN",
+        ),
     ]
     for full_name, exp_model, exp_query in titles:
         q, m = extract_search_query_and_model(full_name, brand="TCL")
-        assert m == exp_model, f"Model mismatch for '{full_name}': got '{m}', expected '{exp_model}'"
-        assert q == exp_query, f"Query mismatch for '{full_name}': got '{q}', expected '{exp_query}'"
+        assert m == exp_model, (
+            f"Model mismatch for '{full_name}': got '{m}', expected '{exp_model}'"
+        )
+        assert q == exp_query, (
+            f"Query mismatch for '{full_name}': got '{q}', expected '{exp_query}'"
+        )
 
         patterns = generate_search_patterns(full_name, brand="TCL")
         t1 = patterns["tier_1"]
@@ -1077,7 +1112,9 @@ def test_tcl_savein_svn_strict_matching_and_variant_isolation() -> None:
     assert not is_strict_model_match(c_ai21, "12SaveIN-AI-41", brand="TCL")
 
     # 4. Cool-only isolation (CO-31S must not match heat & cool models)
-    c_co31 = "TCL - Air Conditioner 1.0 Ton T-AI Inverter Cool only SaveIN Series - TAC-12SVN-AI-CO-31S"
+    c_co31 = (
+        "TCL - Air Conditioner 1.0 Ton T-AI Inverter Cool only SaveIN Series - TAC-12SVN-AI-CO-31S"
+    )
     assert is_strict_model_match(c_co31, "12SVN-AI-CO-31S", brand="TCL")
     assert not is_strict_model_match(c_co31, "12SVN-AI-21", brand="TCL")
     assert not is_strict_model_match(c_co31, "12SVN-AI-11", brand="TCL")
@@ -1089,7 +1126,11 @@ def test_hyphenated_capacity_extraction_and_slots() -> None:
         ("Dawlance 8-KG DW-6550 C Twin Tub Semi Automatic Washing Machine", "DW-6550", "8KG"),
         ("Dawlance 8-KG DW-6580-WFL Twin Tub Semi Automatic Washing Machine", "DW-6580-WFL", "8KG"),
         ("Dawlance 10-KG DW-7500-C Twin Tub Semi Automatic Washing Machine", "DW-7500-C", "10KG"),
-        ("Dawlance 12-KG DWT-1471-FLP CGlow Top Load Fully Automatic Washing Machine", "DWT-1471-FLP", "12KG"),
+        (
+            "Dawlance 12-KG DWT-1471-FLP CGlow Top Load Fully Automatic Washing Machine",
+            "DWT-1471-FLP",
+            "12KG",
+        ),
     ]
     for title, exp_model, exp_cap in cases:
         q, m = extract_search_query_and_model(title, brand="Dawlance")
@@ -1097,7 +1138,9 @@ def test_hyphenated_capacity_extraction_and_slots() -> None:
         assert exp_model.split()[0] in q, f"Expected {exp_model} in query {q}"
 
         slots = extract_product_slots(title, brand="Dawlance")
-        assert slots.guarded_facets.capacity == exp_cap, f"Expected capacity {exp_cap}, got {slots.guarded_facets.capacity}"
+        assert slots.guarded_facets.capacity == exp_cap, (
+            f"Expected capacity {exp_cap}, got {slots.guarded_facets.capacity}"
+        )
 
 
 def test_water_dispenser_tap_count_matching() -> None:
@@ -1321,10 +1364,23 @@ def test_washing_machine_spaced_prefixes_and_unprefixed_drums() -> None:
 
 def test_glued_single_letter_suffix_collision() -> None:
     """Verify Bug 2: Glued suffixes like DWT-270C collide strictly with spaced DWT 270 S."""
-    assert referee_match("Dawlance DWT-270C", "Dawlance DWT 270 S LVS+", brand="Dawlance").is_match is False
-    assert referee_match("Dawlance DWT-270C", "Dawlance DWT 270 C LVS+", brand="Dawlance").is_match is True
-    assert referee_match("Dawlance DW-7500C", "Dawlance DW 7500 S", brand="Dawlance").is_match is False
-    assert is_strict_model_match("Dawlance Top Load Washing Machine DWT 270 S LVS+", "DWT-270C", brand="Dawlance") is False
+    assert (
+        referee_match("Dawlance DWT-270C", "Dawlance DWT 270 S LVS+", brand="Dawlance").is_match
+        is False
+    )
+    assert (
+        referee_match("Dawlance DWT-270C", "Dawlance DWT 270 C LVS+", brand="Dawlance").is_match
+        is True
+    )
+    assert (
+        referee_match("Dawlance DW-7500C", "Dawlance DW 7500 S", brand="Dawlance").is_match is False
+    )
+    assert (
+        is_strict_model_match(
+            "Dawlance Top Load Washing Machine DWT 270 S LVS+", "DWT-270C", brand="Dawlance"
+        )
+        is False
+    )
 
 
 def test_glued_drum_search_patterns_and_tub_series() -> None:
@@ -1343,8 +1399,6 @@ def test_glued_drum_search_patterns_and_tub_series() -> None:
     # Conflicting tub series (WB vs GB) must collide
     decision = referee_match("Haier 801217WB", "Haier HWM 80-1217GB Washing Machine", brand="Haier")
     assert decision.is_match is False
-
-
 
 
 def test_trailing_capacity_washing_machine_model_extraction() -> None:
@@ -1451,16 +1505,18 @@ def test_punctuation_fallback_extraction() -> None:
 
 def test_dawlance_dwt255_item28_matching_and_5_cases() -> None:
     """Verify Item #28 bug fix and complete 5-case single-letter variant referee matching."""
-    target_clear_lid = (
-        "Dawlance DWT 255 Clear Lid Automatic Top Load Washing Machine – White"
-    )
+    target_clear_lid = "Dawlance DWT 255 Clear Lid Automatic Top Load Washing Machine – White"
     cand1 = "Dawlance DWT 255 C 8.5 Kg Top Load Washing Machine"
     cand2 = "Dawlance Automatic Washing Machine 8.5 KG DWT 255C (0% Markup) - ET"
 
     # 1. Candidate 2 must clean payment noise and trailing seller store tag
     slots2 = extract_product_slots(cand2, brand="Dawlance")
-    assert "ET" not in slots2.guarded_facets.capabilities, "ET must not be parsed as hardware capability"
-    assert slots2.anchor in ("DWT-255", "DWT-255-C", "DWT-255C"), f"Anchor must not drop DWT: {slots2.anchor}"
+    assert "ET" not in slots2.guarded_facets.capabilities, (
+        "ET must not be parsed as hardware capability"
+    )
+    assert slots2.anchor in ("DWT-255", "DWT-255-C", "DWT-255C"), (
+        f"Anchor must not drop DWT: {slots2.anchor}"
+    )
 
     # 2. Both candidates match target with Clear Lid
     dec1 = referee_match(target_clear_lid, cand1, brand="Dawlance")
@@ -1478,7 +1534,9 @@ def test_dawlance_dwt255_item28_matching_and_5_cases() -> None:
     # 4. Capacity edge case: '- 8.5 kg' must NOT be stripped as a seller tag
     cand_cap = "Dawlance DWT 255 C - 8.5 kg"
     slots_cap = extract_product_slots(cand_cap, brand="Dawlance")
-    assert slots_cap.guarded_facets.capacity in ("8.5KG", "8KG"), f"Capacity lost: {slots_cap.guarded_facets.capacity}"
+    assert slots_cap.guarded_facets.capacity in ("8.5KG", "8KG"), (
+        f"Capacity lost: {slots_cap.guarded_facets.capacity}"
+    )
 
     # 5. Strict brand matching: PEL must be rejected
     cand_pel = "PEL DWT 255 C 8.5 Kg Top Load Washing Machine"
@@ -1519,11 +1577,17 @@ def test_adversarial_review_regressions() -> None:
     slots_gd = extract_product_slots("Dawlance Refrigerator 9060 Inverter - GD", brand="Dawlance")
     assert slots_gd.guarded_facets.door_finish == "GD", "GD must not be stripped"
     # GD refrigerator must reject INOX
-    dec_gd_inox = referee_match("Dawlance Refrigerator 9060 Inverter - GD", "Dawlance Refrigerator 9060 Inverter INOX", brand="Dawlance")
+    dec_gd_inox = referee_match(
+        "Dawlance Refrigerator 9060 Inverter - GD",
+        "Dawlance Refrigerator 9060 Inverter INOX",
+        brand="Dawlance",
+    )
     assert dec_gd_inox.is_match is False
 
     # 2. CRITICAL-02: No false brand collisions on common English words (GREEN, HAIR)
-    dec_green = referee_match("Orient 1.5 Ton Model 18G", "1.5 Ton Model 18G Green Series", brand="Orient")
+    dec_green = referee_match(
+        "Orient 1.5 Ton Model 18G", "1.5 Ton Model 18G Green Series", brand="Orient"
+    )
     assert dec_green.is_match is True, f"GREEN should not collide with GREE: {dec_green.reason}"
 
     # 3. REQUIRED-03: Seller tags with pipe and em-dash are stripped
@@ -1597,6 +1661,3 @@ def test_dw6570_twin_tub_double_washing_machine_and_onestop_seller_cleanup() -> 
     dec = referee_match(target, cand_onestop, brand="Dawlance")
     assert dec.is_match is True
     assert "Accepted" in dec.reason
-
-
-

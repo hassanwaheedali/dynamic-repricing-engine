@@ -87,8 +87,7 @@ def test_ingest_catalog_strips_column_whitespace(tmp_path: Path) -> None:
 def test_ingest_catalog_missing_net_price_column_raises(tmp_path: Path) -> None:
     csv_file = tmp_path / "invalid_catalog.csv"
     csv_file.write_text(
-        "Brand,Name,Length,Width,Height\n"
-        "Gree,GREE SPLIT AC 12AITH21W-T3,87,35.5,92\n",
+        "Brand,Name,Length,Width,Height\nGree,GREE SPLIT AC 12AITH21W-T3,87,35.5,92\n",
         encoding="utf-8",
     )
 
@@ -102,8 +101,7 @@ def test_ingest_catalog_missing_net_price_column_raises(tmp_path: Path) -> None:
 def test_ingest_catalog_missing_brand_column_raises(tmp_path: Path) -> None:
     csv_file = tmp_path / "invalid_catalog.csv"
     csv_file.write_text(
-        "Name,Net Price,Length,Width,Height\n"
-        "Gree AC,140000,87,35.5,92\n",
+        "Name,Net Price,Length,Width,Height\nGree AC,140000,87,35.5,92\n",
         encoding="utf-8",
     )
 
@@ -170,8 +168,7 @@ def test_ingest_catalog_legacy_haier_csv() -> None:
 def test_ingest_catalog_empty_brand_cell_raises(tmp_path: Path) -> None:
     csv_file = tmp_path / "empty_brand.csv"
     csv_file.write_text(
-        "Brand,Name,Net Price,Length,Width,Height\n"
-        ",Dawlance 4467 SD MINI BAR,55000,50,50,85\n",
+        "Brand,Name,Net Price,Length,Width,Height\n,Dawlance 4467 SD MINI BAR,55000,50,50,85\n",
         encoding="utf-8",
     )
 
@@ -185,8 +182,7 @@ def test_ingest_catalog_empty_brand_cell_raises(tmp_path: Path) -> None:
 def test_ingest_catalog_with_title_alias(tmp_path: Path) -> None:
     csv_file = tmp_path / "title_catalog.csv"
     csv_file.write_text(
-        "Brand,Title,Net Price\n"
-        "Haier,Haier Automatic Washing Machine 10 KG,70000\n",
+        "Brand,Title,Net Price\nHaier,Haier Automatic Washing Machine 10 KG,70000\n",
         encoding="utf-8",
     )
     products, report = ingest_catalog(csv_file, render_banner=False)
@@ -199,8 +195,7 @@ def test_ingest_catalog_with_title_alias(tmp_path: Path) -> None:
 def test_ingest_catalog_tab_separated(tmp_path: Path) -> None:
     tsv_file = tmp_path / "catalog.tsv"
     tsv_file.write_text(
-        "Brand\tTitle\tNet Price\n"
-        "Gree\tGREE SPLIT AC 1.5 TON\t185000\n",
+        "Brand\tTitle\tNet Price\nGree\tGREE SPLIT AC 1.5 TON\t185000\n",
         encoding="utf-8",
     )
     products, report = ingest_catalog(tsv_file, render_banner=False)
@@ -214,19 +209,41 @@ def test_normalize_catalog_columns_prevents_duplicate_collisions() -> None:
     from pricing_engine.ingestion import normalize_catalog_columns
 
     # Case 1: Only Title present -> mapped to Name
-    assert normalize_catalog_columns(["Brand", "Title", "Net Price"]) == ["Brand", "Name", "Net Price"]
+    assert normalize_catalog_columns(["Brand", "Title", "Net Price"]) == [
+        "Brand",
+        "Name",
+        "Net Price",
+    ]
 
     # Case 2: Both Name and Title present -> Title is NOT renamed to Name (avoids collision!)
-    assert normalize_catalog_columns(["Brand", "Name", "Title", "Net Price"]) == ["Brand", "Name", "Title", "Net Price"]
+    assert normalize_catalog_columns(["Brand", "Name", "Title", "Net Price"]) == [
+        "Brand",
+        "Name",
+        "Title",
+        "Net Price",
+    ]
 
     # Case 3: Both Net Price and Cost present -> Cost is NOT renamed to Net Price
-    assert normalize_catalog_columns(["Brand", "Name", "Net Price", "Cost"]) == ["Brand", "Name", "Net Price", "Cost"]
+    assert normalize_catalog_columns(["Brand", "Name", "Net Price", "Cost"]) == [
+        "Brand",
+        "Name",
+        "Net Price",
+        "Cost",
+    ]
 
     # Case 4: Legacy Name with space stripped by default for ingestion
-    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"]) == ["Brand", "Name", "Net Price"]
+    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"]) == [
+        "Brand",
+        "Name",
+        "Net Price",
+    ]
 
     # Case 5: Legacy Name with space preserved when preserve_name_space=True
-    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"], preserve_name_space=True) == ["Brand", "Name ", "Net Price"]
+    assert normalize_catalog_columns(["Brand", "Name ", "Net Price"], preserve_name_space=True) == [
+        "Brand",
+        "Name ",
+        "Net Price",
+    ]
 
 
 def test_ingest_catalog_with_both_name_and_title(tmp_path: Path) -> None:
@@ -249,7 +266,7 @@ def test_read_catalog_csv_handles_trailing_commas_and_jagged_rows(tmp_path: Path
 
     csv_file = tmp_path / "jagged.csv"
     csv_file.write_text(
-        'Brand,Title,Net Price\n'
+        "Brand,Title,Net Price\n"
         'Dawlance,Dawlance DW 10115 - 10KG,"21,500"\n'
         'Dawlance,Dawlance DW 90100 - 9KG,"21,500",\n'  # Trailing comma causing 4 fields instead of 3
         'Dawlance,Dawlance DW 15140 15 KG,"43,500"\n',
@@ -259,7 +276,7 @@ def test_read_catalog_csv_handles_trailing_commas_and_jagged_rows(tmp_path: Path
     assert len(df) == 3
     assert list(df["Brand"]) == ["Dawlance", "Dawlance", "Dawlance"]
     assert "Dawlance DW 90100 - 9KG" in list(df["Title"])
-    assert list(df["Net Price"]) == ['21,500', '21,500', '43,500']
+    assert list(df["Net Price"]) == ["21,500", "21,500", "43,500"]
 
 
 def test_read_catalog_csv_drops_unnamed_trailing_header_columns(tmp_path: Path) -> None:
@@ -283,7 +300,3 @@ def test_read_catalog_csv_drops_unnamed_trailing_header_columns(tmp_path: Path) 
     assert len(products) == 2
     for p in products:
         assert not any(str(k).lower().startswith("unnamed:") for k in p.raw_row)
-
-
-
-

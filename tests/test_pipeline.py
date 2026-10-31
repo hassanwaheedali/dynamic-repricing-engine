@@ -1061,7 +1061,9 @@ def test_build_scraped_sellers_table_smart_formatting() -> None:
         ScrapedOffer(vendor_name="Sub Seller 4", price=83000.0, is_sold_out=False, raw_title=""),
         ScrapedOffer(vendor_name="Sub Seller 5", price=84000.0, is_sold_out=False, raw_title=""),
         ScrapedOffer(vendor_name="Kia Chahiye", price=88599.0, is_sold_out=False, raw_title=""),
-        ScrapedOffer(vendor_name="Electronics World", price=91499.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(
+            vendor_name="Electronics World", price=91499.0, is_sold_out=False, raw_title=""
+        ),
         ScrapedOffer(vendor_name="Ceiling Seller", price=102078.0, is_sold_out=False, raw_title=""),
     ]
 
@@ -1099,7 +1101,11 @@ def test_build_scraped_sellers_table_smart_formatting() -> None:
     assert "88,599" in full_table_text
 
     # 2. Sub-floor rollup must be present because there are 5 dropped sellers (> 3)
-    assert "dropped" in full_table_text or "more sub-floor" in full_table_text or "Sub-floor offers" in full_table_text
+    assert (
+        "dropped" in full_table_text
+        or "more sub-floor" in full_table_text
+        or "Sub-floor offers" in full_table_text
+    )
     assert "Sub Seller 1" in full_table_text
     assert "Sub Seller 2" in full_table_text
 
@@ -1122,7 +1128,12 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
     )
 
     alfa_offers = [
-        ScrapedOffer(vendor_name=f"Loss Seller {i}", price=80000.0 + (i * 500), is_sold_out=False, raw_title="")
+        ScrapedOffer(
+            vendor_name=f"Loss Seller {i}",
+            price=80000.0 + (i * 500),
+            is_sold_out=False,
+            raw_title="",
+        )
         for i in range(6)
     ]
 
@@ -1174,7 +1185,9 @@ def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
 
     digi_offers = [
         ScrapedOffer(vendor_name="Sub Seller", price=85000.0, is_sold_out=False, raw_title=""),
-        ScrapedOffer(vendor_name="Electronics World", price=86702.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(
+            vendor_name="Electronics World", price=86702.0, is_sold_out=False, raw_title=""
+        ),
         ScrapedOffer(vendor_name="Kia Chahiye", price=87500.0, is_sold_out=False, raw_title=""),
     ]
 
@@ -1234,7 +1247,9 @@ def test_build_scraped_sellers_table_target_predecessor_visibility() -> None:
         ScrapedOffer(vendor_name="Other Seller 3", price=31500.0, is_sold_out=False, raw_title=""),
         ScrapedOffer(vendor_name="Other Seller 4", price=32000.0, is_sold_out=False, raw_title=""),
         ScrapedOffer(vendor_name="Other Seller 5", price=32500.0, is_sold_out=False, raw_title=""),
-        ScrapedOffer(vendor_name="Nearest Predecessor", price=33500.0, is_sold_out=False, raw_title=""),
+        ScrapedOffer(
+            vendor_name="Nearest Predecessor", price=33500.0, is_sold_out=False, raw_title=""
+        ),
         ScrapedOffer(vendor_name="MZ Electonics", price=34400.0, is_sold_out=False, raw_title=""),
     ]
 
@@ -1356,7 +1371,6 @@ def test_parse_product_input_missing_name_raises_error() -> None:
             parse_product_input(0, row)
 
 
-
 def test_in_order_card_dispatcher_sequence() -> None:
     """Verify that InOrderCardDispatcher outputs in strictly ascending sequence even when workers finish out of order."""
     from pricing_engine.pipeline import InOrderCardDispatcher
@@ -1445,10 +1459,14 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
     )
     digi_scrape = ScrapeResult(
         offers=[
-            ScrapedOffer(vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title=""),
+            ScrapedOffer(
+                vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title=""
+            ),
         ],
         own_offers=[
-            ScrapedOffer(vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title=""),
+            ScrapedOffer(
+                vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title=""
+            ),
         ],
     )
     digi_res = PlatformPricingResult(
@@ -1583,7 +1601,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     )
     assert s1 == "CAPPED"
     # Because sub-floor competitors exist in the mall, this is NOT a pure win against the whole platform
-    assert determine_5pct_goal_status(s1, real_profit=1500, target_profit_5pct=526, active_sellers=5) == "SUB-FLOOR CHEAPER"
+    assert (
+        determine_5pct_goal_status(s1, real_profit=1500, target_profit_5pct=526, active_sellers=5)
+        == "SUB-FLOOR CHEAPER"
+    )
 
     # Sub-floor filtered, viable competitor capped (e.g. Dawlance DW-10500 Item #25)
     s2 = determine_platform_status(
@@ -1593,7 +1614,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
     )
     assert s2 == "CAPPED"
     # Because 7 sub-floor sellers are cheaper than our floor, this must NOT falsely claim WIN + 5% ACHIEVED!
-    assert determine_5pct_goal_status(s2, real_profit=1099, target_profit_5pct=526, active_sellers=10) == "SUB-FLOOR CHEAPER"
+    assert (
+        determine_5pct_goal_status(s2, real_profit=1099, target_profit_5pct=526, active_sellers=10)
+        == "SUB-FLOOR CHEAPER"
+    )
 
     # Pure market win without sub-floor
     s3 = determine_platform_status(
@@ -1602,7 +1626,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         reason="Undercut lowest viable competitor to winning price Rs. 50,000.",
     )
     assert s3 == "WIN (-200)"
-    assert determine_5pct_goal_status(s3, real_profit=1000, target_profit_5pct=526, active_sellers=3) == "WIN + 5% ACHIEVED"
+    assert (
+        determine_5pct_goal_status(s3, real_profit=1000, target_profit_5pct=526, active_sellers=3)
+        == "WIN + 5% ACHIEVED"
+    )
 
     # Pure market win with capping
     s4 = determine_platform_status(
@@ -1611,7 +1638,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         reason="Competitor price is inflated. Capped price at Rs. 50,000.",
     )
     assert s4 == "WIN (-10,000)"
-    assert determine_5pct_goal_status(s4, real_profit=2000, target_profit_5pct=526, active_sellers=2) == "WIN + 5% ACHIEVED"
+    assert (
+        determine_5pct_goal_status(s4, real_profit=2000, target_profit_5pct=526, active_sellers=2)
+        == "WIN + 5% ACHIEVED"
+    )
 
     # Pure market win with 50% split midpoint
     s5 = determine_platform_status(
@@ -1620,7 +1650,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         reason="Large price gap (Rs. 5,000) above floor. Applied dynamic adaptive split (69%) to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
     )
     assert s5 == "WIN (-2,501)"
-    assert determine_5pct_goal_status(s5, real_profit=2749, target_profit_5pct=526, active_sellers=1) == "WIN + 5% ACHIEVED"
+    assert (
+        determine_5pct_goal_status(s5, real_profit=2749, target_profit_5pct=526, active_sellers=1)
+        == "WIN + 5% ACHIEVED"
+    )
 
     # 50% split midpoint with sub-floor filtered (viable competitor capped, but sub-floor existed)
     s6 = determine_platform_status(
@@ -1629,7 +1662,10 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         reason="Filtered 1 sub-floor offer(s). Large price gap (Rs. 5,000) above floor. Applied dynamic adaptive split (69%) to capped winning psychological price Rs. 47,499 (+Rs. 2,749 profit) for maximum conversion.",
     )
     assert s6 == "CAPPED"
-    assert determine_5pct_goal_status(s6, real_profit=2749, target_profit_5pct=526, active_sellers=2) == "SUB-FLOOR CHEAPER"
+    assert (
+        determine_5pct_goal_status(s6, real_profit=2749, target_profit_5pct=526, active_sellers=2)
+        == "SUB-FLOOR CHEAPER"
+    )
 
     # Vendor named with "Split" (e.g. Split AC Hub) on ordinary undercut must NOT trigger false-positive CAPPED
     s7 = determine_platform_status(
@@ -1638,6 +1674,3 @@ def test_determine_platform_status_viable_undercut_consistent_win_and_capped() -
         reason="Undercut lowest competitor Gree Split AC Hub (Rs. 80,000) to winning price Rs. 79,899.",
     )
     assert s7 == "WIN (-101)"
-
-
-

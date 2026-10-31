@@ -158,11 +158,39 @@ class InMemoryRegistry:
         if ton:
             return ton
 
-        # 3. Brand-unknown fallback: check Dawlance first if code is distinctive
+        # 3. Brand-unknown fallback: check Dawlance first if code is distinctive, then any unique brand code
         if c_u in ("10", "15", "20", "45"):
             return cls._capacity_cache.get(("DAWLANCE", c_u))
+        for (cached_brand, cached_code), cached_ton in cls._capacity_cache.items():
+            if cached_code == c_u and cached_brand != "UNIVERSAL":
+                return cached_ton
 
         return None
+
+    @classmethod
+    def get_capacity_map(cls, brand: str = "") -> dict[str, str]:
+        """Return capacity-code -> tonnage mapping for a brand from the single-source RAM cache."""
+        cls._ensure_initialized()
+        b_u = brand.strip().upper()
+        if b_u.startswith("DAW"):
+            return {
+                code: ton
+                for (c_brand, code), ton in cls._capacity_cache.items()
+                if c_brand == "DAWLANCE"
+            }
+
+        universal_map = {
+            code: ton
+            for (c_brand, code), ton in cls._capacity_cache.items()
+            if c_brand == "UNIVERSAL"
+        }
+        if b_u:
+            brand_overrides = {
+                code: ton for (c_brand, code), ton in cls._capacity_cache.items() if c_brand == b_u
+            }
+            if brand_overrides:
+                return {**universal_map, **brand_overrides}
+        return universal_map
 
     @classmethod
     def get_canonical_tag(cls, alias: str, brand: str = "", category: str = "") -> str | None:

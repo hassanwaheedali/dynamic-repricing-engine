@@ -29,7 +29,9 @@ class TestAdversarialInputsAndEdgeCases:
 
     def test_empty_and_corrupted_config_tables(self) -> None:
         # Empty dict
-        rate, label = resolve_fallback_shipping("Haier Twin Tub 10 KG", brand="Haier", config_table={})
+        rate, label = resolve_fallback_shipping(
+            "Haier Twin Tub 10 KG", brand="Haier", config_table={}
+        )
         assert rate == 3000.0
         assert label == "General Appliance"
 
@@ -56,11 +58,15 @@ class TestAdversarialInputsAndEdgeCases:
             ],
             "default": 3200.0,
         }
-        rate, label = resolve_fallback_shipping("Haier washer", brand="Haier", config_table=corrupted_config)
+        rate, label = resolve_fallback_shipping(
+            "Haier washer", brand="Haier", config_table=corrupted_config
+        )
         assert rate == 3500.0  # Category default fallback
         assert label == "broken_2"
 
-        rate, label = resolve_fallback_shipping("Gree ac", brand="Gree", config_table=corrupted_config)
+        rate, label = resolve_fallback_shipping(
+            "Gree ac", brand="Gree", config_table=corrupted_config
+        )
         assert rate == 3500.0  # Category default fallback
         assert label == "broken_3"
 
@@ -71,7 +77,9 @@ class TestAdversarialInputsAndEdgeCases:
         assert "3.5kg" in label
 
         # Giant industrial washer (25kg) -> hits highest bracket <= 999kg
-        rate, label = resolve_fallback_shipping("Haier Automatic Washer 25 KG Industrial", brand="Haier")
+        rate, label = resolve_fallback_shipping(
+            "Haier Automatic Washer 25 KG Industrial", brand="Haier"
+        )
         assert rate == 4500.0
         assert "25kg" in label
 
@@ -97,13 +105,17 @@ class TestAdversarialInputsAndEdgeCases:
 
     def test_titles_with_no_capacity_numbers(self) -> None:
         # Washing machine with zero numbers in title
-        rate, label = resolve_fallback_shipping("Haier Fully Automatic Top Load Washing Machine Grey", brand="Haier")
+        rate, label = resolve_fallback_shipping(
+            "Haier Fully Automatic Top Load Washing Machine Grey", brand="Haier"
+        )
         # Should gracefully fallback to category default (Rs. 3500)
         assert rate == 3500.0
         assert label == "Automatic Washer"
 
         # Twin tub with zero numbers
-        rate, label = resolve_fallback_shipping("Super Asia Semi Automatic Twin Tub Washer", brand="Super Asia")
+        rate, label = resolve_fallback_shipping(
+            "Super Asia Semi Automatic Twin Tub Washer", brand="Super Asia"
+        )
         assert rate == 3500.0
         assert label == "Twin Tub Washer"
 

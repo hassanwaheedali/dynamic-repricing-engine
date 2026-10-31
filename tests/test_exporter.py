@@ -79,7 +79,10 @@ def test_export_results_creates_both_files_and_dir(tmp_path: Path) -> None:
     assert loaded_df["Final Price Alfa"].iloc[1] == "183000"
     assert loaded_df["Final Price Digi"].iloc[0] == "145000"
     # NaN price should be empty string
-    assert pd.isna(loaded_df["Final Price Digi"].iloc[1]) or loaded_df["Final Price Digi"].iloc[1] == ""
+    assert (
+        pd.isna(loaded_df["Final Price Digi"].iloc[1])
+        or loaded_df["Final Price Digi"].iloc[1] == ""
+    )
 
 
 def test_export_results_handles_existing_repriced_suffix(tmp_path: Path) -> None:
@@ -115,7 +118,9 @@ def test_resolve_option_output_dir(tmp_path: Path) -> None:
 
     # Option 1 aliases
     assert resolve_option_output_dir(input_file, option="reprice", base_dir=custom_base) == opt1_dir
-    assert resolve_option_output_dir(input_file, option="option_1", base_dir=custom_base) == opt1_dir
+    assert (
+        resolve_option_output_dir(input_file, option="option_1", base_dir=custom_base) == opt1_dir
+    )
 
     # Option 2: Market range
     opt2_dir = resolve_option_output_dir(input_file, option=2, base_dir=custom_base)
@@ -254,15 +259,33 @@ def test_full_tree_structure_options_1_2_3(tmp_path: Path) -> None:
     # 1. Option 1 Export
     opt1_dir = resolve_option_output_dir(input_file, option=1, base_dir=custom_base)
     ts1 = datetime(2026, 10, 27, 10, 0, 0)
-    m1 = export_results(df=df_sample, source_filename=input_file, output_dir=opt1_dir, timestamp=ts1, render_panel=False)
-    assert m1.timestamped_path == parent_folder / "option_1" / "csv" / "wm_repriced_20261027_100000.csv"
+    m1 = export_results(
+        df=df_sample,
+        source_filename=input_file,
+        output_dir=opt1_dir,
+        timestamp=ts1,
+        render_panel=False,
+    )
+    assert (
+        m1.timestamped_path
+        == parent_folder / "option_1" / "csv" / "wm_repriced_20261027_100000.csv"
+    )
     assert m1.latest_path == parent_folder / "option_1" / "csv" / "wm_repriced_latest.csv"
-    assert m1.timestamped_xlsx_path == parent_folder / "option_1" / "xlsx" / "wm_repriced_20261027_100000.xlsx"
+    assert (
+        m1.timestamped_xlsx_path
+        == parent_folder / "option_1" / "xlsx" / "wm_repriced_20261027_100000.xlsx"
+    )
     assert m1.latest_xlsx_path == parent_folder / "option_1" / "xlsx" / "wm_repriced_latest.xlsx"
 
     # Second run of Option 1 with different timestamp (non-overwrite test)
     ts1_v2 = datetime(2026, 10, 27, 10, 30, 0)
-    m1_v2 = export_results(df=df_sample, source_filename=input_file, output_dir=opt1_dir, timestamp=ts1_v2, render_panel=False)
+    m1_v2 = export_results(
+        df=df_sample,
+        source_filename=input_file,
+        output_dir=opt1_dir,
+        timestamp=ts1_v2,
+        render_panel=False,
+    )
     assert (parent_folder / "option_1" / "csv" / "wm_repriced_20261027_100000.csv").is_file()
     assert (parent_folder / "option_1" / "csv" / "wm_repriced_20261027_103000.csv").is_file()
     assert m1_v2.latest_path == parent_folder / "option_1" / "csv" / "wm_repriced_latest.csv"
@@ -270,7 +293,13 @@ def test_full_tree_structure_options_1_2_3(tmp_path: Path) -> None:
     # 2. Option 2 Export
     opt2_dir = resolve_option_output_dir(input_file, option=2, base_dir=custom_base)
     ts2 = datetime(2026, 10, 27, 11, 0, 0)
-    m2 = export_range_results(df=df_sample, source_filename=input_file, output_dir=opt2_dir, timestamp=ts2, render_panel=False)
+    m2 = export_range_results(
+        df=df_sample,
+        source_filename=input_file,
+        output_dir=opt2_dir,
+        timestamp=ts2,
+        render_panel=False,
+    )
     assert m2.csv_path == parent_folder / "option_2" / "csv" / "wm_range_20261027_110000.csv"
     assert m2.csv_latest == parent_folder / "option_2" / "csv" / "wm_range_latest.csv"
     assert m2.xlsx_path == parent_folder / "option_2" / "xlsx" / "wm_range_20261027_110000.xlsx"
@@ -279,7 +308,13 @@ def test_full_tree_structure_options_1_2_3(tmp_path: Path) -> None:
     # 3. Option 3 Export
     ts3 = datetime(2026, 10, 27, 12, 0, 0)
     opt3_dir = resolve_option_output_dir(input_file, option=3, base_dir=custom_base)
-    export_results(df=df_sample, source_filename=input_file, output_dir=opt3_dir, timestamp=ts3, render_panel=False)
+    export_results(
+        df=df_sample,
+        source_filename=input_file,
+        output_dir=opt3_dir,
+        timestamp=ts3,
+        render_panel=False,
+    )
     w_csv, w_xlsx, _ = export_winning_5pct_results(
         df=df_sample, source_filename=input_file, output_dir=opt3_dir, timestamp=ts3
     )
@@ -307,7 +342,9 @@ def test_resolve_option_output_dir_security(tmp_path: Path) -> None:
         resolve_option_output_dir("..", option=1, base_dir=tmp_path)
 
     # Stem is safely sanitized
-    safe_dir = resolve_option_output_dir("weird/../../path/my@catalog!.csv", option=1, base_dir=tmp_path)
+    safe_dir = resolve_option_output_dir(
+        "weird/../../path/my@catalog!.csv", option=1, base_dir=tmp_path
+    )
     assert safe_dir.is_relative_to(tmp_path.resolve())
     assert "option_1" in str(safe_dir)
 
@@ -642,31 +679,37 @@ def test_export_functions_strip_unnamed_columns_from_csv_and_xlsx(tmp_path: Path
     # 1. Test export_results
     manifest = export_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt1")
     res_csv = pd.read_csv(manifest.latest_path)
-    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in res_csv.columns)
+    assert not any(
+        str(c).lower().startswith("unnamed:") or not str(c).strip() for c in res_csv.columns
+    )
     wb = openpyxl.load_workbook(manifest.latest_xlsx_path)
     ws = wb.active
     xlsx_cols = [cell.value for cell in ws[1]]
     assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in xlsx_cols)
 
     # 2. Test export_winning_5pct_results
-    w_csv, w_xlsx, count = export_winning_5pct_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt3")
+    w_csv, w_xlsx, count = export_winning_5pct_results(
+        df=df, source_filename="test.csv", output_dir=out_dir / "opt3"
+    )
     assert count == 1
     w_df = pd.read_csv(w_csv)
-    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in w_df.columns)
+    assert not any(
+        str(c).lower().startswith("unnamed:") or not str(c).strip() for c in w_df.columns
+    )
     w_wb = openpyxl.load_workbook(w_xlsx)
     w_ws = w_wb.active
     w_xlsx_cols = [cell.value for cell in w_ws[1]]
     assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in w_xlsx_cols)
 
     # 3. Test export_range_results
-    range_manifest = export_range_results(df=df, source_filename="test.csv", output_dir=out_dir / "opt2")
+    range_manifest = export_range_results(
+        df=df, source_filename="test.csv", output_dir=out_dir / "opt2"
+    )
     r_df = pd.read_csv(range_manifest.csv_latest)
-    assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in r_df.columns)
+    assert not any(
+        str(c).lower().startswith("unnamed:") or not str(c).strip() for c in r_df.columns
+    )
     r_wb = openpyxl.load_workbook(range_manifest.xlsx_latest)
     r_ws = r_wb.active
     r_xlsx_cols = [cell.value for cell in r_ws[1]]
     assert not any(str(c).lower().startswith("unnamed:") or not str(c).strip() for c in r_xlsx_cols)
-
-
-
-

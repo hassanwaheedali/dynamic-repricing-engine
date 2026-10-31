@@ -239,30 +239,22 @@ async def main() -> int:
     if args.batch:
         target_catalogs = find_input_catalogs()
         if not target_catalogs:
-            console.print(
-                "[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]"
-            )
-            console.print(
-                "Please place your catalog CSVs in 'data/inputs/' or use the -i flag."
-            )
+            console.print("[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]")
+            console.print("Please place your catalog CSVs in 'data/inputs/' or use the -i flag.")
             return 1
     elif input_path is not None:
         if not input_path.exists():
             console.print(
                 f"\n[bold red]❌ Error: Input catalog file not found: '{input_path}'[/bold red]"
             )
-            console.print(
-                "Please ensure the CSV file exists or drop it into data/inputs/."
-            )
+            console.print("Please ensure the CSV file exists or drop it into data/inputs/.")
             return 1
         target_catalogs = [input_path]
     else:
         # No input provided: scan data/inputs/
         catalogs = find_input_catalogs()
         if not catalogs:
-            console.print(
-                "[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]"
-            )
+            console.print("[bold red]❌ No catalog CSV files found in 'data/inputs/'.[/bold red]")
             console.print(
                 "Please place your catalog CSV in 'data/inputs/' or specify with -i/--input."
             )
@@ -324,4 +316,8 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    if sys.platform == "win32":
+        with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
+            sys.exit(runner.run(main()))
+    else:
+        sys.exit(asyncio.run(main()))

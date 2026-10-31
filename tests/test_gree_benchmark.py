@@ -42,9 +42,7 @@ def test_gree_airy_unprefixed_gs_matching_and_patterns() -> None:
     target_18_b = "Gree GS-18AITH21B-T3 1.5 Ton Airy Plus Split Air Conditioner"
 
     # Candidate 1: Missing GS- prefix (18AITH21B-T3)
-    cand_no_gs = (
-        "GREE AC 1.5 TON Inverter Split Air Conditioner Airy Plus 18AITH21B-T3 BLACK Free installation"
-    )
+    cand_no_gs = "GREE AC 1.5 TON Inverter Split Air Conditioner Airy Plus 18AITH21B-T3 BLACK Free installation"
     dec1 = referee_match(target_18_b, cand_no_gs, brand="Gree")
     assert dec1.is_match is True, f"Failed match for candidate without GS- prefix: {dec1.reason}"
 

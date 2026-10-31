@@ -122,7 +122,9 @@ def test_dwt1016_ddm_inv_does_not_trigger_unlogical_variant_conflict() -> None:
     # Neither candidate has a variant suffix; both omitted one of target's capabilities.
     # Therefore detected_variant must be None on both, preventing unlogical variant prompt!
     variants = [off.detected_variant for off in base if off.detected_variant]
-    assert variants == [], f"Hardware capabilities must never be treated as variant suffixes, got {variants}"
+    assert variants == [], (
+        f"Hardware capabilities must never be treated as variant suffixes, got {variants}"
+    )
 
 
 def test_compute_row_fingerprint_detects_changes() -> None:
@@ -234,8 +236,12 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
     )
     export_dir = tmp_path / "outputs"
 
-    offer_c = ScrapedOffer("Vendor C", 58000.0, False, "Dawlance DWT 255 C 8.5 Kg", detected_variant="C")
-    offer_s = ScrapedOffer("Vendor S", 52000.0, False, "Dawlance DWT 255 S 8.5 Kg", detected_variant="S")
+    offer_c = ScrapedOffer(
+        "Vendor C", 58000.0, False, "Dawlance DWT 255 C 8.5 Kg", detected_variant="C"
+    )
+    offer_s = ScrapedOffer(
+        "Vendor S", 52000.0, False, "Dawlance DWT 255 S 8.5 Kg", detected_variant="S"
+    )
     offer_g = ScrapedOffer("Vendor G", 155000.0, False, "Gree Split AC 12AITH21W-T3")
 
     res_ambig = ScrapeResult(
@@ -250,12 +256,16 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
     res_gree = ScrapeResult(offers=[offer_g])
     res_empty = ScrapeResult(offers=[])
 
-    async def mock_scrape_alfa(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
+    async def mock_scrape_alfa(
+        session: Any, patterns: Any, target_model: str, **kwargs: Any
+    ) -> ScrapeResult:
         if "DWT" in target_model.upper():
             return res_ambig
         return res_gree
 
-    async def mock_scrape_digi(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
+    async def mock_scrape_digi(
+        session: Any, patterns: Any, target_model: str, **kwargs: Any
+    ) -> ScrapeResult:
         return res_empty
 
     async def _test_flow() -> None:
@@ -294,7 +304,9 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
 
         gree_call_count = 0
 
-        async def mock_scrape_alfa_resume(session: Any, patterns: Any, target_model: str, **kwargs: Any) -> ScrapeResult:
+        async def mock_scrape_alfa_resume(
+            session: Any, patterns: Any, target_model: str, **kwargs: Any
+        ) -> ScrapeResult:
             nonlocal gree_call_count
             if "12AITH21W" in target_model.upper():
                 gree_call_count += 1
@@ -333,7 +345,3 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
         assert not c_path.is_file(), "Checkpoint must be removed when all rows complete"
 
     asyncio.run(_test_flow())
-
-
-
-

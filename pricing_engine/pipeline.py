@@ -44,6 +44,8 @@ from pricing_engine.exporter import (
     export_winning_5pct_results,
     filter_alfa_only_columns,
     filter_digi_only_columns,
+    format_export_shipping,
+    is_price_int_column,
     resolve_option_output_dir,
 )
 from pricing_engine.ingestion import (
@@ -69,9 +71,11 @@ from pricing_engine.models import (
     ScrapedOffer,
     ScrapeResult,
     classify_non_competitor_vendor,
+    format_comm_pct_label,
+    get_winning_comm_goals,
 )
 from pricing_engine.registry import InMemoryRegistry
-from pricing_engine.scraper import scrape_alfamall, scrape_digimall
+from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 default_learner = AutonomousLearner()
 
@@ -159,11 +163,7 @@ def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> 
         return "AMBIGUOUS_VARIANT"
     if res.status == "SKIPPED":
         return ""
-    if (
-        res.status == STATUS_SERVER_DOWN
-        or res.final_price is None
-        or res.real_profit is None
-    ):
+    if res.status == STATUS_SERVER_DOWN or res.final_price is None or res.real_profit is None:
         return "SERVER_DOWN"
     if res.real_profit <= 0:
         return "NEGATIVE_MARGIN"
@@ -201,7 +201,6 @@ def resolve_shipping_estimate(product: ProductInput) -> tuple[float, bool]:
         return calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE), False
     fallback_rate, _ = resolve_fallback_shipping(product.name, brand=product.brand)
     return fallback_rate, True
-
 
 
 def _extract_sno(row: pd.Series | dict[str, Any], default: int) -> int | str:
@@ -263,7 +262,7 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
             "Please provide a valid product name in the 'Name' or 'Title' column."
         )
 
-    if not brand or brand.lower() in INVALID_BRAND_VALUES:
+    if not brand or brand.lower() in INVALID_BRAND_VALUES or not any(c.isalpha() for c in brand):
         raise ValueError(
             f"Row {idx + 1} ('{name}'): 'Brand' column is empty or invalid ('{brand or raw_brand}'). "
             "Please enter a valid brand name in the 'Brand' column for this product."
@@ -348,16 +347,18 @@ def determine_5pct_goal_status(
     target_profit_5pct: int,
     active_sellers: int,
     is_skipped: bool = False,
+    personal_comm_pct: float = 5.0,
 ) -> str:
-    """Determine whether a product achieves WIN + Full 5% Personal Commission + Rs. 500 Company Profit.
+    """Determine whether a product achieves WIN + Full Personal Commission + Rs. 500 Company Profit.
 
     Strict Market-Wide Goal Condition:
     1. Active sellers exist in market (active_sellers > 0 -> proven market demand).
     2. Status badge indicates a true market-wide win: 'WIN (-' or 'CAPPED (-'.
        If sub-floor competitors exist in the market, our price does NOT beat the cheapest
-       seller on the platform, so it cannot qualify as WIN + 5% ACHIEVED.
-    3. Real profit covers both 5% personal commission on Net Price AND Rs. 500 company profit.
+       seller on the platform, so it cannot qualify as WIN + X% ACHIEVED.
+    3. Real profit covers both personal commission on Real Profit AND Rs. 500 company profit.
     """
+    lbl = format_comm_pct_label(personal_comm_pct)
     if is_skipped:
         return ""
     if status_badge == "SERVER_DOWN":
@@ -370,12 +371,12 @@ def determine_5pct_goal_status(
         and real_profit is not None
         and real_profit >= target_profit_5pct
     ):
-        return "WIN + 5% ACHIEVED"
+        return f"WIN + {lbl}% ACHIEVED"
     if status_badge == "SOLO" and real_profit is not None and real_profit >= target_profit_5pct:
-        return "SOLO (5% COVERED)"
+        return f"SOLO ({lbl}% COVERED)"
     if status_badge in ("CAPPED", "WIN"):
         return "SUB-FLOOR CHEAPER"
-    return "BELOW 5% FLOOR"
+    return f"BELOW {lbl}% FLOOR"
 
 
 def build_output_record(
@@ -423,9 +424,7 @@ def build_output_record(
     out_record["Shipping Estimate"] = shipping
     plat_lower = platform.lower().strip()
     if plat_lower == "digi" and digi_res.status != "SKIPPED":
-        out_record["Commision"] = (
-            digi_res.effective_comm if digi_res.effective_comm else "10.00%"
-        )
+        out_record["Commision"] = digi_res.effective_comm if digi_res.effective_comm else "10.00%"
     else:
         out_record["Commision"] = "10.00%"
     out_record["Digi Effective Commision"] = (
@@ -446,8 +445,8 @@ def build_output_record(
     out_record["Minimum Price Digi"] = digi_res.min_price if digi_res.status != "SKIPPED" else None
     out_record["Maximum Price Digi"] = digi_res.max_price if digi_res.status != "SKIPPED" else None
 
-    alfa_priced = (alfa_res.status != "SKIPPED" and alfa_res.final_price is not None)
-    digi_priced = (digi_res.status != "SKIPPED" and digi_res.final_price is not None)
+    alfa_priced = alfa_res.status != "SKIPPED" and alfa_res.final_price is not None
+    digi_priced = digi_res.status != "SKIPPED" and digi_res.final_price is not None
 
     alfa_my_comm, alfa_co_profit = split_real_profit(
         alfa_res.real_profit if alfa_priced else None, personal_comm_pct
@@ -457,7 +456,6 @@ def build_output_record(
     )
     alfa_alert = determine_risk_alert(alfa_res, personal_comm=alfa_my_comm)
     digi_alert = determine_risk_alert(digi_res, personal_comm=digi_my_comm)
-
 
     alfa_status = (
         determine_platform_status(
@@ -484,30 +482,33 @@ def build_output_record(
     out_record["Digi Reason"] = digi_res.reason if digi_res.status != "SKIPPED" else ""
 
     if personal_comm_pct > 0:
+        lbl = format_comm_pct_label(personal_comm_pct)
         min_target_profit = calculate_effective_target_profit(personal_comm_pct=personal_comm_pct)
         alfa_sellers = len(alfa_res.active_pool) + len(alfa_res.dropped)
         digi_sellers = len(digi_res.active_pool) + len(digi_res.dropped)
 
         my_comm = max(alfa_my_comm, digi_my_comm)
-        out_record["My 5% Commission"] = my_comm
-        out_record["Min Profit Target (5% + 500)"] = min_target_profit
+        out_record[f"My {lbl}% Commission"] = my_comm
+        out_record[f"Min Profit Target ({lbl}% + 500)"] = min_target_profit
         out_record["Alfa Active Sellers"] = alfa_sellers if alfa_res.status != "SKIPPED" else None
         out_record["Digi Active Sellers"] = digi_sellers if digi_res.status != "SKIPPED" else None
         out_record["Alfa Company Profit"] = alfa_co_profit
         out_record["Digi Company Profit"] = digi_co_profit
-        out_record["Alfa 5% Goal"] = determine_5pct_goal_status(
+        out_record[f"Alfa {lbl}% Goal"] = determine_5pct_goal_status(
             alfa_status,
             alfa_res.real_profit,
             min_target_profit,
             alfa_sellers,
             is_skipped=(alfa_res.status == "SKIPPED"),
+            personal_comm_pct=personal_comm_pct,
         )
-        out_record["Digi 5% Goal"] = determine_5pct_goal_status(
+        out_record[f"Digi {lbl}% Goal"] = determine_5pct_goal_status(
             digi_status,
             digi_res.real_profit,
             min_target_profit,
             digi_sellers,
             is_skipped=(digi_res.status == "SKIPPED"),
+            personal_comm_pct=personal_comm_pct,
         )
 
     out_record["Alfa Risk Alert"] = alfa_alert
@@ -550,7 +551,11 @@ def process_product_with_offers(
     alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
     digi_res = evaluate_digi_pricing(floors, digi_offers)
 
-    if platform.lower().strip() == "digi" and digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
+    if (
+        platform.lower().strip() == "digi"
+        and digi_res.status != "SKIPPED"
+        and digi_res.effective_comm == "8.00%"
+    ):
         baseline_calc = calculate_baseline(
             cost_base, target_profit=effective_target_profit, payout_rate=0.92
         )
@@ -628,8 +633,10 @@ def render_finish_banner(
     winners_csv_path: Path | None = None,
     winners_xlsx_path: Path | None = None,
     winners_count: int = 0,
+    personal_comm_pct: float = 5.0,
 ) -> None:
     """Render clean executive completion banner."""
+    lbl = format_comm_pct_label(personal_comm_pct)
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="bold cyan", width=22)
     grid.add_column(style="white")
@@ -640,11 +647,11 @@ def render_finish_banner(
         grid.add_row("Dynamic Excel (.xlsx):", f"[bold green]{xlsx_path.resolve()}[/]")
     if winners_csv_path:
         grid.add_row(
-            "5% Winners CSV:",
+            f"{lbl}% Winners CSV:",
             f"[bold yellow]{winners_csv_path.resolve()}[/] ({winners_count} winning items)",
         )
     if winners_xlsx_path:
-        grid.add_row("5% Winners Excel:", f"[bold yellow]{winners_xlsx_path.resolve()}[/]")
+        grid.add_row(f"{lbl}% Winners Excel:", f"[bold yellow]{winners_xlsx_path.resolve()}[/]")
     grid.add_row("Elapsed Time:", f"{elapsed_seconds:.2f} seconds")
 
     console.print()
@@ -684,7 +691,11 @@ def _render_platform_offers_to_table(
         )
         return
 
-    own_offers = list(res.own_offers) if res.own_offers else (list(offers.own_offers) if isinstance(offers, ScrapeResult) else [])
+    own_offers = (
+        list(res.own_offers)
+        if res.own_offers
+        else (list(offers.own_offers) if isinstance(offers, ScrapeResult) else [])
+    )
     for o in own_offers:
         kind = classify_non_competitor_vendor(o.vendor_name)
         dupe_tag = _format_dupe_tag(o.duplicate_count)
@@ -708,7 +719,9 @@ def _render_platform_offers_to_table(
         )
 
     if not offers:
-        empty_seller_label = "[dim]No external sellers[/]" if own_offers else "[dim]No sellers found[/]"
+        empty_seller_label = (
+            "[dim]No external sellers[/]" if own_offers else "[dim]No sellers found[/]"
+        )
         tbl.add_row(
             platform_tag,
             empty_seller_label,
@@ -764,7 +777,9 @@ def _render_platform_offers_to_table(
         # 2. Target Undercut - ALWAYS explicitly rendered
         lowest_viable = viable[0]
         lv_dupe = _format_dupe_tag(lowest_viable.duplicate_count)
-        lv_title = f"\n[dim white]-> {lowest_viable.raw_title[:65]}[/]" if lowest_viable.raw_title else ""
+        lv_title = (
+            f"\n[dim white]-> {lowest_viable.raw_title[:65]}[/]" if lowest_viable.raw_title else ""
+        )
         tbl.add_row(
             platform_tag,
             lowest_viable.vendor_name[:21],
@@ -942,9 +957,7 @@ def build_platform_decision_table(
         alfa_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif alfa_res.final_price is not None:
         if alfa_res.status == "Safe Fallback":
-            alfa_p_str = (
-                f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
-            )
+            alfa_p_str = f"[bold red]Rs. {alfa_res.final_price:,} (SAFE FALLBACK)[/]"
         elif (
             len(alfa_res.dropped) > 0
             or "sub-floor" in (alfa_res.reason or "").lower()
@@ -957,7 +970,10 @@ def build_platform_decision_table(
             or "no competitors" in (alfa_res.reason or "").lower()
         ):
             alfa_p_str = f"[bold cyan]Rs. {alfa_res.final_price:,} (MONOPOLY WIN)[/]"
-        elif "capped" in (alfa_res.reason or "").lower() or "sweet-spot" in (alfa_res.reason or "").lower():
+        elif (
+            "capped" in (alfa_res.reason or "").lower()
+            or "sweet-spot" in (alfa_res.reason or "").lower()
+        ):
             alfa_p_str = f"[bold green]Rs. {alfa_res.final_price:,} (WINNING SWEET-SPOT)[/]"
         elif (
             "undercut" in (alfa_res.status or "").lower()
@@ -976,9 +992,7 @@ def build_platform_decision_table(
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
     elif digi_res.final_price is not None:
         if digi_res.status == "Safe Fallback":
-            digi_p_str = (
-                f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
-            )
+            digi_p_str = f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
         elif (
             len(digi_res.dropped) > 0
             or "sub-floor" in (digi_res.reason or "").lower()
@@ -992,16 +1006,23 @@ def build_platform_decision_table(
             or "no competitors" in (digi_res.reason or "").lower()
         ):
             digi_p_str = f"[bold cyan]Rs. {digi_res.final_price:,} (MONOPOLY WIN)[/]"
-        elif "capped" in (digi_res.reason or "").lower() or "sweet-spot" in (digi_res.reason or "").lower():
+        elif (
+            "capped" in (digi_res.reason or "").lower()
+            or "sweet-spot" in (digi_res.reason or "").lower()
+        ):
             tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
-            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT{tier_note})[/]"
+            digi_p_str = (
+                f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT{tier_note})[/]"
+            )
         elif (
             "undercut" in (digi_res.status or "").lower()
             or "undercut" in (digi_res.reason or "").lower()
             or "winning price" in (digi_res.reason or "").lower()
         ):
             tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
-            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT{tier_note})[/]"
+            digi_p_str = (
+                f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT{tier_note})[/]"
+            )
         else:
             digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
     else:
@@ -1050,8 +1071,12 @@ def build_platform_decision_table(
     if personal_comm_pct > 0:
         a_priced = alfa_res.status != "SKIPPED" and alfa_res.final_price is not None
         d_priced = digi_res.status != "SKIPPED" and digi_res.final_price is not None
-        a_comm, a_co = split_real_profit(alfa_res.real_profit if a_priced else None, personal_comm_pct)
-        d_comm, d_co = split_real_profit(digi_res.real_profit if d_priced else None, personal_comm_pct)
+        a_comm, a_co = split_real_profit(
+            alfa_res.real_profit if a_priced else None, personal_comm_pct
+        )
+        d_comm, d_co = split_real_profit(
+            digi_res.real_profit if d_priced else None, personal_comm_pct
+        )
         alfa_split_str = (
             f"[bold yellow]My Comm: +Rs. {a_comm:,}[/] | [bold green]Company: +Rs. {a_co:,}[/]"
             if a_co is not None and alfa_res.real_profit is not None and alfa_res.real_profit > 0
@@ -1108,8 +1133,8 @@ def render_audit_card(
         "Courier Shipping:",
         shipping_str,
         (
-            f"[bold #2c4699]Alfa 10% Floor (+{floors.personal_comm:,} Comm + 500):[/]"
-            if floors.personal_comm > 0
+            f"[bold #2c4699]Alfa 10% Floor (+{floors.alfa_personal_comm:,} Comm + 500):[/]"
+            if floors.alfa_personal_comm > 0
             else "[bold #2c4699]Alfa 10% Floor (+500):[/]"
         ),
         f"[bold #2c4699]Rs. {floors.floor_alfa:,.0f}[/]",
@@ -1124,8 +1149,8 @@ def render_audit_card(
         "Dimensions:",
         dim_str,
         (
-            f"[bold #229693]Digi 8% Floor (+{floors.personal_comm:,} Comm + 500):[/]"
-            if floors.personal_comm > 0
+            f"[bold #229693]Digi 8% Floor (+{floors.digi_personal_comm:,} Comm + 500):[/]"
+            if floors.digi_personal_comm > 0
             else "[bold #229693]Digi 8% Floor (+500):[/]"
         ),
         f"[bold #229693]Rs. {floors.floor_digi_8:,.0f}[/]",
@@ -1156,7 +1181,9 @@ def render_audit_card(
         if isinstance(offers_res, ScrapeResult) and offers_res.active_modifier_fallback:
             mod = offers_res.active_modifier_fallback
             count = len(offers_res.offers)
-            audit_text, _, _ = format_fallback_descriptions(mod)
+            audit_text, _, _ = format_fallback_descriptions(
+                mod, source=offers_res.active_modifier_source
+            )
             return (
                 f"[{p_color}]{p_name}:[/] [bold yellow]{audit_text}[/] -> "
                 f"[bold green]Matched {count} base model offer{'s' if count != 1 else ''} (DO CROSS-CHECK)[/]"
@@ -1214,17 +1241,20 @@ def render_audit_card(
     content.add_row(sellers_tbl)
     content.add_row(plat_tbl)
 
-    active_fallback_mod = (
-        alfa_offers.active_modifier_fallback
+    active_fallback_res = (
+        alfa_offers
         if isinstance(alfa_offers, ScrapeResult) and alfa_offers.active_modifier_fallback
         else (
-            digi_offers.active_modifier_fallback
+            digi_offers
             if isinstance(digi_offers, ScrapeResult) and digi_offers.active_modifier_fallback
             else None
         )
     )
-    if active_fallback_mod:
-        _, _, banner_text = format_fallback_descriptions(active_fallback_mod)
+    if active_fallback_res and active_fallback_res.active_modifier_fallback:
+        _, _, banner_text = format_fallback_descriptions(
+            active_fallback_res.active_modifier_fallback,
+            source=active_fallback_res.active_modifier_source,
+        )
         warning_banner = Panel(
             banner_text,
             border_style="yellow",
@@ -1391,23 +1421,39 @@ async def process_item_async(
                 console.print(con_tbl)
 
                 try:
-                    user_input = input(
-                        f"Select variant for '{product.name}' [1-{len(conflict.detected_variants)}, S] (default S): "
-                    ).strip().upper()
-                    if user_input.isdigit() and 1 <= int(user_input) <= len(conflict.detected_variants):
+                    user_input = (
+                        input(
+                            f"Select variant for '{product.name}' [1-{len(conflict.detected_variants)}, S] (default S): "
+                        )
+                        .strip()
+                        .upper()
+                    )
+                    if user_input.isdigit() and 1 <= int(user_input) <= len(
+                        conflict.detected_variants
+                    ):
                         selected_variant = conflict.detected_variants[int(user_input) - 1]
                 except (EOFError, KeyboardInterrupt):
                     selected_variant = None
 
         if selected_variant:
-            # Re-filter offers for chosen variant
+            # Re-filter offers for chosen variant while preserving scrape metadata & own_offers
             v = selected_variant
             if isinstance(alfa_offers, ScrapeResult):
                 a_filt = [o for o in alfa_offers.offers if o.detected_variant == v]
-                alfa_offers = ScrapeResult(offers=a_filt, base_offers=a_filt, is_success=True)
+                alfa_offers = dataclasses.replace(
+                    alfa_offers,
+                    offers=a_filt,
+                    base_offers=a_filt,
+                    ambiguity_conflict=None,
+                )
             if isinstance(digi_offers, ScrapeResult):
                 d_filt = [o for o in digi_offers.offers if o.detected_variant == v]
-                digi_offers = ScrapeResult(offers=d_filt, base_offers=d_filt, is_success=True)
+                digi_offers = dataclasses.replace(
+                    digi_offers,
+                    offers=d_filt,
+                    base_offers=d_filt,
+                    ambiguity_conflict=None,
+                )
 
             # Option A: Update product name with resolved variant suffix
             product = dataclasses.replace(product, name=f"{product.name} {v}")
@@ -1480,6 +1526,7 @@ async def process_item_async(
                     )
 
     if verbose:
+
         def _render() -> None:
             render_audit_card(
                 product=product,
@@ -1574,7 +1621,8 @@ def _format_summary_price(
 
     raw_p = f"{int(float(price_val)):,}"
     price_str = f"[{brand_color}]{raw_p}[/]"
-    is_modifier_fallback = "fallback model" in reason.lower()
+    r_low = reason.lower()
+    is_modifier_fallback = "fallback model" in r_low or "cross-check notice" in r_low
     mod_tag = " [bold yellow]CROSS-CHECK[/]" if is_modifier_fallback else ""
 
     if status == "FALLBACK":
@@ -1596,11 +1644,7 @@ def _format_summary_profit(
 ) -> str:
     """Format profit string for terminal executive summary table."""
     reason_lower = reason.lower()
-    if (
-        "server is down" in reason_lower
-        or "unreachable" in reason_lower
-        or alert == "SERVER_DOWN"
-    ):
+    if "server is down" in reason_lower or "unreachable" in reason_lower or alert == "SERVER_DOWN":
         return "[dim red]0[/]"
     if pd.notna(price_val) and price_val is not None and str(price_val).strip() != "":
         p_val = float(profit_val or 0)
@@ -1716,13 +1760,17 @@ def render_winning_5pct_summary(
     records: list[dict[str, Any]],
     personal_comm_pct: float = 5.0,
 ) -> None:
-    """Render a dedicated executive summary table of high-demand Winning + 5% Commission products."""
-    win_goals = WINNING_5PCT_GOALS
+    """Render a dedicated executive summary table of high-demand Winning + Personal Commission products."""
+    lbl = format_comm_pct_label(personal_comm_pct)
+    win_goals = WINNING_5PCT_GOALS | get_winning_comm_goals(personal_comm_pct)
+    alfa_goal_col = f"Alfa {lbl}% Goal"
+    digi_goal_col = f"Digi {lbl}% Goal"
+    my_comm_col = f"My {lbl}% Commission"
     winners = [
         r
         for r in records
-        if r.get("Alfa 5% Goal") in win_goals
-        or r.get("Digi 5% Goal") in win_goals
+        if r.get(alfa_goal_col, r.get("Alfa 5% Goal")) in win_goals
+        or r.get(digi_goal_col, r.get("Digi 5% Goal")) in win_goals
     ]
 
     if not winners:
@@ -1783,10 +1831,10 @@ def render_winning_5pct_summary(
             name = name[:20] + ".."
 
         net_p = int(_safe_float(rec.get("Net Price"), 0))
-        my_comm = int(_safe_float(rec.get("My 5% Commission"), 0))
+        my_comm = int(_safe_float(rec.get(my_comm_col, rec.get("My 5% Commission")), 0))
         total_my_comm += my_comm
 
-        alfa_goal = str(rec.get("Alfa 5% Goal", ""))
+        alfa_goal = str(rec.get(alfa_goal_col, rec.get("Alfa 5% Goal", "")))
         alfa_sellers = int(_safe_float(rec.get("Alfa Active Sellers"), 0))
         if alfa_goal in win_goals:
             alfa_win_count += 1
@@ -1799,7 +1847,7 @@ def render_winning_5pct_summary(
             alfa_cell = f"[dim]- ({alfa_sellers} sellers)[/]"
             alfa_co_cell = "[dim]-[/]"
 
-        digi_goal = str(rec.get("Digi 5% Goal", ""))
+        digi_goal = str(rec.get(digi_goal_col, rec.get("Digi 5% Goal", "")))
         digi_sellers = int(_safe_float(rec.get("Digi Active Sellers"), 0))
         if digi_goal in win_goals:
             digi_win_count += 1
@@ -1886,226 +1934,225 @@ async def run_pipeline(
     if "Net Price" not in df.columns:
         raise ValueError(f"Missing required column 'Net Price' in {input_path.name}.")
     start_time = time.perf_counter()
+    clear_scraper_cache()
+    default_learner.clear_buffer()
 
     supabase_client = SupabaseClient()
-    if supabase_client.is_configured:
-        await InMemoryRegistry.load_from_db(supabase_client)
+    try:
+        if supabase_client.is_configured:
+            await InMemoryRegistry.load_from_db(supabase_client)
 
-    opt_mode = 3 if personal_comm_pct > 0 else 1
-    if output_path is not None:
-        banner_output_path = Path(output_path)
-        resolved_export_dir = None
-    else:
-        resolved_export_dir = (
-            Path(export_dir)
-            if export_dir is not None
-            else resolve_option_output_dir(input_path, option=opt_mode)
-        )
-        banner_output_path = resolved_export_dir / "csv" / f"{input_path.stem}_repriced_latest.csv"
-
-    checkpoint_state = load_checkpoint(input_path) if resume else None
-    rows_to_run: list[int] = []
-    cached_records: dict[int, dict[str, Any]] = {}
-    row_fingerprints: dict[int, str] = {}
-
-    for idx, row in df.iterrows():
-        i = int(idx)
-        row_fingerprints[i] = compute_row_fingerprint(row)
-
-    if checkpoint_state is not None:
-        rows_to_run, cached_records = detect_dirty_or_pending_rows(df, checkpoint_state)
-        if verbose and cached_records:
-            console.print(
-                f"[bold green]⚡ Resumed from checkpoint:[/] Loaded {len(cached_records)} completed item(s) from cache; "
-                f"executing {len(rows_to_run)} pending/modified item(s)."
+        opt_mode = 3 if personal_comm_pct > 0 else 1
+        if output_path is not None:
+            banner_output_path = Path(output_path)
+            resolved_export_dir = None
+        else:
+            resolved_export_dir = (
+                Path(export_dir)
+                if export_dir is not None
+                else resolve_option_output_dir(input_path, option=opt_mode)
             )
-    else:
-        rows_to_run = [int(idx) for idx in df.index]
+            banner_output_path = (
+                resolved_export_dir / "csv" / f"{input_path.stem}_repriced_latest.csv"
+            )
 
-    if verbose:
-        render_start_banner(
-            input_path=input_path,
-            output_path=banner_output_path,
-            total_items=len(df),
-            concurrency=concurrency,
-            platform=plat,
-            personal_comm_pct=personal_comm_pct,
-        )
+        checkpoint_state = load_checkpoint(input_path) if resume else None
+        rows_to_run: list[int] = []
+        cached_records: dict[int, dict[str, Any]] = {}
+        row_fingerprints: dict[int, str] = {}
 
-    semaphore = asyncio.Semaphore(concurrency)
-    render_lock = asyncio.Lock()
-    dispatcher = InOrderCardDispatcher(lock=render_lock) if verbose else None
+        for idx, row in df.iterrows():
+            i = int(idx)
+            row_fingerprints[i] = compute_row_fingerprint(
+                row, platform=plat, personal_comm_pct=personal_comm_pct
+            )
 
-    # Advance dispatcher for pre-cached rows so it doesn't stall waiting for them
-    if dispatcher is not None:
-        for c_idx in sorted(cached_records.keys()):
-            await dispatcher.skip(c_idx)
-
-    tasks: list[asyncio.Task[dict[str, Any]]] = []
-
-    async with AsyncSession(impersonate="chrome120") as session:
-        for run_i, idx in enumerate(rows_to_run):
-            row = df.iloc[idx]
-            product = parse_product_input(idx, row)
-            task = asyncio.create_task(
-                _process_item_worker(
-                    idx=int(idx),
-                    product=product,
-                    session=session,
-                    semaphore=semaphore,
-                    render_lock=render_lock,
-                    dispatcher=dispatcher,
-                    verbose=verbose,
-                    platform=plat,
-                    personal_comm_pct=personal_comm_pct,
+        if checkpoint_state is not None:
+            rows_to_run, cached_records = detect_dirty_or_pending_rows(
+                df, checkpoint_state, platform=plat, personal_comm_pct=personal_comm_pct
+            )
+            if verbose and cached_records:
+                console.print(
+                    f"[bold green]⚡ Resumed from checkpoint:[/] Loaded {len(cached_records)} completed item(s) from cache; "
+                    f"executing {len(rows_to_run)} pending/modified item(s)."
                 )
-            )
-            tasks.append(task)
-            if run_i < len(rows_to_run) - 1:
-                # Micro-stagger launch by 400ms to eliminate burst wave against WAF
-                await asyncio.sleep(0.4)
+        else:
+            rows_to_run = [int(idx) for idx in df.index]
 
-        try:
-            raw_records = await asyncio.gather(*tasks) if tasks else []
-        finally:
-            if dispatcher is not None:
-                await dispatcher.flush()
-
-    newly_resolved_records: dict[int, dict[str, Any]] = {}
-    for r in raw_records:
-        orig_idx = int(r.pop("_original_idx", 0))
-        newly_resolved_records[orig_idx] = r
-
-    # Deterministically merge cached and newly resolved records in exact original 0..N-1 row order
-    records = merge_records_in_order(
-        cached_records=cached_records,
-        newly_resolved_records=newly_resolved_records,
-        total_items=len(df),
-    )
-
-    # Persist or clean up checkpoint state
-    all_completed = {**cached_records, **newly_resolved_records}
-    pending_indices: list[int] = []
-    pending_reasons: dict[int, str] = {}
-
-    for i, rec in all_completed.items():
-        is_ambiguous = (
-            "AMBIGUOUS" in str(rec.get("Alfa Risk Alert", ""))
-            or "AMBIGUOUS" in str(rec.get("Digi Risk Alert", ""))
-            or "SKIPPED (Ambiguous" in str(rec.get("Alfa Reason", ""))
-            or "SKIPPED (Ambiguous" in str(rec.get("Digi Reason", ""))
-        )
-        if is_ambiguous:
-            pending_indices.append(i)
-            pending_reasons[i] = str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
-
-    if pending_indices:
-        clean_completed = {i: rec for i, rec in all_completed.items() if i not in pending_indices}
-        new_state = CheckpointState(
-            catalog_name=input_path.name,
-            catalog_path=str(input_path),
-            catalog_mtime=input_path.stat().st_mtime,
-            total_items=len(df),
-            completed_records=clean_completed,
-            row_fingerprints=row_fingerprints,
-            pending_indices=pending_indices,
-            pending_reasons=pending_reasons,
-        )
-        save_checkpoint(input_path, new_state)
-    else:
-        delete_checkpoint(input_path)
-
-    out_df = pd.DataFrame(records)
-
-    price_int_cols = [
-        "Total Without Profit",
-        "Calculation",
-        "Minimum Price Alfa",
-        "Maximum Price Alfa",
-        "Minimum Price Digi",
-        "Maximum Price Digi",
-        "Final Price Alfa",
-        "Final Price Digi",
-        "Alfa Real Profit",
-        "Digi Real Profit",
-        "My 5% Commission",
-        "Min Profit Target (5% + 500)",
-        "Alfa Active Sellers",
-        "Digi Active Sellers",
-        "Alfa Company Profit",
-        "Digi Company Profit",
-    ]
-    for col in price_int_cols:
-        if col in out_df.columns:
-            out_df[col] = out_df[col].apply(format_export_price)
-
-    effective_finish_path: Path
-    effective_xlsx_path: Path | None = None
-    winners_csv_path: Path | None = None
-    winners_xlsx_path: Path | None = None
-    winners_count: int = 0
-
-    if output_path is not None:
-        target_out = Path(output_path)
-        if target_out.parent and not target_out.parent.exists():
-            target_out.parent.mkdir(parents=True, exist_ok=True)
-        export_df = out_df.copy()
-        if plat == "alfa":
-            export_df = filter_alfa_only_columns(export_df)
-        elif plat == "digi":
-            export_df = filter_digi_only_columns(export_df)
-        export_df.to_csv(target_out, index=False)
-        effective_finish_path = target_out
-        if personal_comm_pct > 0:
-            winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
-                df=out_df,
-                source_filename=input_path,
-                output_dir=target_out.parent,
-                personal_comm_pct=personal_comm_pct,
+        if verbose:
+            render_start_banner(
+                input_path=input_path,
+                output_path=banner_output_path,
+                total_items=len(df),
+                concurrency=concurrency,
                 platform=plat,
+                personal_comm_pct=personal_comm_pct,
             )
-    else:
-        manifest = export_results(
-            df=out_df,
-            source_filename=input_path,
-            output_dir=resolved_export_dir,
-            render_panel=False,
-            personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
-            platform=plat,
+
+        semaphore = asyncio.Semaphore(concurrency)
+        render_lock = asyncio.Lock()
+        dispatcher = InOrderCardDispatcher(lock=render_lock) if verbose else None
+
+        # Advance dispatcher for pre-cached rows so it doesn't stall waiting for them
+        if dispatcher is not None:
+            for c_idx in sorted(cached_records.keys()):
+                await dispatcher.skip(c_idx)
+
+        tasks: list[asyncio.Task[dict[str, Any]]] = []
+
+        async with AsyncSession(impersonate="chrome120") as session:
+            for run_i, idx in enumerate(rows_to_run):
+                row = df.iloc[idx]
+                product = parse_product_input(idx, row)
+                task = asyncio.create_task(
+                    _process_item_worker(
+                        idx=int(idx),
+                        product=product,
+                        session=session,
+                        semaphore=semaphore,
+                        render_lock=render_lock,
+                        dispatcher=dispatcher,
+                        verbose=verbose,
+                        platform=plat,
+                        personal_comm_pct=personal_comm_pct,
+                    )
+                )
+                tasks.append(task)
+                if run_i < len(rows_to_run) - 1:
+                    # Micro-stagger launch by 400ms to eliminate burst wave against WAF
+                    await asyncio.sleep(0.4)
+
+            try:
+                raw_records = await asyncio.gather(*tasks) if tasks else []
+            finally:
+                if dispatcher is not None:
+                    await dispatcher.flush()
+
+        newly_resolved_records: dict[int, dict[str, Any]] = {}
+        for r in raw_records:
+            orig_idx = int(r.pop("_original_idx", 0))
+            newly_resolved_records[orig_idx] = r
+
+        # Deterministically merge cached and newly resolved records in exact original 0..N-1 row order
+        records = merge_records_in_order(
+            cached_records=cached_records,
+            newly_resolved_records=newly_resolved_records,
+            total_items=len(df),
         )
-        effective_finish_path = manifest.timestamped_path
-        effective_xlsx_path = manifest.latest_xlsx_path
-        if personal_comm_pct > 0:
-            winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
+
+        # Persist or clean up checkpoint state
+        all_completed = {**cached_records, **newly_resolved_records}
+        pending_indices: list[int] = []
+        pending_reasons: dict[int, str] = {}
+
+        for i, rec in all_completed.items():
+            is_ambiguous = (
+                "AMBIGUOUS" in str(rec.get("Alfa Risk Alert", ""))
+                or "AMBIGUOUS" in str(rec.get("Digi Risk Alert", ""))
+                or "SKIPPED (Ambiguous" in str(rec.get("Alfa Reason", ""))
+                or "SKIPPED (Ambiguous" in str(rec.get("Digi Reason", ""))
+            )
+            if is_ambiguous:
+                pending_indices.append(i)
+                pending_reasons[i] = str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
+
+        if pending_indices:
+            clean_completed = {
+                i: rec for i, rec in all_completed.items() if i not in pending_indices
+            }
+            new_state = CheckpointState(
+                catalog_name=input_path.name,
+                catalog_path=str(input_path),
+                catalog_mtime=input_path.stat().st_mtime,
+                total_items=len(df),
+                completed_records=clean_completed,
+                row_fingerprints=row_fingerprints,
+                pending_indices=pending_indices,
+                pending_reasons=pending_reasons,
+            )
+            save_checkpoint(input_path, new_state)
+        else:
+            delete_checkpoint(input_path)
+
+        out_df = pd.DataFrame(records)
+
+        if "Shipping Estimate" in out_df.columns:
+            out_df["Shipping Estimate"] = out_df["Shipping Estimate"].apply(format_export_shipping)
+        for col in out_df.columns:
+            if is_price_int_column(col):
+                out_df[col] = out_df[col].apply(format_export_price)
+
+        effective_finish_path: Path
+        effective_xlsx_path: Path | None = None
+        winners_csv_path: Path | None = None
+        winners_xlsx_path: Path | None = None
+        winners_count: int = 0
+
+        if output_path is not None:
+            target_out = Path(output_path)
+            if target_out.parent and not target_out.parent.exists():
+                target_out.parent.mkdir(parents=True, exist_ok=True)
+            export_df = out_df.copy()
+            if plat == "alfa":
+                export_df = filter_alfa_only_columns(export_df)
+            elif plat == "digi":
+                export_df = filter_digi_only_columns(export_df)
+            export_df.to_csv(target_out, index=False)
+            effective_finish_path = target_out
+            if personal_comm_pct > 0:
+                winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
+                    df=out_df,
+                    source_filename=input_path,
+                    output_dir=target_out.parent,
+                    personal_comm_pct=personal_comm_pct,
+                    platform=plat,
+                )
+        else:
+            manifest = export_results(
                 df=out_df,
                 source_filename=input_path,
                 output_dir=resolved_export_dir,
-                personal_comm_pct=personal_comm_pct,
+                render_panel=False,
+                personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
                 platform=plat,
             )
+            effective_finish_path = manifest.timestamped_path
+            effective_xlsx_path = manifest.latest_xlsx_path
+            if personal_comm_pct > 0:
+                winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
+                    df=out_df,
+                    source_filename=input_path,
+                    output_dir=resolved_export_dir,
+                    personal_comm_pct=personal_comm_pct,
+                    platform=plat,
+                )
 
-    if supabase_client.is_configured and default_learner.buffer_size > 0:
-        flushed_count = await default_learner.flush_observations(supabase_client)
-        if verbose and flushed_count > 0:
-            console.print(
-                f"  [bold cyan]☁️  [Supabase Memory][/] Synchronized {flushed_count} new market observations to cloud registry."
+        if supabase_client.is_configured and default_learner.buffer_size > 0:
+            flushed_count = await default_learner.flush_observations(supabase_client)
+            if verbose and flushed_count > 0:
+                console.print(
+                    f"  [bold cyan]☁️  [Supabase Memory][/] Synchronized {flushed_count} new market observations to cloud registry."
+                )
+
+        if verbose and records:
+            render_summary_table(records)
+            if personal_comm_pct > 0:
+                render_winning_5pct_summary(records, personal_comm_pct=personal_comm_pct)
+
+        elapsed = time.perf_counter() - start_time
+        if verbose:
+            render_finish_banner(
+                output_path=effective_finish_path,
+                total_processed=len(records),
+                elapsed_seconds=elapsed,
+                xlsx_path=effective_xlsx_path,
+                winners_csv_path=winners_csv_path,
+                winners_xlsx_path=winners_xlsx_path,
+                winners_count=winners_count,
+                personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
             )
 
-    if verbose and records:
-        render_summary_table(records)
-        if personal_comm_pct > 0:
-            render_winning_5pct_summary(records, personal_comm_pct=personal_comm_pct)
-
-    elapsed = time.perf_counter() - start_time
-    if verbose:
-        render_finish_banner(
-            output_path=effective_finish_path,
-            total_processed=len(records),
-            elapsed_seconds=elapsed,
-            xlsx_path=effective_xlsx_path,
-            winners_csv_path=winners_csv_path,
-            winners_xlsx_path=winners_xlsx_path,
-            winners_count=winners_count,
-        )
-
-    return out_df
+        return out_df
+    finally:
+        default_learner.clear_buffer()
+        await supabase_client.close()

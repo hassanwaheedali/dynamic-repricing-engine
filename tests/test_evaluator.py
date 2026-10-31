@@ -415,7 +415,9 @@ def test_evaluate_market_range_ignores_non_competitor() -> None:
     from pricing_engine.evaluator import evaluate_market_range
 
     offers = [
-        ScrapedOffer(vendor_name="Haier Official Store", price=50000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="Haier Official Store", price=50000.0, is_sold_out=False, raw_title="AC"
+        ),
         ScrapedOffer(vendor_name="Competitor 1", price=65000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="Competitor 2", price=70000.0, is_sold_out=False, raw_title="AC"),
     ]
@@ -428,7 +430,9 @@ def test_evaluate_market_range_ignores_non_competitor() -> None:
 def test_evaluator_ignores_non_competitor_as_sole_offer(sample_floors: CostFloors) -> None:
     # If the only seller is Haier Official Store, it is NOT considered a competitor -> Monopoly Win!
     offers = [
-        ScrapedOffer(vendor_name="Haier Official Store", price=75000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="Haier Official Store", price=75000.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=offers)
     assert alfa_res.status == "Monopoly Win"
@@ -438,7 +442,9 @@ def test_evaluator_ignores_non_competitor_as_sole_offer(sample_floors: CostFloor
     assert digi_res.min_price is None
 
 
-def test_evaluator_own_store_annotation_and_zero_undercut_invariance(sample_floors: CostFloors) -> None:
+def test_evaluator_own_store_annotation_and_zero_undercut_invariance(
+    sample_floors: CostFloors,
+) -> None:
     # When KiaChahye is the sole seller at 85,000, engine must NOT undercut 85,000!
     # Instead, monopoly pricing is applied and reason includes the [OWN STORE ACTIVE: ...] hint.
     scrape_res = ScrapeResult(
@@ -449,7 +455,9 @@ def test_evaluator_own_store_annotation_and_zero_undercut_invariance(sample_floo
     )
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
     assert alfa_res.status == "Monopoly Win"
-    assert alfa_res.final_price == 84499  # Standard monopoly price for sample_floors (Cost Base 72,000 + 4,000 / 0.90 -> 84,444 -> 84,499)
+    assert (
+        alfa_res.final_price == 84499
+    )  # Standard monopoly price for sample_floors (Cost Base 72,000 + 4,000 / 0.90 -> 84,444 -> 84,499)
     assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000]" in alfa_res.reason
     assert "Applied Monopoly pricing" in alfa_res.reason
     assert len(alfa_res.own_offers) == 1
@@ -464,11 +472,15 @@ def test_evaluator_own_store_with_external_competitor(sample_floors: CostFloors)
     # Engine must undercut the competitor (83,000 -> 82,899), NOT KiaChahye, and tag both!
     scrape_res = ScrapeResult(
         offers=[
-            ScrapedOffer(vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title="AC"),
+            ScrapedOffer(
+                vendor_name="Fahad Electronics", price=83000.0, is_sold_out=False, raw_title="AC"
+            ),
         ],
         own_offers=[
             ScrapedOffer(vendor_name="KiaChahye", price=84000.0, is_sold_out=False, raw_title="AC"),
-            ScrapedOffer(vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title="AC"),
+            ScrapedOffer(
+                vendor_name="Haier Official Store", price=92000.0, is_sold_out=False, raw_title="AC"
+            ),
         ],
     )
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
@@ -490,12 +502,13 @@ def test_evaluator_own_store_out_of_stock_annotation(sample_floors: CostFloors) 
     assert "[OWN STORE ACTIVE: KiaChahye (OUT OF STOCK) @ Rs. 85,000]" in alfa_res.reason
 
 
-
 def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
     # 10% floor is 80,555.56. Competitor is at 85,555 (gap is ~5,000, Tier 2: 2,000 <= Gap < 10,000)
     # Dynamic glide (68.75%) targets ~83,993 -> snaps to psychological 83,899
     offers = [
-        ScrapedOffer(vendor_name="CompetitorGap5k", price=85555.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="CompetitorGap5k", price=85555.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
@@ -510,8 +523,12 @@ def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -
     # Sub-floor competitor at 75,000 (below 8% floor 78,804.35)
     # Upper competitor at 85,555 (Gap above 10% floor is ~5,000 PKR, Tier 2)
     offers = [
-        ScrapedOffer(vendor_name="SubFloorSeller", price=75000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="UpperSeller10k", price=85555.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="SubFloorSeller", price=75000.0, is_sold_out=False, raw_title="AC"
+        ),
+        ScrapedOffer(
+            vendor_name="UpperSeller10k", price=85555.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
@@ -540,7 +557,9 @@ def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
     # Upper seller at 166,500 (below 10% floor 167,222.22, but gap above 8% floor is ~2,913 PKR, Tier 2)
     offers = [
         ScrapedOffer(vendor_name="LossSeller", price=160000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="UpperSeller8pct", price=166500.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(
+            vendor_name="UpperSeller8pct", price=166500.0, is_sold_out=False, raw_title="AC"
+        ),
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
     assert result.status == "Win via 8% Switch"

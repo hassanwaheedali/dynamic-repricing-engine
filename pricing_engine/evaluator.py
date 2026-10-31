@@ -1,5 +1,17 @@
+import math
 from dataclasses import replace
 
+from config import (
+    ALFA_COMMISSION_PCT,
+    DIGI_LEVERAGE_COMMISSION_PCT,
+    DIGI_STANDARD_COMMISSION_PCT,
+    FALLBACK_PROFIT_PKR,
+    LARGE_GAP_PROFIT_CAP_PKR,
+    MONOPOLY_PROFIT_PKR,
+    get_alfa_payout_rate,
+    get_digi_leverage_payout_rate,
+    get_digi_standard_payout_rate,
+)
 from pricing_engine.calculator import (
     calculate_adaptive_target_price,
     find_winning_psychological_price,
@@ -18,8 +30,8 @@ from pricing_engine.models import (
     is_non_competitor_vendor,
 )
 
-MONOPOLY_PROFIT: float = 4000.0
-FALLBACK_PROFIT: float = 1500.0
+MONOPOLY_PROFIT: float = MONOPOLY_PROFIT_PKR
+FALLBACK_PROFIT: float = FALLBACK_PROFIT_PKR
 
 
 def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRange:
@@ -99,12 +111,28 @@ def format_fallback_descriptions(mod: str, source: str = "target") -> tuple[str,
     return audit, reason, banner
 
 
+def _resolve_active_fallback(
+    offers: list[ScrapedOffer] | ScrapeResult,
+    ref_offer: ScrapedOffer | None,
+) -> tuple[str | None, str]:
+    """Resolve (missing_modifier, modifier_source) from the actual reference offer chosen by the evaluator."""
+    offer_list = offers.offers if isinstance(offers, ScrapeResult) else list(offers)
+    has_per_offer_mod = any(o.missing_modifier is not None for o in offer_list)
+    if ref_offer is not None and (ref_offer.missing_modifier is not None or has_per_offer_mod):
+        return ref_offer.missing_modifier, ref_offer.modifier_source
+    if isinstance(offers, ScrapeResult):
+        return offers.active_modifier_fallback, offers.active_modifier_source
+    return None, "target"
+
+
 def _annotate_fallback_reason(
-    res: PlatformPricingResult, active_fallback: str | None
+    res: PlatformPricingResult,
+    active_fallback: str | None,
+    active_source: str = "target",
 ) -> PlatformPricingResult:
-    """Prepend explicit fallback notification to pricing reason when market omitted target modifier."""
+    """Prepend explicit fallback/cross-check notification to pricing reason when modifier differs."""
     if active_fallback and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
-        _, reason_prefix, _ = format_fallback_descriptions(active_fallback)
+        _, reason_prefix, _ = format_fallback_descriptions(active_fallback, source=active_source)
         new_reason = f"{reason_prefix} {res.reason}"
         return replace(res, reason=new_reason)
     return res
@@ -150,16 +178,16 @@ def evaluate_alfa_pricing(
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
     """Evaluate pricing on AlfaMall with automatic fallback and own-store reason annotations."""
-    active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
     own_offers = offers.own_offers if isinstance(offers, ScrapeResult) else []
-    res = _evaluate_alfa_core(
+    res, ref_offer = _evaluate_alfa_core(
         cost_floors=cost_floors,
         offers=offers,
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
+    active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
-    res = _annotate_fallback_reason(res, active_fallback)
+    res = _annotate_fallback_reason(res, active_fallback, active_source)
     return _annotate_non_competitor_reason(res, own_offers)
 
 
@@ -238,26 +266,20 @@ def _evaluate_alfa_core(
     offers: list[ScrapedOffer] | ScrapeResult,
     monopoly_profit: float = MONOPOLY_PROFIT,
     max_profit_cap: float | None = None,
-) -> PlatformPricingResult:
-    """Evaluate pricing on AlfaMall under strict 10% commission rules.
+) -> tuple[PlatformPricingResult, ScrapedOffer | None]:
+    """Evaluate pricing on AlfaMall under configured platform commission rules.
 
     Rules:
     - If server is unreachable (500/timeout/WAF HTML), return Server Down status (no blind monopoly).
     - Discard out-of-stock items.
     - If 0 active offers and server is healthy, set Monopoly price (+Rs. 4,000 margin).
-    - Discard sellers priced <= floor_alfa (unviable loss-makers).
+    - Discard sellers priced <= ceil(floor_alfa) (unviable loss-makers).
     - If no viable sellers remain, set Safe Fallback Price (+Rs. 1,500 profit) to ensure upload.
     - Otherwise, strictly undercut lowest viable competitor with psychological price.
-
-    Args:
-        cost_floors: CostFloors object containing cost base and minimum floors.
-        offers: List of scraped competitor offerings or ScrapeResult instance.
-        monopoly_profit: Profit added when 0 competitors exist.
-        max_profit_cap: Optional profit ceiling cap.
-
-    Returns:
-        PlatformPricingResult with final decision, prices, and audit log.
     """
+    alfa_payout = get_alfa_payout_rate()
+    alfa_comm_str = f"{ALFA_COMMISSION_PCT:.2f}%"
+
     if isinstance(offers, ScrapeResult):
         scrape_success = offers.is_success
         error_detail = offers.error_detail
@@ -270,25 +292,26 @@ def _evaluate_alfa_core(
     # Server Down / Unreachable Guard: Never set false Monopoly on network/server error
     if not scrape_success:
         err_msg = error_detail or "HTTP Server/Network Error"
-        return PlatformPricingResult(
-            min_price=None,
-            max_price=None,
-            final_price=None,
-            real_profit=0,
-            status=STATUS_SERVER_DOWN,
-            reason=(
-                f"AlfaMall search API unreachable ({err_msg}). "
-                "Skipped to prevent blind mispricing while server is down."
+        return (
+            PlatformPricingResult(
+                min_price=None,
+                max_price=None,
+                final_price=None,
+                real_profit=0,
+                status=STATUS_SERVER_DOWN,
+                reason=(
+                    f"AlfaMall search API unreachable ({err_msg}). "
+                    "Skipped to prevent blind mispricing while server is down."
+                ),
+                dropped=[],
+                active_pool=[],
+                effective_comm=alfa_comm_str,
             ),
-            dropped=[],
-            active_pool=[],
-            effective_comm="10.00%",
+            None,
         )
 
     active_offers = [
-        o
-        for o in offer_list
-        if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+        o for o in offer_list if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
     ]
     valid_prices = sorted([o.price for o in active_offers])
 
@@ -296,32 +319,38 @@ def _evaluate_alfa_core(
     min_p: float | None = market.min_price
     max_p: float | None = market.max_price
 
-    floor_profit_alfa = (cost_floors.floor_alfa * 0.90) - cost_floors.cost_base
-    extra_personal_comm_alfa = (
-        float(cost_floors.personal_comm)
-    )
+    floor_profit_alfa = (cost_floors.floor_alfa * alfa_payout) - cost_floors.cost_base
+    extra_personal_comm_alfa = float(cost_floors.alfa_personal_comm)
 
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
-        eff_monopoly_alfa = max(monopoly_profit, floor_profit_alfa + 1000.0) if extra_personal_comm_alfa > 0 else monopoly_profit
-        raw_target = (cost_floors.cost_base + eff_monopoly_alfa) / 0.90
+        eff_monopoly_alfa = (
+            max(monopoly_profit, floor_profit_alfa + 1000.0)
+            if extra_personal_comm_alfa > 0
+            else monopoly_profit
+        )
+        raw_target = (cost_floors.cost_base + eff_monopoly_alfa) / alfa_payout
         monopoly_p = get_monopoly_psychological_price(raw_target)
-        profit = round((monopoly_p * 0.90) - cost_floors.cost_base)
-        return PlatformPricingResult(
-            min_price=min_p,
-            max_price=max_p,
-            final_price=monopoly_p,
-            real_profit=profit,
-            status="Monopoly Win",
-            reason=f"No competitors found in market. Applied Monopoly pricing (+Rs. {eff_monopoly_alfa:,.0f} target margin).",
-            dropped=[],
-            active_pool=[],
-            effective_comm="10.00%",
+        profit = round((monopoly_p * alfa_payout) - cost_floors.cost_base)
+        return (
+            PlatformPricingResult(
+                min_price=min_p,
+                max_price=max_p,
+                final_price=monopoly_p,
+                real_profit=profit,
+                status="Monopoly Win",
+                reason=f"No competitors found in market. Applied Monopoly pricing (+Rs. {eff_monopoly_alfa:,.0f} target margin).",
+                dropped=[],
+                active_pool=[],
+                effective_comm=alfa_comm_str,
+            ),
+            None,
         )
 
-    # Discard loss makers (sellers strictly <= floor cannot be profitably undercut)
-    dropped = [o for o in active_offers if o.price <= cost_floors.floor_alfa]
-    viable = [o for o in active_offers if o.price > cost_floors.floor_alfa]
+    # Discard loss makers (sellers <= ceil(floor) cannot be profitably undercut by an integer >= floor)
+    min_int_alfa = math.ceil(cost_floors.floor_alfa)
+    dropped = [o for o in active_offers if o.price <= min_int_alfa]
+    viable = [o for o in active_offers if o.price > min_int_alfa]
 
     # Scenario 2: All competitors below floor -> Safe Fallback to enable catalog upload
     if not viable:
@@ -330,36 +359,41 @@ def _evaluate_alfa_core(
         final_fallback_p = get_fallback_psychological_price(
             cost_base=cost_floors.cost_base,
             floor_min=cost_floors.floor_alfa,
-            payout_rate=0.90,
+            payout_rate=alfa_payout,
             profit_target=FALLBACK_PROFIT + extra_personal_comm_alfa,
         )
-        profit = round((final_fallback_p * 0.90) - cost_floors.cost_base)
-        return PlatformPricingResult(
-            min_price=min_p,
-            max_price=max_p,
-            final_price=final_fallback_p,
-            real_profit=profit,
-            status="Safe Fallback",
-            reason=(
-                f"All competitors are selling at a loss (< Floor Rs. {round(cost_floors.floor_alfa):,}, "
-                f"lowest: {lowest_dropped_obj.vendor_name} Rs. {lowest_dropped:,.0f}). Undercut skipped to prevent loss. "
-                f"Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit) to ensure catalog upload."
+        profit = round((final_fallback_p * alfa_payout) - cost_floors.cost_base)
+        return (
+            PlatformPricingResult(
+                min_price=min_p,
+                max_price=max_p,
+                final_price=final_fallback_p,
+                real_profit=profit,
+                status="Safe Fallback",
+                reason=(
+                    f"All competitors are selling at a loss (< Floor Rs. {round(cost_floors.floor_alfa):,}, "
+                    f"lowest: {lowest_dropped_obj.vendor_name} Rs. {lowest_dropped:,.0f}). Undercut skipped to prevent loss. "
+                    f"Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit) to ensure catalog upload."
+                ),
+                dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+                active_pool=[],
+                effective_comm=alfa_comm_str,
             ),
-            dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-            active_pool=[],
-            effective_comm="10.00%",
+            lowest_dropped_obj,
         )
 
     # Scenario 3: Undercut lowest viable seller
     lowest_viable = min(viable, key=lambda x: x.price)
     large_cap_alfa = (
-        max_profit_cap if max_profit_cap is not None else (10000.0 + extra_personal_comm_alfa)
+        max_profit_cap
+        if max_profit_cap is not None
+        else (LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_alfa)
     )
     target_adaptive_alfa = calculate_adaptive_target_price(
         floor_min=cost_floors.floor_alfa,
         competitor_price=lowest_viable.price,
         cost_base=cost_floors.cost_base,
-        payout_rate=0.90,
+        payout_rate=alfa_payout,
         large_gap_profit_target=large_cap_alfa,
     )
     final_p: int | None = find_winning_psychological_price(
@@ -373,7 +407,7 @@ def _evaluate_alfa_core(
                 floor_min=cost_floors.floor_alfa,
                 competitor_price=higher_viable.price,
                 cost_base=cost_floors.cost_base,
-                payout_rate=0.90,
+                payout_rate=alfa_payout,
                 large_gap_profit_target=large_cap_alfa,
             )
             final_p = find_winning_psychological_price(
@@ -384,19 +418,22 @@ def _evaluate_alfa_core(
                 break
 
     if final_p is None:
-        return PlatformPricingResult(
-            min_price=min_p,
-            max_price=max_p,
-            final_price=None,
-            real_profit=0,
-            status="Skip / Unviable",
-            reason="Tight competitor margin prevented psychological undercut above floor. Skipped to prevent loss.",
-            dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-            active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
-            effective_comm="10.00%",
+        return (
+            PlatformPricingResult(
+                min_price=min_p,
+                max_price=max_p,
+                final_price=None,
+                real_profit=0,
+                status="Skip / Unviable",
+                reason="Tight competitor margin prevented psychological undercut above floor. Skipped to prevent loss.",
+                dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+                active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
+                effective_comm=alfa_comm_str,
+            ),
+            lowest_viable,
         )
 
-    profit = round((final_p * 0.90) - cost_floors.cost_base)
+    profit = round((final_p * alfa_payout) - cost_floors.cost_base)
     dropped_prefix = f"Filtered {len(dropped)} sub-floor offer(s). " if dropped else ""
     uncapped_p = find_winning_psychological_price(cost_floors.floor_alfa, lowest_viable.price)
     if uncapped_p is not None and final_p < uncapped_p:
@@ -416,16 +453,19 @@ def _evaluate_alfa_core(
             if dropped
             else f"Undercut lowest competitor {lowest_viable.vendor_name} (Rs. {lowest_viable.price:,.0f}) to winning price Rs. {final_p:,.0f}."
         )
-    return PlatformPricingResult(
-        min_price=min_p,
-        max_price=max_p,
-        final_price=final_p,
-        real_profit=profit,
-        status="Competitive Win",
-        reason=reason,
-        dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-        active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
-        effective_comm="10.00%",
+    return (
+        PlatformPricingResult(
+            min_price=min_p,
+            max_price=max_p,
+            final_price=final_p,
+            real_profit=profit,
+            status="Competitive Win",
+            reason=reason,
+            dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+            active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
+            effective_comm=alfa_comm_str,
+        ),
+        lowest_viable,
     )
 
 
@@ -436,16 +476,16 @@ def evaluate_digi_pricing(
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
     """Evaluate pricing on DigiMall with automatic fallback and own-store reason annotations."""
-    active_fallback = offers.active_modifier_fallback if isinstance(offers, ScrapeResult) else None
     own_offers = offers.own_offers if isinstance(offers, ScrapeResult) else []
-    res = _evaluate_digi_core(
+    res, ref_offer = _evaluate_digi_core(
         cost_floors=cost_floors,
         offers=offers,
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
+    active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
-    res = _annotate_fallback_reason(res, active_fallback)
+    res = _annotate_fallback_reason(res, active_fallback, active_source)
     return _annotate_non_competitor_reason(res, own_offers)
 
 
@@ -454,28 +494,13 @@ def _evaluate_digi_core(
     offers: list[ScrapedOffer] | ScrapeResult,
     monopoly_profit: float = MONOPOLY_PROFIT,
     max_profit_cap: float | None = None,
-) -> PlatformPricingResult:
-    """Evaluate pricing on DigiMall with Two-Tier Commission Switch (10% -> 8%).
+) -> tuple[PlatformPricingResult, ScrapedOffer | None]:
+    """Evaluate pricing on DigiMall with Two-Tier Commission Switch (10% -> 8%)."""
+    digi_std_payout = get_digi_standard_payout_rate()
+    digi_lev_payout = get_digi_leverage_payout_rate()
+    digi_std_comm_str = f"{DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    digi_lev_comm_str = f"{DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
 
-    Rules:
-    - If server is unreachable (500/timeout/WAF HTML), return Server Down status (no blind monopoly).
-    - Default 10% Tier: If lowest competitor > floor_digi_10, undercut at 10% tier.
-      Since bank only charges 8%, we capture extra 2% bank spread profit.
-    - Emergency 8% Switch: If lowest competitor <= floor_digi_10 but > floor_digi_8,
-      trigger 8% bank rate to win the deal.
-    - Upper Band: If lowest competitor <= floor_digi_8, drop them and target next
-      viable competitor > floor_digi_8.
-    - If all competitors <= floor_digi_8, set Safe Fallback Price (+Rs. 1,500 profit) to ensure upload.
-
-    Args:
-        cost_floors: CostFloors containing cost base and floors.
-        offers: Scraped competitor offerings or ScrapeResult instance.
-        monopoly_profit: Profit added when 0 competitors exist.
-        max_profit_cap: Optional profit ceiling cap.
-
-    Returns:
-        PlatformPricingResult with decision, price, commission used, and audit details.
-    """
     if isinstance(offers, ScrapeResult):
         scrape_success = offers.is_success
         error_detail = offers.error_detail
@@ -488,25 +513,26 @@ def _evaluate_digi_core(
     # Server Down / Unreachable Guard: Never set false Monopoly on network/server error
     if not scrape_success:
         err_msg = error_detail or "HTTP Server/Network Error"
-        return PlatformPricingResult(
-            min_price=None,
-            max_price=None,
-            final_price=None,
-            real_profit=0,
-            status=STATUS_SERVER_DOWN,
-            reason=(
-                f"DigiMall search API unreachable ({err_msg}). "
-                "Skipped to prevent blind mispricing while server is down."
+        return (
+            PlatformPricingResult(
+                min_price=None,
+                max_price=None,
+                final_price=None,
+                real_profit=0,
+                status=STATUS_SERVER_DOWN,
+                reason=(
+                    f"DigiMall search API unreachable ({err_msg}). "
+                    "Skipped to prevent blind mispricing while server is down."
+                ),
+                dropped=[],
+                active_pool=[],
+                effective_comm=digi_lev_comm_str,
             ),
-            dropped=[],
-            active_pool=[],
-            effective_comm="8.00%",
+            None,
         )
 
     active_offers = [
-        o
-        for o in offer_list
-        if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+        o for o in offer_list if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
     ]
     valid_prices = sorted([o.price for o in active_offers])
 
@@ -514,49 +540,58 @@ def _evaluate_digi_core(
     min_p: float | None = market.min_price
     max_p: float | None = market.max_price
 
-    floor_profit_digi = (cost_floors.floor_digi_10 * 0.90) - cost_floors.cost_base
-    extra_personal_comm_digi = (
-        float(cost_floors.personal_comm)
-    )
+    floor_profit_digi = (cost_floors.floor_digi_10 * digi_std_payout) - cost_floors.cost_base
+    extra_personal_comm_digi = float(cost_floors.digi_personal_comm)
 
     # Scenario 1: Zero competitors in market -> Monopoly Pricing
     if not valid_prices:
-        eff_monopoly_digi = max(monopoly_profit, floor_profit_digi + 1000.0) if extra_personal_comm_digi > 0 else monopoly_profit
-        raw_target = (cost_floors.cost_base + eff_monopoly_digi) / 0.90
+        eff_monopoly_digi = (
+            max(monopoly_profit, floor_profit_digi + 1000.0)
+            if extra_personal_comm_digi > 0
+            else monopoly_profit
+        )
+        raw_target = (cost_floors.cost_base + eff_monopoly_digi) / digi_std_payout
         monopoly_p = get_monopoly_psychological_price(raw_target)
-        profit = round((monopoly_p * 0.92) - cost_floors.cost_base)
-        return PlatformPricingResult(
-            min_price=min_p,
-            max_price=max_p,
-            final_price=monopoly_p,
-            real_profit=profit,
-            status="Monopoly Win",
-            reason="No competitors found in market. Applied Monopoly 10% baseline pricing and captured extra 2% bank spread profit via 8% Faysal Bank rate.",
-            dropped=[],
-            active_pool=[],
-            effective_comm="10.00%",
+        profit = round((monopoly_p * digi_lev_payout) - cost_floors.cost_base)
+        return (
+            PlatformPricingResult(
+                min_price=min_p,
+                max_price=max_p,
+                final_price=monopoly_p,
+                real_profit=profit,
+                status="Monopoly Win",
+                reason="No competitors found in market. Applied Monopoly 10% baseline pricing and captured extra 2% bank spread profit via 8% Faysal Bank rate.",
+                dropped=[],
+                active_pool=[],
+                effective_comm=digi_std_comm_str,
+            ),
+            None,
         )
 
     lowest_offer = min(active_offers, key=lambda x: x.price)
     large_cap = (
-        max_profit_cap if max_profit_cap is not None else (10000.0 + extra_personal_comm_digi)
+        max_profit_cap
+        if max_profit_cap is not None
+        else (LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_digi)
     )
+    min_int_digi_10 = math.ceil(cost_floors.floor_digi_10)
+    min_int_digi_8 = math.ceil(cost_floors.floor_digi_8)
 
     # Step A: Check Default 10% Tier
-    if lowest_offer.price > cost_floors.floor_digi_10:
+    if lowest_offer.price > min_int_digi_10:
         gap_10 = lowest_offer.price - cost_floors.floor_digi_10
         target_adaptive_10 = calculate_adaptive_target_price(
             floor_min=cost_floors.floor_digi_10,
             competitor_price=lowest_offer.price,
             cost_base=cost_floors.cost_base,
-            payout_rate=0.92,
+            payout_rate=digi_lev_payout,
             large_gap_profit_target=large_cap,
         )
         final_p_10: int | None = find_winning_psychological_price(
             cost_floors.floor_digi_10, lowest_offer.price, max_ceiling=target_adaptive_10
         )
         if final_p_10 is not None:
-            profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
+            profit = round((final_p_10 * digi_lev_payout) - cost_floors.cost_base)
             uncapped_p = find_winning_psychological_price(
                 cost_floors.floor_digi_10, lowest_offer.price
             )
@@ -574,33 +609,36 @@ def _evaluate_digi_core(
                     f"Lowest competitor {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
                     f"is above 10% floor. Won at 10% tier with 8% Faysal Bank rate (+Rs. {profit:,} profit incl. 2% bank spread)."
                 )
-            return PlatformPricingResult(
-                min_price=min_p,
-                max_price=max_p,
-                final_price=final_p_10,
-                real_profit=profit,
-                status="Safe Win (10% Tier)",
-                reason=reason,
-                dropped=[],
-                active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
-                effective_comm="10.00%",
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=final_p_10,
+                    real_profit=profit,
+                    status="Safe Win (10% Tier)",
+                    reason=reason,
+                    dropped=[],
+                    active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
+                    effective_comm=digi_std_comm_str,
+                ),
+                lowest_offer,
             )
 
     # Step B: Emergency 8% Bank Rate Switch
-    if lowest_offer.price > cost_floors.floor_digi_8:
+    if lowest_offer.price > min_int_digi_8:
         gap_8 = lowest_offer.price - cost_floors.floor_digi_8
         target_adaptive_8 = calculate_adaptive_target_price(
             floor_min=cost_floors.floor_digi_8,
             competitor_price=lowest_offer.price,
             cost_base=cost_floors.cost_base,
-            payout_rate=0.92,
+            payout_rate=digi_lev_payout,
             large_gap_profit_target=large_cap,
         )
         final_p_8: int | None = find_winning_psychological_price(
             cost_floors.floor_digi_8, lowest_offer.price, max_ceiling=target_adaptive_8
         )
         if final_p_8 is not None:
-            profit = round((final_p_8 * 0.92) - cost_floors.cost_base)
+            profit = round((final_p_8 * digi_lev_payout) - cost_floors.cost_base)
             if gap_8 < 100.0:
                 reason = (
                     f"Unviable at 10% floor (Rs. {round(cost_floors.floor_digi_10):,}). "
@@ -627,39 +665,42 @@ def _evaluate_digi_core(
                         f"Triggered emergency 8% Faysal Bank rate to undercut {lowest_offer.vendor_name} (Rs. {lowest_offer.price:,.0f}) "
                         f"to winning price Rs. {final_p_8:,.0f} (+Rs. {profit:,} profit)."
                     )
-            return PlatformPricingResult(
-                min_price=min_p,
-                max_price=max_p,
-                final_price=final_p_8,
-                real_profit=profit,
-                status="Win via 8% Switch",
-                reason=reason,
-                dropped=[],
-                active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
-                effective_comm="8.00%",
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=final_p_8,
+                    real_profit=profit,
+                    status="Win via 8% Switch",
+                    reason=reason,
+                    dropped=[],
+                    active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
+                    effective_comm=digi_lev_comm_str,
+                ),
+                lowest_offer,
             )
 
-    # Step C: Lowest seller is <= 8% floor (unviable loss-maker). Try upper band.
-    dropped = [o for o in active_offers if o.price <= cost_floors.floor_digi_8]
-    viable_8 = [o for o in active_offers if o.price > cost_floors.floor_digi_8]
+    # Step C: Lowest seller is <= ceil(8% floor) (unviable loss-maker / sub-integer-floor). Try upper band.
+    dropped = [o for o in active_offers if o.price <= min_int_digi_8]
+    viable_8 = [o for o in active_offers if o.price > min_int_digi_8]
 
     if viable_8:
         for lowest_upper in sorted(viable_8, key=lambda x: x.price):
             # Check if lowest upper seller can be won at default 10% tier first
-            if lowest_upper.price > cost_floors.floor_digi_10:
+            if lowest_upper.price > min_int_digi_10:
                 gap_upper_10 = lowest_upper.price - cost_floors.floor_digi_10
                 target_adaptive_10 = calculate_adaptive_target_price(
                     floor_min=cost_floors.floor_digi_10,
                     competitor_price=lowest_upper.price,
                     cost_base=cost_floors.cost_base,
-                    payout_rate=0.92,
+                    payout_rate=digi_lev_payout,
                     large_gap_profit_target=large_cap,
                 )
                 final_p_10 = find_winning_psychological_price(
                     cost_floors.floor_digi_10, lowest_upper.price, max_ceiling=target_adaptive_10
                 )
                 if final_p_10 is not None:
-                    profit = round((final_p_10 * 0.92) - cost_floors.cost_base)
+                    profit = round((final_p_10 * digi_lev_payout) - cost_floors.cost_base)
                     uncapped_p = find_winning_psychological_price(
                         cost_floors.floor_digi_10, lowest_upper.price
                     )
@@ -678,16 +719,19 @@ def _evaluate_digi_core(
                             f"Filtered sub-floor offers. Undercut viable competitor {lowest_upper.vendor_name} "
                             f"(Rs. {lowest_upper.price:,.0f}) to capped price Rs. {final_p_10:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate incl. 2% bank spread)."
                         )
-                    return PlatformPricingResult(
-                        min_price=min_p,
-                        max_price=max_p,
-                        final_price=final_p_10,
-                        real_profit=profit,
-                        status="Safe Win (10% Tier)",
-                        reason=reason,
-                        dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-                        active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
-                        effective_comm="10.00%",
+                    return (
+                        PlatformPricingResult(
+                            min_price=min_p,
+                            max_price=max_p,
+                            final_price=final_p_10,
+                            real_profit=profit,
+                            status="Safe Win (10% Tier)",
+                            reason=reason,
+                            dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+                            active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
+                            effective_comm=digi_std_comm_str,
+                        ),
+                        lowest_upper,
                     )
 
             gap_upper_8 = lowest_upper.price - cost_floors.floor_digi_8
@@ -695,14 +739,14 @@ def _evaluate_digi_core(
                 floor_min=cost_floors.floor_digi_8,
                 competitor_price=lowest_upper.price,
                 cost_base=cost_floors.cost_base,
-                payout_rate=0.92,
+                payout_rate=digi_lev_payout,
                 large_gap_profit_target=large_cap,
             )
             final_p_upper = find_winning_psychological_price(
                 cost_floors.floor_digi_8, lowest_upper.price, max_ceiling=target_adaptive_8
             )
             if final_p_upper is not None:
-                profit = round((final_p_upper * 0.92) - cost_floors.cost_base)
+                profit = round((final_p_upper * digi_lev_payout) - cost_floors.cost_base)
                 if gap_upper_8 < 100.0:
                     reason = (
                         f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate. Competitor {lowest_upper.vendor_name} "
@@ -728,17 +772,21 @@ def _evaluate_digi_core(
                             f"Filtered sub-floor offers. Triggered emergency 8% Faysal Bank rate to undercut "
                             f"upper competitor {lowest_upper.vendor_name} (Rs. {lowest_upper.price:,.0f}) to capped price Rs. {final_p_upper:,.0f} (+Rs. {profit:,} profit)."
                         )
-                return PlatformPricingResult(
-                    min_price=min_p,
-                    max_price=max_p,
-                    final_price=final_p_upper,
-                    real_profit=profit,
-                    status="Win via 8% Switch",
-                    reason=reason,
-                    dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-                    active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
-                    effective_comm="8.00%",
+                return (
+                    PlatformPricingResult(
+                        min_price=min_p,
+                        max_price=max_p,
+                        final_price=final_p_upper,
+                        real_profit=profit,
+                        status="Win via 8% Switch",
+                        reason=reason,
+                        dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+                        active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
+                        effective_comm=digi_lev_comm_str,
+                    ),
+                    lowest_upper,
                 )
+            dropped.append(lowest_upper)
 
     # Step D: All sellers below 8% floor -> Safe Fallback to enable catalog upload
     lowest_dropped_obj = min(dropped, key=lambda x: x.price) if dropped else None
@@ -750,22 +798,25 @@ def _evaluate_digi_core(
     final_fallback_p = get_fallback_psychological_price(
         cost_base=cost_floors.cost_base,
         floor_min=cost_floors.floor_digi_8,
-        payout_rate=0.92,
+        payout_rate=digi_lev_payout,
         profit_target=FALLBACK_PROFIT + extra_personal_comm_digi,
     )
-    profit = round((final_fallback_p * 0.92) - cost_floors.cost_base)
-    return PlatformPricingResult(
-        min_price=min_p,
-        max_price=max_p,
-        final_price=final_fallback_p,
-        real_profit=profit,
-        status="Safe Fallback",
-        reason=(
-            f"All competitors are selling at a loss (< Floor Rs. {round(cost_floors.floor_digi_8):,}{lowest_str}). "
-            f"Undercut skipped to prevent loss. Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) "
-            f"to ensure catalog upload."
+    profit = round((final_fallback_p * digi_lev_payout) - cost_floors.cost_base)
+    return (
+        PlatformPricingResult(
+            min_price=min_p,
+            max_price=max_p,
+            final_price=final_fallback_p,
+            real_profit=profit,
+            status="Safe Fallback",
+            reason=(
+                f"All competitors are selling at a loss (< Floor Rs. {round(cost_floors.floor_digi_8):,}{lowest_str}). "
+                f"Undercut skipped to prevent loss. Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) "
+                f"to ensure catalog upload."
+            ),
+            dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
+            active_pool=[],
+            effective_comm=digi_lev_comm_str,
         ),
-        dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
-        active_pool=[],
-        effective_comm="8.00%",
+        lowest_dropped_obj,
     )

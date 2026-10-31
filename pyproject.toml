@@ -49,6 +49,7 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = [".agents", "repomix-output.md"]
 
 [tool.ruff.lint]
 select = [

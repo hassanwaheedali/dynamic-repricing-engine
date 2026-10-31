@@ -39,7 +39,25 @@ COLUMN_ALIASES: dict[str, str] = {
 }
 
 INVALID_BRAND_VALUES: frozenset[str] = frozenset(
-    {"", "-", "--", "---", "_", ".", "/", "\\", "n/a", "na", "nan", "none", "null", "?"}
+    {
+        "",
+        "-",
+        "--",
+        "---",
+        "_",
+        ".",
+        "/",
+        "\\",
+        "n/a",
+        "na",
+        "nan",
+        "nil",
+        "none",
+        "null",
+        "tbd",
+        "unknown",
+        "?",
+    }
 )
 
 INVALID_NAME_VALUES: frozenset[str] = frozenset(

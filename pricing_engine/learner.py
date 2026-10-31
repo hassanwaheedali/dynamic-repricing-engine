@@ -7,15 +7,27 @@ logger = logging.getLogger(__name__)
 INVALID_METRIC_UNITS: set[str] = {
     "KG",
     "TON",
-    "ΤΟN",
+    "\u03a4\u039fN",  # Intentional Greek Tau/Omicron homoglyph defense against copy-pasted titles
     "LTR",
     "LITRE",
+    "LITER",
+    "CFT",
+    "CUFT",
     "INCH",
     "FT",
     "FEET",
     "MM",
     "CM",
     "GM",
+    "TAP",
+    "TAPS",
+    "BTU",
+    "WATT",
+    "WATTS",
+    "VOLT",
+    "VOLTS",
+    "AMP",
+    "AMPS",
 }
 
 

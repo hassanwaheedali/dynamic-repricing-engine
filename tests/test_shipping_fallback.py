@@ -94,7 +94,9 @@ class TestResolveFallbackShipping:
             ("Dawlance Split AC Inverter", 3500.0, "Air Conditioner"),
         ],
     )
-    def test_air_conditioner_fallback(self, name: str, expected_rate: float, expected_ton: str) -> None:
+    def test_air_conditioner_fallback(
+        self, name: str, expected_rate: float, expected_ton: str
+    ) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Gree")
         assert rate == expected_rate
         assert expected_ton in label
@@ -108,7 +110,9 @@ class TestResolveFallbackShipping:
             ("Dawlance 9170 Inverter Refrigerator Glass Door", 5500.0, "Refrigerator"),
         ],
     )
-    def test_refrigerator_fallback(self, name: str, expected_rate: float, expected_sub: str) -> None:
+    def test_refrigerator_fallback(
+        self, name: str, expected_rate: float, expected_sub: str
+    ) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Dawlance")
         assert rate == expected_rate
         assert expected_sub in label
@@ -134,8 +138,16 @@ class TestResolveFallbackShipping:
                     "name": "LED TV",
                     "keywords": ["led", "tv", "smart tv"],
                     "sub_types": [
-                        {"name": "LED TV (32-43 Inch)", "pattern": r"\b(?:32|40|42|43)\b", "rate": 2000.0},
-                        {"name": "LED TV (50-65 Inch)", "pattern": r"\b(?:50|55|65)\b", "rate": 3500.0},
+                        {
+                            "name": "LED TV (32-43 Inch)",
+                            "pattern": r"\b(?:32|40|42|43)\b",
+                            "rate": 2000.0,
+                        },
+                        {
+                            "name": "LED TV (50-65 Inch)",
+                            "pattern": r"\b(?:50|55|65)\b",
+                            "rate": 3500.0,
+                        },
                     ],
                     "default": 2500.0,
                 },
@@ -144,16 +156,22 @@ class TestResolveFallbackShipping:
         }
 
         # Flat category resolution
-        rate, label = resolve_fallback_shipping("Dawlance Microwave Oven 20L", brand="Dawlance", config_table=custom_config)
+        rate, label = resolve_fallback_shipping(
+            "Dawlance Microwave Oven 20L", brand="Dawlance", config_table=custom_config
+        )
         assert rate == 1500.0
         assert label == "Microwave Oven"
 
         # Bracket category resolution
-        rate, label = resolve_fallback_shipping("TCL 43 Inch 4K Smart Google TV LED", brand="TCL", config_table=custom_config)
+        rate, label = resolve_fallback_shipping(
+            "TCL 43 Inch 4K Smart Google TV LED", brand="TCL", config_table=custom_config
+        )
         assert rate == 2000.0
         assert label == "LED TV (32-43 Inch)"
 
-        rate, label = resolve_fallback_shipping("Samsung 55 Inch QLED 4K TV", brand="Samsung", config_table=custom_config)
+        rate, label = resolve_fallback_shipping(
+            "Samsung 55 Inch QLED 4K TV", brand="Samsung", config_table=custom_config
+        )
         assert rate == 3500.0
         assert label == "LED TV (50-65 Inch)"
 
@@ -394,4 +412,3 @@ class TestExcelExportFallbackFormula:
         # Row 3 (Product with missing dimensions): retains fallback 3500, NOT overwritten with =ROUNDUP(0)
         ship_cell_fallback = ws.cell(row=3, column=ship_idx)
         assert ship_cell_fallback.value == 3500.0 or ship_cell_fallback.value == 3500
-

@@ -55,8 +55,7 @@ def resolve_fallback_shipping(
         cat_name: str = cat.get("name", cat.get("id", "Appliance"))
 
         is_match = bool(
-            (cat_pattern and re.search(cat_pattern, text))
-            or any(kw in text for kw in cat_keywords)
+            (cat_pattern and re.search(cat_pattern, text)) or any(kw in text for kw in cat_keywords)
         )
 
         if not is_match:
@@ -99,7 +98,9 @@ def resolve_fallback_shipping(
                             return rate, f"{sub_label} ({cap_val:g}{unit})"
 
             # Default rate on sub-type or category
-            sub_default = sub_to_use.get("default", cat.get("default", cat.get("default_rate", 3500.0)))
+            sub_default = sub_to_use.get(
+                "default", cat.get("default", cat.get("default_rate", 3500.0))
+            )
             return float(sub_default), sub_label
 
         # Default rate on category
@@ -136,15 +137,19 @@ def calculate_shipping_estimate(
 ) -> float:
     """Calculate courier shipping estimate based on volumetric weight.
 
+    Uses 2-decimal ceiling (`math.ceil(x * 100) / 100`) to match Excel's
+    `=ROUNDUP(((Length*Width*Height)/5000)*70, 2)` formula to the exact paisa and rupee.
+
     Args:
         volumetric_weight: Volumetric weight in KG.
         rate_per_kg: Courier rate per KG (defaults to config.COURIER_RATE_PER_KG).
 
     Returns:
-        Estimated shipping cost rounded to 2 decimal places.
+        Estimated shipping cost rounded up to 2 decimal places.
     """
     eff_rate = config.COURIER_RATE_PER_KG if rate_per_kg is None else rate_per_kg
-    return round(volumetric_weight * eff_rate, 2)
+    raw_cost = round(volumetric_weight * eff_rate, 6)
+    return math.ceil(raw_cost * 100.0) / 100.0
 
 
 def calculate_cost_base(net_price: float, shipping: float) -> float:
@@ -160,9 +165,7 @@ def calculate_cost_base(net_price: float, shipping: float) -> float:
     return round(net_price + shipping, 2)
 
 
-def calculate_personal_commission(
-    amount: float, personal_comm_pct: float | None = None
-) -> int:
+def calculate_personal_commission(amount: float, personal_comm_pct: float | None = None) -> int:
     """Calculate personal commission strictly on Real Net Profit.
 
     Args:
@@ -281,8 +284,16 @@ def calculate_floors(
 
     if personal_comm_pct > 0:
         eff_pct = personal_comm_pct
-        alfa_comm_pct = config.ALFA_PERSONAL_COMM_PCT if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT else eff_pct
-        digi_comm_pct = config.DIGI_PERSONAL_COMM_PCT if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT else eff_pct
+        alfa_comm_pct = (
+            config.ALFA_PERSONAL_COMM_PCT
+            if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT
+            else eff_pct
+        )
+        digi_comm_pct = (
+            config.DIGI_PERSONAL_COMM_PCT
+            if personal_comm_pct == config.DEFAULT_PERSONAL_COMM_PCT
+            else eff_pct
+        )
 
         alfa_eff_profit = calculate_effective_min_profit(base_min_profit, alfa_comm_pct)
         digi_eff_profit = calculate_effective_min_profit(base_min_profit, digi_comm_pct)

@@ -36,6 +36,9 @@ jobs:
       - name: "Quality Gate 2: Code Formatting Verification (Ruff)"
         run: ruff format --check .
 
+      - name: "Quality Gate 2.5: Static Type Check (Mypy)"
+        run: mypy .
+
       - name: "Quality Gate 3: Comprehensive Multi-Catalog Test Suite"
         run: pytest -v --durations=10
 

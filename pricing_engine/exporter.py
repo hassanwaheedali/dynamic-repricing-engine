@@ -18,7 +18,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from pricing_engine.models import WINNING_5PCT_GOALS
+from pricing_engine.models import (
+    WINNING_5PCT_GOALS,
+    format_comm_pct_label,
+    get_winning_comm_goals,
+)
 
 console = Console()
 
@@ -40,6 +44,38 @@ PRICE_INT_COLUMNS: list[str] = [
     "Alfa Company Profit",
     "Digi Company Profit",
 ]
+
+
+def format_export_shipping(val: Any) -> str:
+    """Format Shipping Estimate without .0 integer float drift while preserving exact fractional paisas."""
+    if val is None or pd.isna(val):
+        return ""
+    try:
+        clean = str(val).replace(",", "").strip()
+        if not clean or clean.lower() in ("nan", "none"):
+            return ""
+        f = round(float(clean), 2)
+        if f.is_integer():
+            return str(int(f))
+        return f"{f:.2f}".rstrip("0").rstrip(".")
+    except (ValueError, TypeError):
+        return ""
+
+
+_DYNAMIC_COMM_COL_RE = re.compile(r"^My [\d.]+% Commission$")
+_DYNAMIC_MIN_TARGET_COL_RE = re.compile(r"^Min Profit Target \([\d.]+% \+ 500\)$")
+_DYNAMIC_ALFA_GOAL_COL_RE = re.compile(r"^Alfa [\d.]+% Goal$")
+_DYNAMIC_DIGI_GOAL_COL_RE = re.compile(r"^Digi [\d.]+% Goal$")
+
+
+def is_price_int_column(col_name: Any) -> bool:
+    """Return True if column holds an integer PKR price, seller count, or commission target."""
+    s = str(col_name).strip()
+    return (
+        s in PRICE_INT_COLUMNS
+        or bool(_DYNAMIC_COMM_COL_RE.match(s))
+        or bool(_DYNAMIC_MIN_TARGET_COL_RE.match(s))
+    )
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -183,7 +219,7 @@ def export_excel_workbook(
             val = row[col_name]
             if pd.isna(val):
                 row_vals.append(None)
-            elif col_name in price_cols_set:
+            elif col_name in price_cols_set or is_price_int_column(col_name):
                 try:
                     clean = str(val).replace(",", "").strip()
                     row_vals.append(float(clean) if clean else None)
@@ -225,14 +261,14 @@ def export_excel_workbook(
             w_val = _safe_float(row.get("Width"), 0.0)
             h_val = _safe_float(row.get("Height"), 0.0)
             if l_val > 0 and w_val > 0 and h_val > 0:
-                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 0)"
+                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 2)"
 
         # 2. Total Without Profit
         eff_comm = comm or comm_col
         if twop and net and ship:
             if eff_comm:
                 ws[f"{twop}{r}"] = (
-                    f'=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({eff_comm}{r}), 1-{eff_comm}{r}, '
+                    f"=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({eff_comm}{r}), 1-{eff_comm}{r}, "
                     f'IF(ISNUMBER(FIND("8", {eff_comm}{r})), 0.92, 0.90)), 0)'
                 )
             else:
@@ -243,7 +279,7 @@ def export_excel_workbook(
             p_expr = f"IF(ISBLANK({p_col}{r}), 500, {p_col}{r})" if p_col else "500"
             if comm_col:
                 comm_expr = (
-                    f'IF(ISNUMBER({comm_col}{r}), {comm_col}{r}, '
+                    f"IF(ISNUMBER({comm_col}{r}), {comm_col}{r}, "
                     f'IF(ISNUMBER(FIND("8", {comm_col}{r})), 0.08, 0.10))'
                 )
                 ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/(1-{comm_expr}), 0)"
@@ -263,56 +299,65 @@ def export_excel_workbook(
                 ws[f"{prof_digi}{r}"] = (
                     f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*'
                     f'IF(ISNUMBER({digi_comm_col}{r}), 1-{digi_comm_col}{r}, IF(ISNUMBER(FIND("8", {digi_comm_col}{r})), 0.92, 0.90)))'
-                    f'-({net}{r}+{ship}{r}), 0))'
+                    f"-({net}{r}+{ship}{r}), 0))"
                 )
             else:
                 ws[f"{prof_digi}{r}"] = (
                     f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
                 )
 
-        # 8. Personal 5% Commission & Company Profit Breakdown
-        my_comm_col = col_map.get("My 5% Commission")
-        min_target_col = col_map.get("Min Profit Target (5% + 500)")
+        # 8. Personal Commission & Company Profit Breakdown
+        lbl = format_comm_pct_label(personal_comm_pct)
+        my_comm_col = col_map.get(f"My {lbl}% Commission") or next(
+            (col_map[h] for h in headers if _DYNAMIC_COMM_COL_RE.match(str(h))), None
+        )
+        min_target_col = col_map.get(f"Min Profit Target ({lbl}% + 500)") or next(
+            (col_map[h] for h in headers if _DYNAMIC_MIN_TARGET_COL_RE.match(str(h))), None
+        )
         co_alfa_col = col_map.get("Alfa Company Profit")
         co_digi_col = col_map.get("Digi Company Profit")
 
         if my_comm_col:
             comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
             if prof_alfa and prof_digi:
-                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))*{comm_mult:g}, 0)'
+                ws[f"{my_comm_col}{r}"] = (
+                    f"=ROUND(MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))*{comm_mult:g}, 0)"
+                )
             elif prof_alfa:
-                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0)'
+                ws[f"{my_comm_col}{r}"] = f"=ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0)"
             elif prof_digi:
-                ws[f"{my_comm_col}{r}"] = f'=ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0)'
+                ws[f"{my_comm_col}{r}"] = f"=ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0)"
             else:
-                ws[f"{my_comm_col}{r}"] = f'=ROUND(0*{comm_mult:g}, 0)'
+                ws[f"{my_comm_col}{r}"] = f"=ROUND(0*{comm_mult:g}, 0)"
         if min_target_col:
             comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
-            ws[f"{min_target_col}{r}"] = f"=ROUND(500/(1-{comm_mult:g}), 0)"
+            ws[f"{min_target_col}{r}"] = f"=ROUNDUP(500/(1-{comm_mult:g}), 0)"
         if co_alfa_col and prof_alfa:
             comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
-            ws[f"{co_alfa_col}{r}"] = f'=IF(ISBLANK({prof_alfa}{r}), "", {prof_alfa}{r}-ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0))'
+            ws[f"{co_alfa_col}{r}"] = (
+                f'=IF(ISBLANK({prof_alfa}{r}), "", {prof_alfa}{r}-ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0))'
+            )
         if co_digi_col and prof_digi:
             comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
-            ws[f"{co_digi_col}{r}"] = f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
+            ws[f"{co_digi_col}{r}"] = (
+                f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
+            )
 
         # Apply cell formats & borders
         for c_idx, col_name in enumerate(headers, start=1):
             cell = ws.cell(row=r, column=c_idx)
             cell.border = thin_border
-            if col_name in price_cols_set:
+            if col_name in price_cols_set or is_price_int_column(col_name):
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")
             elif col_name in ("Commision", "Digi Effective Commision"):
                 cell.number_format = "0.00%"
                 cell.alignment = Alignment(horizontal="center")
-            elif col_name in {
-                "S.NO",
-                "Alfa Status",
-                "Digi Status",
-                "Alfa 5% Goal",
-                "Digi 5% Goal",
-            }:
+            elif (
+                col_name in {"S.NO", "Alfa Status", "Digi Status"}
+                or _DYNAMIC_ALFA_GOAL_COL_RE.match(str(col_name))
+                or _DYNAMIC_DIGI_GOAL_COL_RE.match(str(col_name))
+            ):
                 cell.alignment = Alignment(horizontal="center")
 
     # Freeze top row
@@ -432,15 +477,17 @@ def filter_digi_only_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     clean_df = df.copy()
     if "Digi Effective Commision" in clean_df.columns:
-        has_digi_comm = (
-            clean_df["Digi Effective Commision"].notna()
-            & (clean_df["Digi Effective Commision"].astype(str).str.strip() != "")
+        has_digi_comm = clean_df["Digi Effective Commision"].notna() & (
+            clean_df["Digi Effective Commision"].astype(str).str.strip() != ""
         )
         if "Commision" in clean_df.columns:
-            clean_df.loc[has_digi_comm, "Commision"] = clean_df.loc[has_digi_comm, "Digi Effective Commision"]
+            clean_df.loc[has_digi_comm, "Commision"] = clean_df.loc[
+                has_digi_comm, "Digi Effective Commision"
+            ]
 
     retained_cols = [
-        col for col in clean_df.columns
+        col
+        for col in clean_df.columns
         if "alfa" not in str(col).lower() and str(col).strip() != "Digi Effective Commision"
     ]
     return clean_df[retained_cols]
@@ -527,8 +574,12 @@ def export_results(
         latest_xlsx_path = None  # type: ignore[assignment]
 
     # 2. Format pure integer strings for portal upload CSV (eliminating float drift .0)
-    for col in PRICE_INT_COLUMNS:
-        if col in export_df.columns:
+    if "Shipping Estimate" in export_df.columns:
+        export_df["Shipping Estimate"] = export_df["Shipping Estimate"].apply(
+            format_export_shipping
+        )
+    for col in export_df.columns:
+        if is_price_int_column(col):
             export_df[col] = export_df[col].apply(format_export_price)
 
     export_df.to_csv(timestamped_csv_path, index=False)
@@ -543,8 +594,12 @@ def export_results(
                 alfa_df["S.NO"] = alfa_df["S.NO"].apply(format_export_sno)
             alfa_xlsx = xlsx_dir / f"{stem}_repriced_alfa_latest.xlsx"
             export_excel_workbook(alfa_df, alfa_xlsx, personal_comm_pct=personal_comm_pct)
-            for col in PRICE_INT_COLUMNS:
-                if col in alfa_df.columns:
+            if "Shipping Estimate" in alfa_df.columns:
+                alfa_df["Shipping Estimate"] = alfa_df["Shipping Estimate"].apply(
+                    format_export_shipping
+                )
+            for col in alfa_df.columns:
+                if is_price_int_column(col):
                     alfa_df[col] = alfa_df[col].apply(format_export_price)
             alfa_df.to_csv(csv_dir / f"{stem}_repriced_alfa_latest.csv", index=False)
 
@@ -554,8 +609,12 @@ def export_results(
                 digi_df["S.NO"] = digi_df["S.NO"].apply(format_export_sno)
             digi_xlsx = xlsx_dir / f"{stem}_repriced_digi_latest.xlsx"
             export_excel_workbook(digi_df, digi_xlsx, personal_comm_pct=personal_comm_pct)
-            for col in PRICE_INT_COLUMNS:
-                if col in digi_df.columns:
+            if "Shipping Estimate" in digi_df.columns:
+                digi_df["Shipping Estimate"] = digi_df["Shipping Estimate"].apply(
+                    format_export_shipping
+                )
+            for col in digi_df.columns:
+                if is_price_int_column(col):
                     digi_df[col] = digi_df[col].apply(format_export_price)
             digi_df.to_csv(csv_dir / f"{stem}_repriced_digi_latest.csv", index=False)
         except Exception as exc:
@@ -594,18 +653,35 @@ def export_winning_5pct_results(
 
     Rows are sorted by total active sellers (highest market demand first) and 5% commission descending.
     """
-    if "Alfa 5% Goal" not in df.columns and "Digi 5% Goal" not in df.columns:
+    lbl = format_comm_pct_label(personal_comm_pct)
+    alfa_goal_col = (
+        f"Alfa {lbl}% Goal"
+        if f"Alfa {lbl}% Goal" in df.columns
+        else next((c for c in df.columns if _DYNAMIC_ALFA_GOAL_COL_RE.match(str(c))), None)
+    )
+    digi_goal_col = (
+        f"Digi {lbl}% Goal"
+        if f"Digi {lbl}% Goal" in df.columns
+        else next((c for c in df.columns if _DYNAMIC_DIGI_GOAL_COL_RE.match(str(c))), None)
+    )
+    if alfa_goal_col is None and digi_goal_col is None:
         return None, None, 0
 
-    win_goals = WINNING_5PCT_GOALS
+    win_goals = WINNING_5PCT_GOALS | get_winning_comm_goals(personal_comm_pct)
+    win_goal_re = re.compile(r"^(?:WIN \+ [\d.]+% ACHIEVED|SOLO \([\d.]+% COVERED\))$")
+
+    def _matches_win_goal(series: pd.Series) -> pd.Series:
+        s_str = series.fillna("").astype(str)
+        return series.isin(win_goals) | s_str.str.match(win_goal_re)
+
     alfa_win = (
-        df["Alfa 5% Goal"].isin(win_goals)
-        if "Alfa 5% Goal" in df.columns
+        _matches_win_goal(df[alfa_goal_col])
+        if alfa_goal_col is not None
         else pd.Series(False, index=df.index)
     )
     digi_win = (
-        df["Digi 5% Goal"].isin(win_goals)
-        if "Digi 5% Goal" in df.columns
+        _matches_win_goal(df[digi_goal_col])
+        if digi_goal_col is not None
         else pd.Series(False, index=df.index)
     )
     win_mask = alfa_win | digi_win
@@ -646,10 +722,11 @@ def export_winning_5pct_results(
     ts_str = dt.strftime("%Y%m%d_%H%M%S")
     stem = sanitize_catalog_stem(source_filename)
 
-    ts_csv = csv_dir / f"{stem}_winning_5pct_{ts_str}.csv"
-    latest_csv = csv_dir / f"{stem}_winning_5pct_latest.csv"
-    ts_xlsx = xlsx_dir / f"{stem}_winning_5pct_{ts_str}.xlsx"
-    latest_xlsx = xlsx_dir / f"{stem}_winning_5pct_latest.xlsx"
+    pct_slug = lbl.replace(".", "_")
+    ts_csv = csv_dir / f"{stem}_winning_{pct_slug}pct_{ts_str}.csv"
+    latest_csv = csv_dir / f"{stem}_winning_{pct_slug}pct_latest.csv"
+    ts_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_{ts_str}.xlsx"
+    latest_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_latest.xlsx"
 
     export_df = winners_df.copy()
     unnamed_cols = [
@@ -678,8 +755,12 @@ def export_winning_5pct_results(
     except Exception:
         saved_xlsx = None
 
-    for col in PRICE_INT_COLUMNS:
-        if col in export_df.columns:
+    if "Shipping Estimate" in export_df.columns:
+        export_df["Shipping Estimate"] = export_df["Shipping Estimate"].apply(
+            format_export_shipping
+        )
+    for col in export_df.columns:
+        if is_price_int_column(col):
             export_df[col] = export_df[col].apply(format_export_price)
 
     export_df.to_csv(ts_csv, index=False)

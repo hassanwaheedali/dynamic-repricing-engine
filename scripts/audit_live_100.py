@@ -20,7 +20,10 @@ from pricing_engine.scraper import scrape_alfamall, scrape_digimall
 
 console = Console(width=120)
 
-async def audit_single_product(session: AsyncSession, row: pd.Series, idx: int, total: int, sem: asyncio.Semaphore) -> dict:
+
+async def audit_single_product(
+    session: AsyncSession, row: pd.Series, idx: int, total: int, sem: asyncio.Semaphore
+) -> dict:
     name = row["Name"]
     brand = row["Brands"]
     cat = row["category"]
@@ -30,12 +33,16 @@ async def audit_single_product(session: AsyncSession, row: pd.Series, idx: int, 
 
     async with sem:
         try:
-            alfa_res = await scrape_alfamall(session, patterns, target_model, brand=brand, timeout=8.0, max_retries=2)
+            alfa_res = await scrape_alfamall(
+                session, patterns, target_model, brand=brand, timeout=8.0, max_retries=2
+            )
         except Exception:
             alfa_res = None
 
         try:
-            digi_res = await scrape_digimall(session, patterns, target_model, brand=brand, timeout=8.0, max_retries=2)
+            digi_res = await scrape_digimall(
+                session, patterns, target_model, brand=brand, timeout=8.0, max_retries=2
+            )
         except Exception:
             digi_res = None
 
@@ -49,7 +56,7 @@ async def audit_single_product(session: AsyncSession, row: pd.Series, idx: int, 
 
     # Print compact progress line
     console.print(
-        f"[dim]{idx+1:03d}/{total:03d}[/] "
+        f"[dim]{idx + 1:03d}/{total:03d}[/] "
         f"[{'cyan' if cat == 'AIR_CONDITIONER' else 'green' if cat == 'REFRIGERATOR' else 'yellow'}]{cat[:14]:14s}[/] "
         f"[bold white]{target_model[:18]:18s}[/] | "
         f"Alfa: [green]{alfa_exact} ex[/], [dim]{alfa_base} bs[/]"
@@ -70,7 +77,10 @@ async def audit_single_product(session: AsyncSession, row: pd.Series, idx: int, 
             "base_count": alfa_base,
             "fallback_modifier": alfa_mod,
             "executed_queries": alfa_res.executed_queries if alfa_res else [],
-            "top_offers": [{"price": o.price, "title": o.raw_title, "vendor": o.vendor_name} for o in (alfa_res.offers[:2] if alfa_res else [])],
+            "top_offers": [
+                {"price": o.price, "title": o.raw_title, "vendor": o.vendor_name}
+                for o in (alfa_res.offers[:2] if alfa_res else [])
+            ],
         },
         "digi": {
             "status": digi_res.status_code if digi_res else None,
@@ -78,24 +88,27 @@ async def audit_single_product(session: AsyncSession, row: pd.Series, idx: int, 
             "base_count": digi_base,
             "fallback_modifier": digi_mod,
             "executed_queries": digi_res.executed_queries if digi_res else [],
-            "top_offers": [{"price": o.price, "title": o.raw_title, "vendor": o.vendor_name} for o in (digi_res.offers[:2] if digi_res else [])],
-        }
+            "top_offers": [
+                {"price": o.price, "title": o.raw_title, "vendor": o.vendor_name}
+                for o in (digi_res.offers[:2] if digi_res else [])
+            ],
+        },
     }
+
 
 async def run_audit():
     df = pd.read_csv("tests/fixtures/selected_100_stress_products.csv")
     total = len(df)
-    console.print(f"\n[bold green]STARTING LIVE 100-PRODUCT MARKETPLACE AUDIT[/] ({total} products loaded)\n")
+    console.print(
+        f"\n[bold green]STARTING LIVE 100-PRODUCT MARKETPLACE AUDIT[/] ({total} products loaded)\n"
+    )
 
     sem = asyncio.Semaphore(4)
     results = []
 
     start_time = time.time()
     async with AsyncSession(impersonate="chrome120") as session:
-        tasks = [
-            audit_single_product(session, row, idx, total, sem)
-            for idx, row in df.iterrows()
-        ]
+        tasks = [audit_single_product(session, row, idx, total, sem) for idx, row in df.iterrows()]
         results = await asyncio.gather(*tasks)
 
     elapsed = time.time() - start_time
@@ -114,7 +127,13 @@ async def run_audit():
     for r in results:
         c = r["category"]
         if c not in cat_summary:
-            cat_summary[c] = {"total": 0, "alfa_exact": 0, "digi_exact": 0, "any_found": 0, "fallback_count": 0}
+            cat_summary[c] = {
+                "total": 0,
+                "alfa_exact": 0,
+                "digi_exact": 0,
+                "any_found": 0,
+                "fallback_count": 0,
+            }
         cat_summary[c]["total"] += 1
         alfa_hit = r["alfa"]["exact_count"] > 0
         digi_hit = r["digi"]["exact_count"] > 0
@@ -127,7 +146,11 @@ async def run_audit():
         if r["alfa"]["fallback_modifier"] or r["digi"]["fallback_modifier"]:
             cat_summary[c]["fallback_count"] += 1
 
-    tbl = Table(title="Live Marketplace Audit Summary by Category", show_header=True, header_style="bold cyan")
+    tbl = Table(
+        title="Live Marketplace Audit Summary by Category",
+        show_header=True,
+        header_style="bold cyan",
+    )
     tbl.add_column("Category", style="white", width=20)
     tbl.add_column("Tested Items", justify="right", width=14)
     tbl.add_column("Market Presence", justify="right", width=16)
@@ -139,12 +162,13 @@ async def run_audit():
         tbl.add_row(
             c,
             str(s["total"]),
-            f"{s['any_found']}/{s['total']} ({s['any_found']/s['total']*100:.0f}%)",
+            f"{s['any_found']}/{s['total']} ({s['any_found'] / s['total'] * 100:.0f}%)",
             str(s["alfa_exact"]),
             str(s["digi_exact"]),
-            str(s["fallback_count"])
+            str(s["fallback_count"]),
         )
     console.print(tbl)
+
 
 if __name__ == "__main__":
     asyncio.run(run_audit())

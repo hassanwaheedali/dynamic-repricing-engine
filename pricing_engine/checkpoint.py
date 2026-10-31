@@ -24,23 +24,32 @@ logger = logging.getLogger(__name__)
 DEFAULT_CHECKPOINT_DIR = Path("data/.checkpoints")
 
 
-def compute_row_fingerprint(row: pd.Series | dict[str, Any]) -> str:
-    """Compute deterministic cryptographic fingerprint of catalog row inputs.
+def compute_row_fingerprint(
+    row: pd.Series | dict[str, Any],
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
+) -> str:
+    """Compute deterministic cryptographic fingerprint of catalog row inputs and run mode.
 
     Detects any user modifications to Brand, Model Title, Net Purchase Price,
-    Target Profit, or Landing Dimensions in the input CSV.
+    Target Profit, Landing Dimensions, explicit Shipping Estimate overrides,
+    target platform filter, or personal commission percentage.
     """
     r_dict = row.to_dict() if isinstance(row, pd.Series) else dict(row)
 
     brand = str(r_dict.get("Brand") or r_dict.get("brand") or "").strip().upper()
-    name = str(
-        r_dict.get("Name")
-        or r_dict.get("name")
-        or r_dict.get("Title")
-        or r_dict.get("title")
-        or r_dict.get("Model")
-        or ""
-    ).strip().upper()
+    name = (
+        str(
+            r_dict.get("Name")
+            or r_dict.get("name")
+            or r_dict.get("Title")
+            or r_dict.get("title")
+            or r_dict.get("Model")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
 
     def _to_float(v: Any, default: float = 0.0) -> float:
         if v is None or pd.isna(v):
@@ -50,13 +59,23 @@ def compute_row_fingerprint(row: pd.Series | dict[str, Any]) -> str:
         except (ValueError, TypeError):
             return default
 
-    net_price = _to_float(r_dict.get("Net Price") or r_dict.get("net_price") or r_dict.get("Cost"), 0.0)
+    net_price = _to_float(
+        r_dict.get("Net Price") or r_dict.get("net_price") or r_dict.get("Cost"), 0.0
+    )
     profit = _to_float(r_dict.get("Profit") or r_dict.get("profit"), 500.0)
     length = _to_float(r_dict.get("Length") or r_dict.get("length"), 0.0)
     width = _to_float(r_dict.get("Width") or r_dict.get("width"), 0.0)
     height = _to_float(r_dict.get("Height") or r_dict.get("height"), 0.0)
+    ship_override = _to_float(
+        r_dict.get("Shipping Estimate") or r_dict.get("shipping_estimate"), 0.0
+    )
+    norm_plat = platform.strip().lower() or "all"
+    norm_comm = round(float(personal_comm_pct), 4)
 
-    raw_signature = f"{brand}|{name}|{net_price:.2f}|{profit:.2f}|{length:.2f}|{width:.2f}|{height:.2f}"
+    raw_signature = (
+        f"{brand}|{name}|{net_price:.2f}|{profit:.2f}|{length:.2f}|{width:.2f}|{height:.2f}"
+        f"|{ship_override:.2f}|{norm_plat}|{norm_comm:.4f}"
+    )
     return hashlib.sha256(raw_signature.encode("utf-8")).hexdigest()[:16]
 
 
@@ -152,12 +171,14 @@ def delete_checkpoint(
 def detect_dirty_or_pending_rows(
     df: pd.DataFrame,
     state: CheckpointState,
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
 ) -> tuple[list[int], dict[int, dict[str, Any]]]:
     """Inspect current catalog dataframe against loaded checkpoint state.
 
-    Compares the row fingerprint of every row in `df`.
+    Compares the row fingerprint of every row in `df` (including platform & commission mode).
     - Unchanged & previously completed rows -> instantly loaded from cache (0 network calls).
-    - Rows with changed Brand, Title, or Net Price OR previously pending/skipped -> marked for execution.
+    - Rows with changed inputs/config OR previously pending/skipped -> marked for execution.
 
     Returns:
         (rows_needing_execution, cached_completed_records)
@@ -167,7 +188,9 @@ def detect_dirty_or_pending_rows(
 
     for idx, row in df.iterrows():
         i = int(idx)
-        current_fp = compute_row_fingerprint(row)
+        current_fp = compute_row_fingerprint(
+            row, platform=platform, personal_comm_pct=personal_comm_pct
+        )
         saved_fp = state.row_fingerprints.get(i)
 
         is_completed = i in state.completed_records and i not in state.pending_indices
