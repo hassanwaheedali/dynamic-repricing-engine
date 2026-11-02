@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import config
 from pricing_engine.calculator import calculate_cost_base, calculate_floors
 from pricing_engine.evaluator import evaluate_alfa_pricing
 from pricing_engine.matcher import (
@@ -398,7 +399,7 @@ def test_genuine_monopoly_pricing_when_no_candidates_found() -> None:
 
     assert eval_res.final_price is not None
     assert eval_res.status == "Monopoly Win"
-    assert eval_res.real_profit >= 4000
+    assert eval_res.real_profit >= config.MONOPOLY_PROFIT_PKR
     assert determine_risk_alert(eval_res) == "NONE"
 
 

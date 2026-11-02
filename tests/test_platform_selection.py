@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import config
 from index import parse_args
 from pricing_engine.models import (
     CostFloors,
@@ -126,8 +127,8 @@ def test_build_output_record_digi_only() -> None:
         final_price=171899,
         real_profit=5147,
         status="Target Undercut",
-        reason="Undercut at 8% rate",
-        effective_comm="8.00%",
+        reason="Undercut at leverage rate",
+        effective_comm=f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
     )
 
     record = build_output_record(
@@ -143,8 +144,8 @@ def test_build_output_record_digi_only() -> None:
     assert record["Final Price Digi"] == 171899
     assert record["Digi Real Profit"] == 5147
     assert record["Digi Risk Alert"] == "NONE"
-    assert record["Digi Effective Commision"] == "8.00%"
-    assert record["Commision"] == "8.00%"
+    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert record["Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert record["Final Price Alfa"] is None
 
 

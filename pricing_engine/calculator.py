@@ -455,7 +455,7 @@ def get_fallback_psychological_price(
     cost_base: float,
     floor_min: float,
     payout_rate: float,
-    profit_target: float = 1500.0,
+    profit_target: float | None = None,
 ) -> int:
     """Calculate attractive psychological price when all market competitors are selling at a loss.
 
@@ -466,12 +466,15 @@ def get_fallback_psychological_price(
         cost_base: Landed cost base.
         floor_min: Absolute minimum floor.
         payout_rate: Bank payout rate (e.g. 0.92 for Digi, 0.90 for Alfa).
-        profit_target: Minimum target profit (default 1500.0 PKR).
+        profit_target: Minimum target profit (defaults to config.FALLBACK_PROFIT_PKR).
 
     Returns:
         Attractive integer psychological price ending strictly in 999.
     """
-    raw_target = (cost_base + profit_target) / payout_rate
+    eff_profit_target = (
+        config.FALLBACK_PROFIT_PKR if profit_target is None else profit_target
+    )
+    raw_target = (cost_base + eff_profit_target) / payout_rate
     effective_min = max(raw_target, floor_min)
     base = (int(effective_min) // 1000) * 1000
     candidate = base + 999
@@ -500,8 +503,8 @@ def calculate_adaptive_target_price(
     competitor_price: float,
     undercut_buffer: float = 100.0,
     cost_base: float | None = None,
-    payout_rate: float = 0.90,
-    large_gap_profit_target: float = 10000.0,
+    payout_rate: float | None = None,
+    large_gap_profit_target: float | None = None,
     min_buffer_3_zeros: float = 1000.0,
 ) -> float:
     """Calculate an adaptive target price based on the gap between floor and competitor.
@@ -518,13 +521,19 @@ def calculate_adaptive_target_price(
         competitor_price: Viable competitor price.
         undercut_buffer: Default undercut margin below competitor (default 100.0).
         cost_base: Optional landed cost base for exact profit targeting.
-        payout_rate: Marketplace payout multiplier (e.g. 0.92 for Digi, 0.90 for Alfa).
-        large_gap_profit_target: Target profit cap for large gaps (default 10,000.0).
+        payout_rate: Marketplace payout multiplier (defaults to config.get_alfa_payout_rate()).
+        large_gap_profit_target: Target profit cap for large gaps (defaults to config.LARGE_GAP_PROFIT_CAP_PKR).
         min_buffer_3_zeros: Minimum profit buffer above floor for 3 zeros (default 1,000.0).
 
     Returns:
         Target ceiling price before psychological rounding.
     """
+    eff_payout = config.get_alfa_payout_rate() if payout_rate is None else payout_rate
+    eff_large_gap = (
+        config.LARGE_GAP_PROFIT_CAP_PKR
+        if large_gap_profit_target is None
+        else large_gap_profit_target
+    )
     gap = competitor_price - floor_min
 
     if gap <= 0:
@@ -553,8 +562,8 @@ def calculate_adaptive_target_price(
 
     # Tier 1: Gap >= 10,000 PKR (4 Zeros) -> Option A: Profit-targeted sweet spot (~10k)
     competitor_ceiling = competitor_price - undercut_buffer
-    if cost_base is not None and payout_rate > 0:
-        target_profit_price = (cost_base + large_gap_profit_target) / payout_rate
+    if cost_base is not None and eff_payout > 0:
+        target_profit_price = (cost_base + eff_large_gap) / eff_payout
         # Smooth continuity from Tier 2 (floor + 5,000) up to target_profit_price:
         # Gaps 10k to 15k transition smoothly from 5k profit to 10k profit cap.
         tier2_ceiling = floor_min + 5000.0 + max(0.0, gap - 10000.0)

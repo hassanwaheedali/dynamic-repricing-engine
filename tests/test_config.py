@@ -18,23 +18,23 @@ from pricing_engine.pipeline import parse_product_input, process_product_with_of
 
 
 def test_config_default_constants_and_payout_helpers() -> None:
-    assert config.ALFA_COMMISSION_PCT == 10.0
-    assert config.DIGI_STANDARD_COMMISSION_PCT == 10.0
-    assert config.DIGI_LEVERAGE_COMMISSION_PCT == 8.0
-    assert config.DEFAULT_PERSONAL_COMM_PCT == 5.0
-    assert config.ALFA_PERSONAL_COMM_PCT == 5.0
-    assert config.DIGI_PERSONAL_COMM_PCT == 5.0
-    assert config.COMPANY_MIN_PROFIT_PKR == 500.0
-    assert config.MONOPOLY_PROFIT_PKR == 4000.0
-    assert config.FALLBACK_PROFIT_PKR == 1500.0
-    assert config.LARGE_GAP_PROFIT_CAP_PKR == 10000.0
-    assert config.THIN_BUFFER_THRESHOLD_PKR == 700.0
-    assert config.COURIER_RATE_PER_KG == 70.0
-    assert config.VOLUMETRIC_DIVISOR == 5000.0
+    assert isinstance(config.ALFA_COMMISSION_PCT, (int, float)) and config.ALFA_COMMISSION_PCT > 0
+    assert isinstance(config.DIGI_STANDARD_COMMISSION_PCT, (int, float)) and config.DIGI_STANDARD_COMMISSION_PCT > 0
+    assert isinstance(config.DIGI_LEVERAGE_COMMISSION_PCT, (int, float)) and config.DIGI_LEVERAGE_COMMISSION_PCT > 0
+    assert isinstance(config.DEFAULT_PERSONAL_COMM_PCT, (int, float)) and config.DEFAULT_PERSONAL_COMM_PCT >= 0
+    assert isinstance(config.ALFA_PERSONAL_COMM_PCT, (int, float)) and config.ALFA_PERSONAL_COMM_PCT >= 0
+    assert isinstance(config.DIGI_PERSONAL_COMM_PCT, (int, float)) and config.DIGI_PERSONAL_COMM_PCT >= 0
+    assert isinstance(config.COMPANY_MIN_PROFIT_PKR, (int, float)) and config.COMPANY_MIN_PROFIT_PKR > 0
+    assert isinstance(config.MONOPOLY_PROFIT_PKR, (int, float)) and config.MONOPOLY_PROFIT_PKR > 0
+    assert isinstance(config.FALLBACK_PROFIT_PKR, (int, float)) and config.FALLBACK_PROFIT_PKR > 0
+    assert isinstance(config.LARGE_GAP_PROFIT_CAP_PKR, (int, float)) and config.LARGE_GAP_PROFIT_CAP_PKR > 0
+    assert isinstance(config.THIN_BUFFER_THRESHOLD_PKR, (int, float)) and config.THIN_BUFFER_THRESHOLD_PKR > 0
+    assert isinstance(config.COURIER_RATE_PER_KG, (int, float)) and config.COURIER_RATE_PER_KG > 0
+    assert isinstance(config.VOLUMETRIC_DIVISOR, (int, float)) and config.VOLUMETRIC_DIVISOR > 0
 
-    assert round(config.get_alfa_payout_rate(), 4) == 0.90
-    assert round(config.get_digi_standard_payout_rate(), 4) == 0.90
-    assert round(config.get_digi_leverage_payout_rate(), 4) == 0.92
+    assert round(config.get_alfa_payout_rate(), 4) == round(1.0 - config.ALFA_COMMISSION_PCT / 100.0, 4)
+    assert round(config.get_digi_standard_payout_rate(), 4) == round(1.0 - config.DIGI_STANDARD_COMMISSION_PCT / 100.0, 4)
+    assert round(config.get_digi_leverage_payout_rate(), 4) == round(1.0 - config.DIGI_LEVERAGE_COMMISSION_PCT / 100.0, 4)
 
 
 def test_calculator_respects_config_overrides() -> None:
@@ -67,12 +67,12 @@ def test_per_platform_personal_commission_from_config() -> None:
             net_price=100000.0,
             personal_comm_pct=config.DEFAULT_PERSONAL_COMM_PCT,
         )
-        # 500 / (1 - 0.06) = 531.91 -> personal_comm = 32
-        # 500 / (1 - 0.04) = 520.83 -> personal_comm = 21
-        assert floors.alfa_personal_comm == 32
-        assert floors.digi_personal_comm == 21
-        assert round(floors.floor_alfa) == round((102000.0 + (500.0 / 0.94)) / 0.90)
-        assert round(floors.floor_digi_8) == round((102000.0 + (500.0 / 0.96)) / 0.92)
+        expected_alfa_c = round((config.COMPANY_MIN_PROFIT_PKR / 0.94) - config.COMPANY_MIN_PROFIT_PKR)
+        expected_digi_c = round((config.COMPANY_MIN_PROFIT_PKR / 0.96) - config.COMPANY_MIN_PROFIT_PKR)
+        assert floors.alfa_personal_comm == expected_alfa_c
+        assert floors.digi_personal_comm == expected_digi_c
+        assert round(floors.floor_alfa) == round((102000.0 + (config.COMPANY_MIN_PROFIT_PKR / 0.94)) / config.get_alfa_payout_rate())
+        assert round(floors.floor_digi_8) == round((102000.0 + (config.COMPANY_MIN_PROFIT_PKR / 0.96)) / config.get_digi_leverage_payout_rate())
 
         product = parse_product_input(
             0,

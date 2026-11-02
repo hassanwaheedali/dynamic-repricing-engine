@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 
+import config
 from pricing_engine.models import CheckpointState
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,9 @@ def compute_row_fingerprint(
     net_price = _to_float(
         r_dict.get("Net Price") or r_dict.get("net_price") or r_dict.get("Cost"), 0.0
     )
-    profit = _to_float(r_dict.get("Profit") or r_dict.get("profit"), 500.0)
+    profit = _to_float(
+        r_dict.get("Profit") or r_dict.get("profit"), config.COMPANY_MIN_PROFIT_PKR
+    )
     length = _to_float(r_dict.get("Length") or r_dict.get("length"), 0.0)
     width = _to_float(r_dict.get("Width") or r_dict.get("width"), 0.0)
     height = _to_float(r_dict.get("Height") or r_dict.get("height"), 0.0)

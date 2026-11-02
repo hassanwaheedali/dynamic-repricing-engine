@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import openpyxl
 import pandas as pd
 
+import config
 from pricing_engine.exporter import (
     ExportManifest,
     export_results,
@@ -107,7 +109,7 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
 
     # Commission cell numeric percentage check
     comm_cell = ws[f"{col_map['Commision']}2"]
-    assert comm_cell.value == 0.10
+    assert comm_cell.value == round(config.ALFA_COMMISSION_PCT / 100.0, 4)
     assert comm_cell.number_format == "0.00%"
 
     # Minimum Price Alfa & Digi check (real scraped market numbers, NOT formulas)
@@ -119,7 +121,7 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     # Real Profit formulas check
     prof_alfa_val = ws[f"{col_map['Alfa Real Profit']}2"].value
     prof_digi_val = ws[f"{col_map['Digi Real Profit']}2"].value
-    assert isinstance(prof_alfa_val, str) and "0.90" in prof_alfa_val
+    assert isinstance(prof_alfa_val, str) and f"{config.get_alfa_payout_rate():.2f}" in prof_alfa_val
     assert (
         isinstance(prof_digi_val, str)
         and f"{col_map['Digi Effective Commision']}2" in prof_digi_val
@@ -131,3 +133,83 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     assert csv_df["Total Without Profit"].iloc[0] == "113352"
     assert csv_df["Calculation"].iloc[0] == "117000"
     assert not csv_df["Total Without Profit"].iloc[0].startswith("=")
+
+
+def test_excel_formulas_with_mutated_commissions_and_no_find_hacks(tmp_path: Path) -> None:
+    """Verify Excel formulas adapt dynamically under non-standard commission rates with zero FIND hacks."""
+    out_dir = tmp_path / "mutated_outputs"
+    df = pd.DataFrame(
+        {
+            "S.NO": [1],
+            "Brand": ["Dawlance"],
+            "Name": ["Dawlance Inverter AC"],
+            "Net Price": [100000],
+            "Length": [60.0],
+            "Width": [40.0],
+            "Height": [80.0],
+            "Profit": [750],
+            "Shipping Estimate": [4000],
+            "Commision": ["12.00%"],
+            "Digi Effective Commision": ["7.00%"],
+            "Total Without Profit": [111828],
+            "Calculation": [114489],
+            "Minimum Price Alfa": [115000],
+            "Maximum Price Alfa": [120000],
+            "Minimum Price Digi": [114000],
+            "Maximum Price Digi": [119000],
+            "Final Price Alfa": [118999],
+            "Alfa Status": ["WINNER"],
+            "Final Price Digi": [117999],
+            "Digi Status": ["WINNER"],
+            "Alfa Real Profit": [4719],
+            "Digi Real Profit": [9739],
+            "Alfa Reason": ["Won"],
+            "Digi Reason": ["Won"],
+            "Alfa Risk Alert": ["NONE"],
+            "Digi Risk Alert": ["NONE"],
+        }
+    )
+
+    with (
+        patch.object(config, "ALFA_COMMISSION_PCT", 12.0),
+        patch.object(config, "DIGI_STANDARD_COMMISSION_PCT", 12.0),
+        patch.object(config, "DIGI_LEVERAGE_COMMISSION_PCT", 7.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 750.0),
+        patch.object(config, "COURIER_RATE_PER_KG", 85.0),
+        patch.object(config, "VOLUMETRIC_DIVISOR", 4500.0),
+    ):
+        manifest = export_results(
+            df=df,
+            source_filename="mutated_catalog.csv",
+            output_dir=out_dir,
+            render_panel=False,
+        )
+        wb = openpyxl.load_workbook(manifest.latest_xlsx_path)
+        ws = wb.active
+        headers = [c.value for c in ws[1]]
+        col_map = {h: openpyxl.utils.get_column_letter(i + 1) for i, h in enumerate(headers)}
+
+        twop_formula = ws[f"{col_map['Total Without Profit']}2"].value
+        calc_formula = ws[f"{col_map['Calculation']}2"].value
+        alfa_profit_formula = ws[f"{col_map['Alfa Real Profit']}2"].value
+        digi_profit_formula = ws[f"{col_map['Digi Real Profit']}2"].value
+
+        # 1. Zero 'FIND' substring hacks in any formula
+        for f_name, f_val in [
+            ("Total Without Profit", twop_formula),
+            ("Calculation", calc_formula),
+            ("Alfa Real Profit", alfa_profit_formula),
+            ("Digi Real Profit", digi_profit_formula),
+        ]:
+            assert "FIND(" not in str(f_val), f"Fragile FIND() hack detected in {f_name}: {f_val}"
+
+        # 2. Total Without Profit dynamically references commission column
+        assert f"{col_map['Digi Effective Commision']}2" in twop_formula
+
+        # 3. Calculation dynamically references Commision column and configured profit target 750
+        assert f"{col_map['Commision']}2" in calc_formula
+        assert "750" in calc_formula
+
+        # 4. Profit formulas dynamically reference commission cell
+        assert f"{col_map['Commision']}2" in alfa_profit_formula
+        assert f"{col_map['Digi Effective Commision']}2" in digi_profit_formula

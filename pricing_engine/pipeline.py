@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+import config
 from pricing_engine.calculator import (
     calculate_baseline,
     calculate_cost_base,
@@ -92,8 +93,16 @@ if hasattr(sys.stderr, "reconfigure"):
 console = Console(legacy_windows=False, width=max(105, Console().width or 105))
 logger = logging.getLogger(__name__)
 
-ZONE_PRICE: float = 70.0
-DIVISOR: float = 5000.0
+ZONE_PRICE: float = config.COURIER_RATE_PER_KG
+DIVISOR: float = config.VOLUMETRIC_DIVISOR
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ZONE_PRICE":
+        return config.COURIER_RATE_PER_KG
+    if name == "DIVISOR":
+        return config.VOLUMETRIC_DIVISOR
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _format_dupe_tag(count: int) -> str:
@@ -178,7 +187,7 @@ def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> 
         return "NEGATIVE_MARGIN"
     if res.status == "Safe Fallback":
         return "SAFE_FALLBACK"
-    if (res.real_profit - personal_comm) < 700:
+    if (res.real_profit - personal_comm) < config.THIN_BUFFER_THRESHOLD_PKR:
         return "THIN_BUFFER"
     return "NONE"
 
@@ -281,7 +290,7 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     width = _safe_float(row.get("Width"), 0.0)
     height = _safe_float(row.get("Height"), 0.0)
     net_price = _safe_float(row.get("Net Price"), 0.0)
-    profit = _safe_float(row.get("Profit"), 500.0)
+    profit = _safe_float(row.get("Profit"), config.COMPANY_MIN_PROFIT_PKR)
 
     return ProductInput(
         sno=sno,
@@ -438,17 +447,18 @@ def build_output_record(
 
     out_record["Shipping Estimate"] = shipping
     plat_lower = platform.lower().strip()
+    alfa_comm = f"{config.ALFA_COMMISSION_PCT:.2f}%"
+    digi_lev_comm = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     if plat_lower == "digi" and digi_res.status != "SKIPPED":
-        out_record["Commision"] = digi_res.effective_comm if digi_res.effective_comm else "10.00%"
+        out_record["Commision"] = digi_res.effective_comm if digi_res.effective_comm else alfa_comm
     else:
-        out_record["Commision"] = "10.00%"
+        out_record["Commision"] = alfa_comm
     out_record["Digi Effective Commision"] = (
         digi_res.effective_comm if digi_res.status != "SKIPPED" else ""
     )
 
-    # Total Without Profit: If Digi uses 8%, record 8% breakeven (cost_base / 0.92)
-    # If 10% (or Digi skipped), record 10% breakeven (cost_base / 0.90)
-    if digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
+    # Total Without Profit: If Digi uses leverage commission, record leverage breakeven
+    if digi_res.status != "SKIPPED" and digi_res.effective_comm == digi_lev_comm:
         out_record["Total Without Profit"] = round(floors.zero_margin_8)
     else:
         out_record["Total Without Profit"] = round(floors.zero_margin_10)
@@ -504,7 +514,12 @@ def build_output_record(
 
         my_comm = max(alfa_my_comm, digi_my_comm)
         out_record[f"My {lbl}% Commission"] = my_comm
-        out_record[f"Min Profit Target ({lbl}% + 500)"] = min_target_profit
+        min_profit_int = (
+            int(config.COMPANY_MIN_PROFIT_PKR)
+            if config.COMPANY_MIN_PROFIT_PKR.is_integer()
+            else config.COMPANY_MIN_PROFIT_PKR
+        )
+        out_record[f"Min Profit Target ({lbl}% + {min_profit_int})"] = min_target_profit
         out_record["Alfa Active Sellers"] = alfa_sellers if alfa_res.status != "SKIPPED" else None
         out_record["Digi Active Sellers"] = digi_sellers if digi_res.status != "SKIPPED" else None
         out_record["Alfa Company Profit"] = alfa_co_profit
@@ -556,7 +571,7 @@ def process_product_with_offers(
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(
         cost_base,
-        min_profit=500.0,
+        min_profit=config.COMPANY_MIN_PROFIT_PKR,
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
     )
@@ -569,10 +584,12 @@ def process_product_with_offers(
     if (
         platform.lower().strip() == "digi"
         and digi_res.status != "SKIPPED"
-        and digi_res.effective_comm == "8.00%"
+        and digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     ):
         baseline_calc = calculate_baseline(
-            cost_base, target_profit=effective_target_profit, payout_rate=0.92
+            cost_base,
+            target_profit=effective_target_profit,
+            payout_rate=config.get_digi_leverage_payout_rate(),
         )
 
     return build_output_record(
@@ -603,27 +620,39 @@ def render_start_banner(
     grid.add_row("Output Target:", f"{output_path.name}")
     grid.add_row("Scraper Workers:", f"Direct JSON Search APIs ({concurrency} concurrent workers)")
     plat_lower = platform.lower().strip()
+    min_p_int = (
+        int(config.COMPANY_MIN_PROFIT_PKR)
+        if config.COMPANY_MIN_PROFIT_PKR.is_integer()
+        else config.COMPANY_MIN_PROFIT_PKR
+    )
+    alfa_pct_g = f"{config.ALFA_COMMISSION_PCT:g}"
+    digi_std_g = f"{config.DIGI_STANDARD_COMMISSION_PCT:g}"
+    digi_lev_g = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
+
     floor_desc = (
-        f" (+{personal_comm_pct:g}% Personal Comm on Real Profit + Rs. 500 Company Floor)"
+        f" (+{personal_comm_pct:g}% Personal Comm on Real Profit + Rs. {min_p_int} Company Floor)"
         if personal_comm_pct > 0
-        else " (+Rs. 500 guarantee)"
+        else f" (+Rs. {min_p_int} guarantee)"
     )
     if plat_lower == "alfa":
         grid.add_row("Target Platform:", "[bold #2c4699]AlfaMall Only[/]")
-        grid.add_row("Pricing Strategy:", f"AlfaMall 10% Floor{floor_desc}")
+        grid.add_row("Pricing Strategy:", f"AlfaMall {alfa_pct_g}% Floor{floor_desc}")
     elif plat_lower == "digi":
         grid.add_row("Target Platform:", "[bold #229693]DigiMall Only[/]")
-        grid.add_row("Pricing Strategy:", f"DigiMall Two-Tier (10% -> 8% Bank Switch){floor_desc}")
+        grid.add_row(
+            "Pricing Strategy:",
+            f"DigiMall Two-Tier ({digi_std_g}% -> {digi_lev_g}% Bank Switch){floor_desc}",
+        )
     else:
         grid.add_row("Target Platform:", "[bold]AlfaMall & DigiMall[/]")
         grid.add_row(
             "Pricing Strategy:",
-            f"AlfaMall 10% Floor | DigiMall Two-Tier (10% -> 8% Bank Switch){floor_desc}",
+            f"AlfaMall {alfa_pct_g}% Floor | DigiMall Two-Tier ({digi_std_g}% -> {digi_lev_g}% Bank Switch){floor_desc}",
         )
     if personal_comm_pct > 0:
         grid.add_row(
             "Personal Earning:",
-            f"[bold yellow]{personal_comm_pct:g}% of Real Net Profit[/] + [bold green]Rs. 500 Company Profit[/] + [bold cyan]Winners Export[/]",
+            f"[bold yellow]{personal_comm_pct:g}% of Real Net Profit[/] + [bold green]Rs. {min_p_int} Company Profit[/] + [bold cyan]Winners Export[/]",
         )
 
     console.print()
@@ -887,13 +916,17 @@ def build_scraped_sellers_table(
             res=alfa_res,
             floor_price=floors.floor_alfa,
             floor_label=f"Floor Rs. {floors.floor_alfa:,.0f}",
-            empty_label="[bold cyan]Monopoly Pricing (+Rs. 4,000 margin)[/]",
+            empty_label=f"[bold cyan]Monopoly Pricing (+Rs. {config.MONOPOLY_PROFIT_PKR:,.0f} margin)[/]",
             target_undercut_label="[bold green]Target Undercut (Lowest Viable)[/]",
         )
 
     # 2. DigiMall Scraped Competitors
     if digi_res.status != "SKIPPED":
-        digi_comm_note = "8% Viable" if digi_res.effective_comm == "8.00%" else "10% Viable"
+        digi_comm_note = (
+            f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}% Viable"
+            if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+            else f"{config.DIGI_STANDARD_COMMISSION_PCT:g}% Viable"
+        )
         _render_platform_offers_to_table(
             tbl=tbl,
             platform_tag="[bold #229693]DigiMall[/]",
@@ -962,11 +995,11 @@ def build_platform_decision_table(
     # Commission tier applied
     if digi_res.status == "SKIPPED":
         digi_comm_badge = "[dim]N/A (Skipped)[/]"
-    elif digi_res.effective_comm == "8.00%":
-        digi_comm_badge = "[bold blue]8.00% Emergency Switch[/]"
+    elif digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%":
+        digi_comm_badge = f"[bold blue]{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}% Emergency Switch[/]"
     else:
-        digi_comm_badge = "[#229693]8% + 2% Spread[/]"
-    alfa_comm_badge = "10.00% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
+        digi_comm_badge = f"[#229693]{config.DIGI_LEVERAGE_COMMISSION_PCT:g}% + {(config.DIGI_STANDARD_COMMISSION_PCT - config.DIGI_LEVERAGE_COMMISSION_PCT):g}% Spread[/]"
+    alfa_comm_badge = f"{config.ALFA_COMMISSION_PCT:.2f}% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
     plat_tbl.add_row("Bank Commission", alfa_comm_badge, digi_comm_badge)
 
     # Final Price
@@ -1021,7 +1054,11 @@ def build_platform_decision_table(
             or "sub-floor" in (digi_res.reason or "").lower()
             or (digi_res.min_price is not None and digi_res.final_price >= digi_res.min_price)
         ):
-            tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
+            tier_note = (
+                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
+                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+                else ""
+            )
             digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED{tier_note})[/]"
         elif (
             "monopoly" in (digi_res.status or "").lower()
@@ -1033,7 +1070,11 @@ def build_platform_decision_table(
             "capped" in (digi_res.reason or "").lower()
             or "sweet-spot" in (digi_res.reason or "").lower()
         ):
-            tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
+            tier_note = (
+                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
+                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+                else ""
+            )
             digi_p_str = (
                 f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT{tier_note})[/]"
             )
@@ -1042,7 +1083,11 @@ def build_platform_decision_table(
             or "undercut" in (digi_res.reason or "").lower()
             or "winning price" in (digi_res.reason or "").lower()
         ):
-            tier_note = " (8% RATE)" if digi_res.effective_comm == "8.00%" else ""
+            tier_note = (
+                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
+                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+                else ""
+            )
             digi_p_str = (
                 f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT{tier_note})[/]"
             )
@@ -1065,7 +1110,7 @@ def build_platform_decision_table(
     elif alfa_res.final_price is not None:
         if alfa_res.real_profit is not None and alfa_res.real_profit <= 0:
             alfa_prof_str = f"[bold white on red]Rs. {alfa_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif alfa_res.real_profit is not None and alfa_res.real_profit < 700:
+        elif alfa_res.real_profit is not None and alfa_res.real_profit < config.THIN_BUFFER_THRESHOLD_PKR:
             alfa_prof_str = (
                 f"[bold red]+Rs. {alfa_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
             )
@@ -1085,7 +1130,7 @@ def build_platform_decision_table(
     elif digi_res.final_price is not None:
         if digi_res.real_profit is not None and digi_res.real_profit <= 0:
             digi_prof_str = f"[bold white on red]Rs. {digi_res.real_profit:,} (NEGATIVE MARGIN)[/]"
-        elif digi_res.real_profit is not None and digi_res.real_profit < 700:
+        elif digi_res.real_profit is not None and digi_res.real_profit < config.THIN_BUFFER_THRESHOLD_PKR:
             digi_prof_str = (
                 f"[bold red]+Rs. {digi_res.real_profit:,} (THIN BUFFER - VOLUMETRIC RISK)[/]"
             )
@@ -1154,35 +1199,43 @@ def render_audit_card(
         dim_str = f"{product.length:g}x{product.width:g}x{product.height:g} cm"
         shipping_str = f"Rs. {shipping:,.2f}"
 
+    min_p_int = (
+        int(config.COMPANY_MIN_PROFIT_PKR)
+        if config.COMPANY_MIN_PROFIT_PKR.is_integer()
+        else config.COMPANY_MIN_PROFIT_PKR
+    )
+    alfa_pct_g = f"{config.ALFA_COMMISSION_PCT:g}"
+    digi_pct_g = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
+
     specs.add_row(
         "Net Catalog Price:",
         f"Rs. {product.net_price:,.0f}",
-        "[#2c4699]Alfa 10% (Without 500):[/]",
+        f"[#2c4699]Alfa {alfa_pct_g}% (Without {min_p_int}):[/]",
         f"Rs. {tot_10:,}",
     )
     specs.add_row(
         "Courier Shipping:",
         shipping_str,
         (
-            f"[bold #2c4699]Alfa 10% Floor (+{floors.alfa_personal_comm:,} Comm + 500):[/]"
+            f"[bold #2c4699]Alfa {alfa_pct_g}% Floor (+{floors.alfa_personal_comm:,} Comm + {min_p_int}):[/]"
             if floors.alfa_personal_comm > 0
-            else "[bold #2c4699]Alfa 10% Floor (+500):[/]"
+            else f"[bold #2c4699]Alfa {alfa_pct_g}% Floor (+{min_p_int}):[/]"
         ),
         f"[bold #2c4699]Rs. {floors.floor_alfa:,.0f}[/]",
     )
     specs.add_row(
         "Real Landed Cost:",
         f"[bold green]Rs. {floors.cost_base:,.2f}[/]",
-        "[#229693]Digi 8% (Without 500):[/]",
+        f"[#229693]Digi {digi_pct_g}% (Without {min_p_int}):[/]",
         f"Rs. {tot_8:,}",
     )
     specs.add_row(
         "Dimensions:",
         dim_str,
         (
-            f"[bold #229693]Digi 8% Floor (+{floors.digi_personal_comm:,} Comm + 500):[/]"
+            f"[bold #229693]Digi {digi_pct_g}% Floor (+{floors.digi_personal_comm:,} Comm + {min_p_int}):[/]"
             if floors.digi_personal_comm > 0
-            else "[bold #229693]Digi 8% Floor (+500):[/]"
+            else f"[bold #229693]Digi {digi_pct_g}% Floor (+{min_p_int}):[/]"
         ),
         f"[bold #229693]Rs. {floors.floor_digi_8:,.0f}[/]",
     )
@@ -1397,7 +1450,7 @@ async def process_item_async(
     cost_base = calculate_cost_base(product.net_price, shipping)
     floors = calculate_floors(
         cost_base,
-        min_profit=500.0,
+        min_profit=config.COMPANY_MIN_PROFIT_PKR,
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
     )
@@ -1538,9 +1591,15 @@ async def process_item_async(
         else:
             digi_res = create_skipped_platform_result("DigiMall")
 
-        if plat == "digi" and digi_res.status != "SKIPPED" and digi_res.effective_comm == "8.00%":
+        if (
+            plat == "digi"
+            and digi_res.status != "SKIPPED"
+            and digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+        ):
             baseline_calc = calculate_baseline(
-                cost_base, target_profit=effective_target_profit, payout_rate=0.92
+                cost_base,
+                target_profit=effective_target_profit,
+                payout_rate=config.get_digi_leverage_payout_rate(),
             )
 
     # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
@@ -1704,7 +1763,7 @@ def _format_summary_profit(
         p_val = float(profit_val or 0)
         if p_val <= 0:
             return f"[bold white on red]{int(p_val):,}[/]"
-        if p_val < 700:
+        if p_val < config.THIN_BUFFER_THRESHOLD_PKR:
             return f"[bold red]+{int(p_val):,}[/]"
         return f"[bold green]+{int(p_val):,}[/]"
     return "0"
@@ -1778,14 +1837,24 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
             digi_comm = "[dim red]N/A[/]"
         elif pd.notna(digi_p_val) and digi_p_val is not None and str(digi_p_val).strip() != "":
             raw_digi_comm = (
-                str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
+                str(
+                    rec.get(
+                        "Digi Effective Commision",
+                        f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
+                    )
+                ).replace("%", "")
+                + "%"
             )
-            if "8" in raw_digi_comm:
+            digi_lev_pct_str = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
+            if digi_lev_pct_str in raw_digi_comm or str(config.DIGI_LEVERAGE_COMMISSION_PCT) in raw_digi_comm:
                 digi_comm = f"[bold yellow]{raw_digi_comm}[/]"
             else:
                 digi_comm = f"[blue]{raw_digi_comm}[/]"
         else:
-            digi_comm = str(rec.get("Digi Effective Commision", "10.00%")).replace("%", "") + "%"
+            raw_comm = rec.get("Digi Effective Commision")
+            if not raw_comm:
+                raw_comm = f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+            digi_comm = str(raw_comm).replace("%", "") + "%"
 
         table.add_row(
             sno,
@@ -1802,8 +1871,8 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
     console.print(table)
     console.print(
         "[dim]LEGEND:[/dim] "
-        "[bold red]RED[/]: Safe Fallback (Market Below Floor) / Thin Margin (< Rs. 700) | "
-        "[bold yellow]YELLOW[/]: Capped Sweet-Spot / 8% Bank Switch | "
+        f"[bold red]RED[/]: Safe Fallback (Market Below Floor) / Thin Margin (< Rs. {int(config.THIN_BUFFER_THRESHOLD_PKR)}) | "
+        f"[bold yellow]YELLOW[/]: Capped Sweet-Spot / {config.DIGI_LEVERAGE_COMMISSION_PCT:g}% Bank Switch | "
         "[bold green]GREEN[/]: Optimal Win | "
         "[bold yellow]CROSS-CHECK[/]: Target modifier omitted in listings (priced against base model)"
     )
@@ -1830,7 +1899,7 @@ def render_winning_5pct_summary(
     if not winners:
         console.print(
             Panel(
-                f"[bold yellow]No products achieved WIN + Full {personal_comm_pct:g}% Personal Commission + Rs. 500 Company Profit against active market competitors.[/]",
+                f"[bold yellow]No products achieved WIN + Full {personal_comm_pct:g}% Personal Commission + Rs. {int(config.COMPANY_MIN_PROFIT_PKR)} Company Profit against active market competitors.[/]",
                 title=f"[bold yellow]🏆 {personal_comm_pct:g}% PERSONAL COMMISSION WINNERS (0 / {len(records)} ITEMS)[/]",
                 border_style="yellow",
                 box=box.ROUNDED,

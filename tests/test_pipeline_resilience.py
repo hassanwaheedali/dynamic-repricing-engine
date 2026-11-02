@@ -949,8 +949,9 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     Item #7: 0 dropped, Fahad @ 43,000 > Floor -> Pure Undercut -> GREEN WINNING UNDERCUT on Card & WIN (-diff) on Summary!
     Item #10: 0 dropped, Fahad @ 38,199 > Floor -> Pure Sweet-Spot -> GREEN WINNING SWEET-SPOT on Card & WIN (-diff) on Summary!
     """
+    from pricing_engine.calculator import calculate_floors
     from pricing_engine.evaluator import evaluate_alfa_pricing
-    from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
+    from pricing_engine.models import PlatformPricingResult, ScrapedOffer
     from pricing_engine.pipeline import (
         _format_summary_price,
         build_platform_decision_table,
@@ -961,15 +962,8 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
         min_price=None, max_price=None, final_price=None, status="SKIPPED"
     )
 
-    # Item #4: Dawlance 80085 (Cost Base 20,500, Floor 23,363)
-    floors_item4 = CostFloors(
-        cost_base=20500.0,
-        zero_margin_10=20500.0 / 0.90,
-        zero_margin_8=20500.0 / 0.92,
-        floor_alfa=(20500.0 + 500.0) / 0.90,
-        floor_digi_10=(20500.0 + 500.0) / 0.90,
-        floor_digi_8=(20500.0 + 500.0) / 0.92,
-    )
+    # Item #4: Dawlance 80085 (Cost Base 20,500)
+    floors_item4 = calculate_floors(20500.0)
     offers_item4 = [
         ScrapedOffer(
             vendor_name="Fahad Electronics", price=23300.0, is_sold_out=False, raw_title="DW-80085"
@@ -1000,15 +994,8 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     assert "[bold yellow]CAPPED[/]" in summary4
     assert "[bold green]" not in summary4
 
-    # Item #3: Haier 130-1217 (Cost Base 29,000, Floor 32,807)
-    floors_item3 = CostFloors(
-        cost_base=29000.0,
-        zero_margin_10=29000.0 / 0.90,
-        zero_margin_8=29000.0 / 0.92,
-        floor_alfa=(29000.0 + 500.0) / 0.90,
-        floor_digi_10=(29000.0 + 500.0) / 0.90,
-        floor_digi_8=(29000.0 + 500.0) / 0.92,
-    )
+    # Item #3: Haier 130-1217 (Cost Base 29,000)
+    floors_item3 = calculate_floors(29000.0)
     offers_item3 = [
         ScrapedOffer(
             vendor_name="Electronics World",
@@ -1038,15 +1025,8 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     assert "[bold yellow]CAPPED[/]" in summary3
     assert "[bold green]" not in summary3
 
-    # Item #7: Dawlance DW 10090 (Cost Base 36,500, Floor 41,140) - 0 sub-floor dropped!
-    floors_item7 = CostFloors(
-        cost_base=36500.0,
-        zero_margin_10=36500.0 / 0.90,
-        zero_margin_8=36500.0 / 0.92,
-        floor_alfa=(36500.0 + 500.0) / 0.90,
-        floor_digi_10=(36500.0 + 500.0) / 0.90,
-        floor_digi_8=(36500.0 + 500.0) / 0.92,
-    )
+    # Item #7: Dawlance DW 10090 (Cost Base 36,500) - 0 sub-floor dropped!
+    floors_item7 = calculate_floors(36500.0)
     offers_item7 = [
         ScrapedOffer(
             vendor_name="Fahad Electronics", price=43000.0, is_sold_out=False, raw_title="DW-10090"
@@ -1070,15 +1050,8 @@ def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     )
     assert "[bold green]WIN (-501)[/]" in summary7
 
-    # Item #10: Dawlance DW 14145 (Cost Base 32,000, Floor 36,140) - 0 sub-floor dropped!
-    floors_item10 = CostFloors(
-        cost_base=32000.0,
-        zero_margin_10=32000.0 / 0.90,
-        zero_margin_8=32000.0 / 0.92,
-        floor_alfa=(32000.0 + 500.0) / 0.90,
-        floor_digi_10=(32000.0 + 500.0) / 0.90,
-        floor_digi_8=(32000.0 + 500.0) / 0.92,
-    )
+    # Item #10: Dawlance DW 14145 (Cost Base 32,000) - 0 sub-floor dropped!
+    floors_item10 = calculate_floors(32000.0)
     offers_item10 = [
         ScrapedOffer(
             vendor_name="Fahad Electronics", price=38199.0, is_sold_out=False, raw_title="DW-14145"

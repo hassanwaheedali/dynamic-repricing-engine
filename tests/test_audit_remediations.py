@@ -337,7 +337,7 @@ def test_aud_high_01_modifier_source_end_to_end() -> None:
 
 def test_aud_high_02_winning_offer_modifier_attribution() -> None:
     """AUD-HIGH-02: Exact viable winners must not inherit Dual-Color or sub-floor modifiers."""
-    floors = calculate_floors(cost_base=90000.0, min_profit=500.0)  # floor_alfa ~ 100,555.56
+    floors = calculate_floors(cost_base=90000.0, min_profit=config.COMPANY_MIN_PROFIT_PKR)
 
     # Case A: Exact single-color viable offer (108,000) beats dual-color offer (112,000)
     offers_a = ScrapeResult(
@@ -688,8 +688,9 @@ def test_aud_med_01_csv_xlsx_parity_and_dynamic_comm_labels(tmp_path: Path) -> N
     ship_formula = str(ws[f"{col_map['Shipping Estimate']}2"].value)
     assert ship_formula.startswith("=ROUNDUP(") and ship_formula.endswith(", 2)")
 
-    min_target_formula = str(ws[f"{col_map['Min Profit Target (8% + 500)']}2"].value)
-    assert min_target_formula == "=ROUNDUP(500/(1-0.08), 0)"
+    min_profit_int = int(config.COMPANY_MIN_PROFIT_PKR)
+    min_target_formula = str(ws[f"{col_map[f'Min Profit Target (8% + {min_profit_int})']}2"].value)
+    assert min_target_formula == f"=ROUNDUP({min_profit_int}/(1-0.08), 0)"
 
     my_comm_formula = str(ws[f"{col_map['My 8% Commission']}2"].value)
     assert "*0.08" in my_comm_formula
@@ -943,7 +944,7 @@ def test_aud_new_01_platform_personal_comm_and_config_ssot() -> None:
     ):
         floors = calculate_floors(
             cost_base=cost_base,
-            min_profit=500.0,
+            min_profit=config.COMPANY_MIN_PROFIT_PKR,
             personal_comm_pct=config.DEFAULT_PERSONAL_COMM_PCT,
         )
     assert floors.alfa_personal_comm != floors.digi_personal_comm
@@ -954,15 +955,15 @@ def test_aud_new_01_platform_personal_comm_and_config_ssot() -> None:
     digi_res = evaluate_digi_pricing(floors, dumped)
     assert alfa_res.final_price is not None and alfa_res.real_profit is not None
     assert digi_res.final_price is not None and digi_res.real_profit is not None
-    assert alfa_res.real_profit >= 1500 + floors.alfa_personal_comm - 1
-    assert digi_res.real_profit >= 1500 + floors.digi_personal_comm - 1
+    assert alfa_res.real_profit >= config.FALLBACK_PROFIT_PKR + floors.alfa_personal_comm - 1
+    assert digi_res.real_profit >= config.FALLBACK_PROFIT_PKR + floors.digi_personal_comm - 1
 
 
 def test_aud_new_02_digi_fractional_floor_band_handling() -> None:
     """AUD-NEW-02: Competitor inside (floor_digi_8, ceil(floor_digi_8)] must drop to upper-band undercut."""
-    # cost_base = 53500 -> floor_digi_8 = (53500 + 500) / 0.92 = 58695.65217... (ceil = 58696)
-    floors = calculate_floors(cost_base=53500.0, min_profit=500.0)
-    assert 58695.65 < floors.floor_digi_8 < 58696.0
+    floors = calculate_floors(cost_base=53500.0, min_profit=config.COMPANY_MIN_PROFIT_PKR)
+    expected_digi_floor = (53500.0 + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_leverage_payout_rate()
+    assert math.isclose(floors.floor_digi_8, expected_digi_floor, rel_tol=1e-4)
 
     # Offer 1 at 58696.0 cannot be strictly undercut by any integer >= 58696; Offer 2 at 60500.0 is viable!
     offers = [

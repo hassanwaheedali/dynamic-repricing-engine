@@ -5,14 +5,22 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import config
 from pricing_engine.calculator import (
     _extract_numeric_capacity,
     calculate_cost_base,
     calculate_floors,
+    calculate_shipping_estimate,
+    calculate_volumetric_weight,
     resolve_fallback_shipping,
 )
 from pricing_engine.models import CostFloors, ProductInput
 from pricing_engine.pipeline import resolve_shipping_estimate
+from tests.conftest import (
+    get_configured_category_default,
+    get_configured_global_shipping_default,
+    get_configured_washer_rate,
+)
 
 
 class TestAdversarialInputsAndEdgeCases:
@@ -20,11 +28,11 @@ class TestAdversarialInputsAndEdgeCases:
 
     def test_empty_string_and_null_inputs(self) -> None:
         rate, label = resolve_fallback_shipping("", brand="")
-        assert rate == 3000.0
+        assert rate == get_configured_global_shipping_default()
         assert label == "General Appliance"
 
         rate, label = resolve_fallback_shipping("   ", brand="   ")
-        assert rate == 3000.0
+        assert rate == get_configured_global_shipping_default()
         assert label == "General Appliance"
 
     def test_empty_and_corrupted_config_tables(self) -> None:
@@ -32,7 +40,7 @@ class TestAdversarialInputsAndEdgeCases:
         rate, label = resolve_fallback_shipping(
             "Haier Twin Tub 10 KG", brand="Haier", config_table={}
         )
-        assert rate == 3000.0
+        assert rate == get_configured_global_shipping_default()
         assert label == "General Appliance"
 
         # Missing categories key
@@ -73,50 +81,51 @@ class TestAdversarialInputsAndEdgeCases:
     def test_extreme_and_boundary_capacities(self) -> None:
         # Micro washer (3.5kg) -> hits lowest bracket <= 8.5kg
         rate, label = resolve_fallback_shipping("Haier Single Tub Washer 3.5 KG", brand="Haier")
-        assert rate == 2500.0
+        assert rate == get_configured_washer_rate("Single Tub", 3.5)
         assert "3.5kg" in label
 
         # Giant industrial washer (25kg) -> hits highest bracket <= 999kg
         rate, label = resolve_fallback_shipping(
             "Haier Automatic Washer 25 KG Industrial", brand="Haier"
         )
-        assert rate == 4500.0
+        assert rate == get_configured_washer_rate("Automatic", 25.0)
         assert "25kg" in label
 
         # Boundary exact values: 8.5kg
         rate, label = resolve_fallback_shipping("Dawlance Twin Tub 8.5kg", brand="Dawlance")
-        assert rate == 3000.0
+        assert rate == get_configured_washer_rate("Twin Tub", 8.5)
 
         # Boundary exact values: 10.0kg
         rate, label = resolve_fallback_shipping("Dawlance Twin Tub 10kg", brand="Dawlance")
-        assert rate == 3500.0
+        assert rate == get_configured_washer_rate("Twin Tub", 10.0)
 
         # Boundary exact values: 11.0kg
         rate, label = resolve_fallback_shipping("Dawlance Twin Tub 11kg", brand="Dawlance")
-        assert rate == 3500.0
+        assert rate == get_configured_washer_rate("Twin Tub", 11.0)
 
         # Boundary exact values: 12.0kg
         rate, label = resolve_fallback_shipping("Dawlance Twin Tub 12kg", brand="Dawlance")
-        assert rate == 3800.0
+        assert rate == get_configured_washer_rate("Twin Tub", 12.0)
 
         # Boundary exact values: 15.0kg
         rate, label = resolve_fallback_shipping("Dawlance Twin Tub 15kg", brand="Dawlance")
-        assert rate == 4500.0
+        assert rate == get_configured_washer_rate("Twin Tub", 15.0)
 
     def test_titles_with_no_capacity_numbers(self) -> None:
+        cat_default = get_configured_category_default("washing_machine")
         # Washing machine with zero numbers in title
         rate, label = resolve_fallback_shipping(
             "Haier Fully Automatic Top Load Washing Machine Grey", brand="Haier"
         )
-        # Should gracefully fallback to category default (Rs. 3500)
-        assert rate == 3500.0
+        # Should gracefully fallback to category default
+        assert rate == cat_default
         assert label == "Automatic Washer"
 
         # Twin tub with zero numbers
         rate, label = resolve_fallback_shipping(
             "Super Asia Semi Automatic Twin Tub Washer", brand="Super Asia"
         )
-        assert rate == 3500.0
+        assert rate == cat_default
         assert label == "Twin Tub Washer"
 
     def test_model_stem_capacity_extraction_extremes(self) -> None:
@@ -143,34 +152,38 @@ class TestAdversarialInputsAndEdgeCases:
 
     def test_injection_strings_and_special_characters(self) -> None:
         # SQL injection strings in title
+        expected_washer_10 = get_configured_washer_rate("Automatic", 10.0)
         injection_title = "Haier Washer 10kg'; DROP TABLE repricing_runs; --"
         rate, label = resolve_fallback_shipping(injection_title, brand="Haier")
-        assert rate == 3500.0
+        assert rate == expected_washer_10
         assert "10kg" in label
 
         # Regex metacharacters in title
         regex_title = "Haier Washer [10kg] (Special) + Edition * Premium? {Deluxe}"
         rate, label = resolve_fallback_shipping(regex_title, brand="Haier")
-        assert rate == 3500.0
+        assert rate == expected_washer_10
         assert "10kg" in label
 
     def test_negative_and_zero_dimension_combinations(self) -> None:
+        expected_washer_10 = get_configured_washer_rate("Automatic", 10.0)
         # Negative length
         p1 = ProductInput(1, "Haier", "Haier Automatic 10kg", -60.0, 60.0, 85.0, 50000, 500, {})
         ship1, fb1 = resolve_shipping_estimate(p1)
-        assert ship1 == 3500.0
+        assert ship1 == expected_washer_10
         assert fb1 is True
 
         # One dimension is zero
         p2 = ProductInput(2, "Haier", "Haier Automatic 10kg", 60.0, 0.0, 85.0, 50000, 500, {})
         ship2, fb2 = resolve_shipping_estimate(p2)
-        assert ship2 == 3500.0
+        assert ship2 == expected_washer_10
         assert fb2 is True
 
         # All dimensions positive
         p3 = ProductInput(3, "Haier", "Haier Automatic 10kg", 60.0, 60.0, 85.0, 50000, 500, {})
+        expected_vol = calculate_volumetric_weight(60.0, 60.0, 85.0)
+        expected_shipping = calculate_shipping_estimate(expected_vol)
         ship3, fb3 = resolve_shipping_estimate(p3)
-        assert ship3 == 4284.0
+        assert ship3 == expected_shipping
         assert fb3 is False
 
 
@@ -178,32 +191,31 @@ class TestCostMathIntegrityWithShippingFallback:
     """Verify that shipping fallback integrates 100% correctly with cost base and profit floors."""
 
     def test_floors_mathematical_precision(self) -> None:
-        # Product with 50,000 net price and 3,500 shipping fallback
         net_price = 50000.0
-        shipping = 3500.0
+        shipping = get_configured_washer_rate("Automatic", 10.0)
         cost_base = calculate_cost_base(net_price, shipping)
-        assert cost_base == 53500.0
+        assert cost_base == net_price + shipping
 
-        floors = calculate_floors(cost_base, min_profit=500.0, net_price=net_price)
+        floors = calculate_floors(cost_base, min_profit=config.COMPANY_MIN_PROFIT_PKR, net_price=net_price)
         assert isinstance(floors, CostFloors)
 
-        # Floor Alfa (10% commission): (53,500 + 500) / 0.90 = 54,000 / 0.90 = 60,000.0
-        assert round(floors.floor_alfa, 2) == 60000.0
+        # Floor Alfa: (cost_base + min_profit) / alfa_payout
+        expected_floor_alfa = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / config.get_alfa_payout_rate()
+        assert round(floors.floor_alfa, 2) == round(expected_floor_alfa, 2)
 
-        # Floor Digi 8% (8% commission): (53,500 + 500) / 0.92 = 54,000 / 0.92 = 58,695.65
-        assert round(floors.floor_digi_8, 2) == 58695.65
+        # Floor Digi 8%: (cost_base + min_profit) / digi_lev_payout
+        expected_floor_digi_8 = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_leverage_payout_rate()
+        assert round(floors.floor_digi_8, 2) == round(expected_floor_digi_8, 2)
 
         # Guaranteed profit check at Alfa floor price:
-        # Revenue after 10% commission: 60,000 * 0.90 = 54,000.0
-        # Net profit = 54,000.0 - 53,500.0 = 500.0 (Guaranteed +Rs. 500 profit floor!)
-        alfa_payout = floors.floor_alfa * 0.90
+        alfa_payout = floors.floor_alfa * config.get_alfa_payout_rate()
         net_profit_alfa = alfa_payout - cost_base
-        assert round(net_profit_alfa, 2) == 500.0
+        assert round(net_profit_alfa, 2) == config.COMPANY_MIN_PROFIT_PKR
 
         # Guaranteed profit check at Digi 8% floor price:
-        digi_payout = floors.floor_digi_8 * 0.92
+        digi_payout = floors.floor_digi_8 * config.get_digi_leverage_payout_rate()
         net_profit_digi = digi_payout - cost_base
-        assert round(net_profit_digi, 2) == 500.0
+        assert round(net_profit_digi, 2) == config.COMPANY_MIN_PROFIT_PKR
 
 
 class TestPerformanceThroughput:

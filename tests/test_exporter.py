@@ -9,6 +9,7 @@ import openpyxl
 import pandas as pd
 import pytest
 
+import config
 from pricing_engine.exporter import (
     ExportManifest,
     export_range_results,
@@ -359,8 +360,8 @@ def test_filter_alfa_only_columns_unit() -> None:
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": "10.00%",
-                "Digi Effective Commision": "8.00%",
+                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
                 "Total Without Profit": 112500,
                 "Calculation": 115000,
                 "Minimum Price Alfa": 120000,
@@ -420,7 +421,7 @@ def test_filter_digi_only_columns_unit() -> None:
     for col in filtered.columns:
         assert "alfa" not in col.lower(), f"Unexpected alfa column in filtered output: {col}"
     assert "Digi Effective Commision" not in filtered.columns
-    assert filtered["Commision"].iloc[0] == "8.00%"
+    assert filtered["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert "Minimum Price Digi" in filtered.columns
     assert "Final Price Digi" in filtered.columns
     assert "Digi Real Profit" in filtered.columns
@@ -443,8 +444,8 @@ def test_export_results_with_alfa_flag_excludes_digi_in_csv_and_xlsx(tmp_path: P
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": "10.00%",
-                "Digi Effective Commision": "8.00%",
+                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
                 "Total Without Profit": 112500,
                 "Calculation": 115000,
                 "Minimum Price Alfa": 120000,
@@ -505,8 +506,8 @@ def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: P
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": "10.00%",
-                "Digi Effective Commision": "8.00%",
+                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
                 "Total Without Profit": 112500,
                 "Calculation": 115000,
                 "Minimum Price Alfa": 120000,
@@ -538,7 +539,7 @@ def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: P
     for col in csv_cols:
         assert "alfa" not in col.lower(), f"Alfa column '{col}' found in CSV"
     assert "Digi Effective Commision" not in csv_cols
-    assert csv_df["Commision"].iloc[0] == "8.00%"
+    assert csv_df["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert "Final Price Digi" in csv_cols
     assert "Digi Real Profit" in csv_cols
 
@@ -568,8 +569,8 @@ def test_export_results_dual_platform_files_in_all_mode(tmp_path: Path) -> None:
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": "10.00%",
-                "Digi Effective Commision": "8.00%",
+                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
                 "Total Without Profit": 112500,
                 "Calculation": 115000,
                 "Minimum Price Alfa": 120000,
@@ -617,7 +618,7 @@ def test_export_results_dual_platform_files_in_all_mode(tmp_path: Path) -> None:
     for col in digi_df.columns:
         assert "alfa" not in col.lower()
     assert "Digi Effective Commision" not in digi_df.columns
-    assert digi_df["Commision"].iloc[0] == "8.00%"
+    assert digi_df["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
 
 
 def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
@@ -632,7 +633,7 @@ def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
                 "Net Price": 100000,
                 "Final Price Alfa": 124899,
                 "Final Price Digi": 123899,
-                "Digi Effective Commision": "8.00%",
+                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
                 "Alfa Risk Alert": "NONE",
                 "Digi Risk Alert": "NONE",
             }

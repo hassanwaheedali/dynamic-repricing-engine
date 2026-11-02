@@ -9,7 +9,12 @@ import openpyxl
 import pandas as pd
 import pytest
 
-from pricing_engine.calculator import resolve_fallback_shipping
+import config
+from pricing_engine.calculator import (
+    calculate_shipping_estimate,
+    calculate_volumetric_weight,
+    resolve_fallback_shipping,
+)
 from pricing_engine.exporter import export_results
 from pricing_engine.ingestion import ingest_catalog
 from pricing_engine.models import CostFloors, PlatformPricingResult, ProductInput
@@ -18,6 +23,12 @@ from pricing_engine.pipeline import (
     render_audit_card,
     resolve_shipping_estimate,
 )
+from tests.conftest import (
+    get_configured_ac_rate,
+    get_configured_global_shipping_default,
+    get_configured_refrigerator_rate,
+    get_configured_washer_rate,
+)
 
 
 class TestResolveFallbackShipping:
@@ -25,102 +36,98 @@ class TestResolveFallbackShipping:
 
     # 1. Single Tub Washers
     @pytest.mark.parametrize(
-        ("name", "expected_rate"),
+        ("name", "capacity_kg"),
         [
-            ("Haier Single Tub Washing Machine 8 KG HWM-80", 2500.0),
-            ("Dawlance Single Tub Washer 7.5kg", 2500.0),
-            ("Super Asia Single Tub 10 kg Washer Only", 3000.0),
-            ("Kenwood Single Tub 12 kg Washing Machine", 3500.0),
-            ("Haier Single Tub Washer 15 KG", 3500.0),
+            ("Haier Single Tub Washing Machine 8 KG HWM-80", 8.0),
+            ("Dawlance Single Tub Washer 7.5kg", 7.5),
+            ("Super Asia Single Tub 10 kg Washer Only", 10.0),
+            ("Kenwood Single Tub 12 kg Washing Machine", 12.0),
+            ("Haier Single Tub Washer 15 KG", 15.0),
         ],
     )
-    def test_single_tub_brackets(self, name: str, expected_rate: float) -> None:
+    def test_single_tub_brackets(self, name: str, capacity_kg: float) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Haier")
-        assert rate == expected_rate
+        assert rate == get_configured_washer_rate("Single Tub", capacity_kg)
         assert "Single Tub" in label
 
     # 2. Twin Tub Washers
     @pytest.mark.parametrize(
-        ("name", "expected_rate"),
+        ("name", "capacity_kg"),
         [
-            ("Haier Twin Tub Washing Machine 8 KG", 3000.0),
-            ("Dawlance Semi-Automatic Twin Tub 8.5 kg", 3000.0),
-            ("Super Asia Twin Tub 10 kg Washer & Spinner", 3500.0),
-            ("Haier Twin Tub 12 KG Machine", 3800.0),
-            ("Dawlance Twin Tub 15 KG Jumbo Washer", 4500.0),
+            ("Haier Twin Tub Washing Machine 8 KG", 8.0),
+            ("Dawlance Semi-Automatic Twin Tub 8.5 kg", 8.5),
+            ("Super Asia Twin Tub 10 kg Washer & Spinner", 10.0),
+            ("Haier Twin Tub 12 KG Machine", 12.0),
+            ("Dawlance Twin Tub 15 KG Jumbo Washer", 15.0),
         ],
     )
-    def test_twin_tub_brackets(self, name: str, expected_rate: float) -> None:
+    def test_twin_tub_brackets(self, name: str, capacity_kg: float) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Haier")
-        assert rate == expected_rate
+        assert rate == get_configured_washer_rate("Twin Tub", capacity_kg)
         assert "Twin Tub" in label
 
     # 3. Automatic Washers
     @pytest.mark.parametrize(
-        ("name", "expected_rate"),
+        ("name", "capacity_kg"),
         [
-            ("Haier Fully Automatic Top Load Washing Machine 8.5 KG", 3500.0),
-            ("Dawlance Automatic Front Load Washer 9.5 kg", 3500.0),
-            ("Haier Automatic Washing Machine 10 kg HWM 100", 3500.0),
-            ("Super Asia Fully Automatic 12 kg Washer", 4500.0),
-            ("Dawlance Automatic Inverter Washer 15 KG", 4500.0),
+            ("Haier Fully Automatic Top Load Washing Machine 8.5 KG", 8.5),
+            ("Dawlance Automatic Front Load Washer 9.5 kg", 9.5),
+            ("Haier Automatic Washing Machine 10 kg HWM 100", 10.0),
+            ("Super Asia Fully Automatic 12 kg Washer", 12.0),
+            ("Dawlance Automatic Inverter Washer 15 KG", 15.0),
         ],
     )
-    def test_automatic_brackets(self, name: str, expected_rate: float) -> None:
+    def test_automatic_brackets(self, name: str, capacity_kg: float) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Haier")
-        assert rate == expected_rate
+        assert rate == get_configured_washer_rate("Automatic", capacity_kg)
         assert "Automatic" in label
 
     # 4. Model number capacity extraction (HWM-120 -> 12kg, HW 105 -> 10.5kg, etc.)
     def test_washer_model_number_capacity_extraction(self) -> None:
         rate, label = resolve_fallback_shipping("Haier Fully Automatic HWM-120-1678", brand="Haier")
-        assert rate == 4500.0
+        assert rate == get_configured_washer_rate("Automatic", 12.0)
         assert "12kg" in label
 
         rate, label = resolve_fallback_shipping("Haier Twin Tub HWM 80-826", brand="Haier")
-        assert rate == 3000.0
+        assert rate == get_configured_washer_rate("Twin Tub", 8.0)
         assert "8kg" in label
 
     # 5. Air Conditioners
     @pytest.mark.parametrize(
-        ("name", "expected_rate", "expected_ton"),
+        ("name", "expected_ton"),
         [
-            ("Gree Inverter AC 1.0 Ton 12AITH21W", 3000.0, "1.0 Ton"),
-            ("Haier Split AC 12000 BTU 1 Ton", 3000.0, "1.0 Ton"),
-            ("Gree Inverter AC 1.5 Ton 18AITH21W", 3500.0, "1.5 Ton"),
-            ("Kenwood eInverter AC 18000 BTU", 3500.0, "1.5 Ton"),
-            ("Gree Inverter AC 2.0 Ton 24AITH21W", 4500.0, "2.0 Ton"),
-            ("Haier Inverter AC 24000 BTU 2 Ton", 4500.0, "2.0 Ton"),
-            ("Dawlance Split AC Inverter", 3500.0, "Air Conditioner"),
+            ("Gree Inverter AC 1.0 Ton 12AITH21W", "1.0 Ton"),
+            ("Haier Split AC 12000 BTU 1 Ton", "1.0 Ton"),
+            ("Gree Inverter AC 1.5 Ton 18AITH21W", "1.5 Ton"),
+            ("Kenwood eInverter AC 18000 BTU", "1.5 Ton"),
+            ("Gree Inverter AC 2.0 Ton 24AITH21W", "2.0 Ton"),
+            ("Haier Inverter AC 24000 BTU 2 Ton", "2.0 Ton"),
+            ("Dawlance Split AC Inverter", "Air Conditioner"),
         ],
     )
-    def test_air_conditioner_fallback(
-        self, name: str, expected_rate: float, expected_ton: str
-    ) -> None:
+    def test_air_conditioner_fallback(self, name: str, expected_ton: str) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Gree")
-        assert rate == expected_rate
+        assert rate == get_configured_ac_rate(expected_ton)
         assert expected_ton in label
 
     # 6. Refrigerators
     @pytest.mark.parametrize(
-        ("name", "expected_rate", "expected_sub"),
+        ("name", "expected_sub"),
         [
-            ("Dawlance 4467 SD Mini Bar Refrigerator", 4000.0, "Small / Mini Bar"),
-            ("Haier Deep Freezer 500L Side by Side", 7500.0, "Large / Side-by-Side"),
-            ("Dawlance 9170 Inverter Refrigerator Glass Door", 5500.0, "Refrigerator"),
+            ("Dawlance 4467 SD Mini Bar Refrigerator", "Small / Mini Bar"),
+            ("Haier Deep Freezer 500L Side by Side", "Large / Side-by-Side"),
+            ("Dawlance 9170 Inverter Refrigerator Glass Door", "Refrigerator"),
         ],
     )
-    def test_refrigerator_fallback(
-        self, name: str, expected_rate: float, expected_sub: str
-    ) -> None:
+    def test_refrigerator_fallback(self, name: str, expected_sub: str) -> None:
         rate, label = resolve_fallback_shipping(name, brand="Dawlance")
-        assert rate == expected_rate
+        assert rate == get_configured_refrigerator_rate(expected_sub)
         assert expected_sub in label
 
     # 7. General Appliance Default
     def test_general_default(self) -> None:
         rate, label = resolve_fallback_shipping("Philips Electric Kettle", brand="Philips")
-        assert rate == 3000.0
+        assert rate == get_configured_global_shipping_default()
         assert label == "General Appliance"
 
     # 8. Dynamic Custom Category Extensibility (Zero Code Changes in calculator.py)
@@ -207,9 +214,10 @@ class TestResolveShippingEstimate:
             profit=500,
             raw_row={},
         )
-        # Volumetric: (60 * 60 * 85) / 5000 = 61.2 kg * 70 = 4284.0
+        vol = calculate_volumetric_weight(60.0, 60.0, 85.0)
+        expected_shipping = calculate_shipping_estimate(vol)
         shipping, is_fallback = resolve_shipping_estimate(prod)
-        assert shipping == 4284.0
+        assert shipping == expected_shipping
         assert is_fallback is False
 
     def test_missing_dimensions_triggers_fallback(self) -> None:
@@ -225,7 +233,7 @@ class TestResolveShippingEstimate:
             raw_row={},
         )
         shipping, is_fallback = resolve_shipping_estimate(prod)
-        assert shipping == 3500.0
+        assert shipping == get_configured_washer_rate("Automatic", 10.0)
         assert is_fallback is True
 
 
@@ -250,13 +258,13 @@ class TestCatalogIngestionWithoutDimensions:
         assert p1.width == 0.0
         assert p1.height == 0.0
         ship1, is_fb1 = resolve_shipping_estimate(p1)
-        assert ship1 == 4500.0
+        assert ship1 == get_configured_washer_rate("Automatic", 12.0)
         assert is_fb1 is True
 
         # Check product 2 (AC 1.5 Ton)
         p2 = products[1]
         ship2, is_fb2 = resolve_shipping_estimate(p2)
-        assert ship2 == 3500.0
+        assert ship2 == get_configured_ac_rate("1.5 Ton")
         assert is_fb2 is True
 
 
@@ -292,7 +300,7 @@ class TestTerminalAuditCardFormatting:
             real_profit=1499,
             status="SUCCESS",
             reason="COMPETITIVE_WIN",
-            effective_comm="10.00%",
+            effective_comm=f"{config.ALFA_COMMISSION_PCT:.2f}%",
         )
 
         mock_digi_res = PlatformPricingResult(
@@ -302,7 +310,7 @@ class TestTerminalAuditCardFormatting:
             real_profit=2599,
             status="SUCCESS",
             reason="COMPETITIVE_WIN",
-            effective_comm="8.00%",
+            effective_comm=f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
         )
 
         # Render with is_shipping_fallback = True with console capture
@@ -341,8 +349,8 @@ class TestExcelExportFallbackFormula:
                     "Height": 85,
                     "Profit": 500,
                     "Shipping Estimate": 4284,
-                    "Commision": "10.00%",
-                    "Digi Effective Commision": "10.00%",
+                    "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                    "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
                     "Total Without Profit": 82538,
                     "Calculation": 83093,
                     "Minimum Price Alfa": 83093,
@@ -367,9 +375,9 @@ class TestExcelExportFallbackFormula:
                     "Width": 0,
                     "Height": 0,
                     "Profit": 500,
-                    "Shipping Estimate": 3500,
-                    "Commision": "10.00%",
-                    "Digi Effective Commision": "10.00%",
+                    "Shipping Estimate": get_configured_washer_rate("Automatic", 10.0),
+                    "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
+                    "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
                     "Total Without Profit": 81667,
                     "Calculation": 82222,
                     "Minimum Price Alfa": 82222,
@@ -409,6 +417,7 @@ class TestExcelExportFallbackFormula:
         ship_cell_with_dims = ws.cell(row=2, column=ship_idx)
         assert str(ship_cell_with_dims.value).startswith("=ROUNDUP")
 
-        # Row 3 (Product with missing dimensions): retains fallback 3500, NOT overwritten with =ROUNDUP(0)
+        # Row 3 (Product with missing dimensions): retains fallback, NOT overwritten with =ROUNDUP(0)
+        expected_fallback = get_configured_washer_rate("Automatic", 10.0)
         ship_cell_fallback = ws.cell(row=3, column=ship_idx)
-        assert ship_cell_fallback.value == 3500.0 or ship_cell_fallback.value == 3500
+        assert ship_cell_fallback.value == expected_fallback

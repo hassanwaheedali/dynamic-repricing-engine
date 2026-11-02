@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+import config
 from pricing_engine.models import ProductInput
 
 console = Console()
@@ -146,7 +147,10 @@ def render_ingestion_banner(report: IngestionReport) -> None:
     table.add_row("Source File:", report.source_file)
     table.add_row("Total Items:", str(report.total_rows))
     table.add_row("Valid Items:", str(report.valid_rows))
-    table.add_row("Profit Policy:", f"From {report.profit_source.upper()} (Rs. 500 default)")
+    table.add_row(
+        "Profit Policy:",
+        f"From {report.profit_source.upper()} (Rs. {int(config.COMPANY_MIN_PROFIT_PKR)} default)",
+    )
 
     panel = Panel(
         table,
@@ -288,9 +292,10 @@ def ingest_catalog(
         height = _safe_float(row.get("Height"), 0.0)
         net_price = _safe_float(row.get("Net Price"), 0.0)
 
-        # Per-row profit: use column if provided and valid, otherwise fallback to 500.0
+        # Per-row profit: use column if provided and valid, otherwise fallback to configured default
         profit_val = row.get("Profit") if has_profit_col else None
-        profit = _safe_float(profit_val, 500.0) if profit_val is not None else 500.0
+        default_profit = config.COMPANY_MIN_PROFIT_PKR
+        profit = _safe_float(profit_val, default_profit) if profit_val is not None else default_profit
 
         product = ProductInput(
             sno=sno,

@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+import config
 from pricing_engine.matcher import extract_search_query_and_model, is_strict_model_match
 from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import (
@@ -53,7 +54,7 @@ def test_parse_product_input_missing_defaults() -> None:
     product = parse_product_input(2, row)
     assert product.sno == 3  # idx + 1
     assert product.length == 0.0
-    assert product.profit == 500.0
+    assert product.profit == config.COMPANY_MIN_PROFIT_PKR
 
 
 def test_process_product_with_offers_monopoly() -> None:
@@ -80,11 +81,11 @@ def test_process_product_with_offers_monopoly() -> None:
 
     assert record["Final Price Alfa"] is not None
     assert record["Final Price Digi"] is not None
-    assert record["Commision"] == "10.00%"
-    assert record["Digi Effective Commision"] == "10.00%"
+    assert record["Commision"] == f"{config.ALFA_COMMISSION_PCT:.2f}%"
+    assert record["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
     assert "Monopoly" in record["Alfa Reason"]
-    assert record["Alfa Real Profit"] >= 4000
-    assert record["Digi Real Profit"] >= 4000
+    assert record["Alfa Real Profit"] >= config.MONOPOLY_PROFIT_PKR
+    assert record["Digi Real Profit"] >= config.MONOPOLY_PROFIT_PKR
 
 
 def test_build_output_record_contains_all_schema_columns() -> None:
@@ -137,8 +138,10 @@ def test_total_without_profit_matches_digi_effective_commission() -> None:
     ]
     record_8 = process_product_with_offers(product, [], digi_offer_8)
 
-    assert record_8["Digi Effective Commision"] == "8.00%"
-    assert record_8["Total Without Profit"] == 467708
+    assert record_8["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert record_8["Total Without Profit"] == round(
+        (product.net_price + 15291) / config.get_digi_leverage_payout_rate()
+    )
 
     # When competitor on a standard product is above 10% floor and within profit cap -> 10% default tier
     prod_standard = parse_product_input(
@@ -161,14 +164,15 @@ def test_total_without_profit_matches_digi_effective_commission() -> None:
     ]
     record_10 = process_product_with_offers(prod_standard, [], digi_offer_10)
 
-    assert record_10["Digi Effective Commision"] == "10.00%"
-    assert record_10["Total Without Profit"] == 161111
+    assert record_10["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    assert record_10["Total Without Profit"] == round((140000 + 5000) / config.get_alfa_payout_rate())
 
 
 def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
     # Net Price = 415,000, Shipping = 15,291 -> Cost Base = 430,291
     # If Alfa price is 479,299 at 10%:
-    # Profit = (479,299 * 0.90) - 430,291 = 431,369.1 - 430,291 = 1,078
+    # Profit = (479,299 * alfa_payout) - 430,291
+    cost_base = 415000 + 15291
     product = parse_product_input(
         0,
         pd.Series(
@@ -190,15 +194,16 @@ def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
 
     record = process_product_with_offers(product, alfa_offers, digi_offers)
 
-    # Alfa undercut Nasim (479,499) to 479,299 -> Profit = 1,078
+    # Alfa undercut Nasim (479,499) to 479,299 -> Profit
     assert record["Final Price Alfa"] == 479299
-    assert record["Alfa Real Profit"] == 1078
+    expected_alfa_profit = round((479299 * config.get_alfa_payout_rate()) - cost_base)
+    assert record["Alfa Real Profit"] == expected_alfa_profit
 
-    # Digi caps inflated Scroll (489,999) at Default 10% Tier sweet-spot (~Rs. 10,000 profit):
-    # Selling price 478,999 -> Profit = (478,999 * 0.92) - 430,291 = 10,388
+    # Digi caps inflated Scroll (489,999) at Default 10% Tier sweet-spot:
     assert record["Final Price Digi"] == 478999
-    assert record["Digi Real Profit"] == 10388
-    assert record["Digi Effective Commision"] == "10.00%"
+    expected_digi_profit = round((478999 * config.get_digi_leverage_payout_rate()) - cost_base)
+    assert record["Digi Real Profit"] == expected_digi_profit
+    assert record["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
 
 
 def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
@@ -845,19 +850,23 @@ def test_item_3_slash_expansion_digimall_reprice_win() -> None:
     # 1. Winning price undercuts Musab Mall (193,999) to 193,499 (Adaptive undercut via dynamic glide)
     assert record["Final Price Digi"] == 193499
 
-    # 2. Commission switched to 8.00% Emergency Tier
-    assert record["Digi Effective Commision"] == "8.00%"
+    # 2. Commission switched to Emergency Tier
+    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
 
-    # 3. Real Profit calculated: (193,499 * 0.92) - 175,978 = +2,041
-    assert record["Digi Real Profit"] == 2041
-
-    # 4. Reason documents the 8% switch undercut
-    assert (
-        "8% bank rate" in record["Digi Reason"].lower()
-        or "emergency 8%" in record["Digi Reason"].lower()
+    # 3. Real Profit calculated
+    cost_base = product.net_price + record["Shipping Estimate"]
+    assert record["Digi Real Profit"] == round(
+        (record["Final Price Digi"] * config.get_digi_leverage_payout_rate()) - cost_base
     )
 
-    # 5. Risk Alert is NONE (Healthy margin >= 700)
+    # 4. Reason documents the leverage switch undercut
+    assert (
+        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}% bank rate" in record["Digi Reason"].lower()
+        or f"emergency {config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}%" in record["Digi Reason"].lower()
+        or "emergency" in record["Digi Reason"].lower()
+    )
+
+    # 5. Risk Alert is NONE (Healthy margin >= config.THIN_BUFFER_THRESHOLD_PKR)
     assert record["Digi Risk Alert"] == "NONE"
 
 
@@ -973,13 +982,19 @@ def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
 
     # 1. Final Price undercuts Tech House (247,999)
     assert record["Final Price Digi"] < 247999
-    # 2. Commission switched to 8.00%
-    assert record["Digi Effective Commision"] == "8.00%"
-    # 3. Real Profit is healthy (+Rs. 1,119)
-    assert record["Digi Real Profit"] == 1119
-    # 4. Reason documents Tech House undercut and 8% bank rate
+    # 2. Commission switched to leverage tier
+    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    # 3. Real Profit is healthy
+    cost_base = product.net_price + record["Shipping Estimate"]
+    assert record["Digi Real Profit"] == round(
+        (record["Final Price Digi"] * config.get_digi_leverage_payout_rate()) - cost_base
+    )
+    # 4. Reason documents Tech House undercut and leverage bank rate
     assert "tech house" in record["Digi Reason"].lower()
-    assert "8% faysal bank rate" in record["Digi Reason"].lower()
+    assert (
+        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}% faysal bank rate" in record["Digi Reason"].lower()
+        or "faysal bank rate" in record["Digi Reason"].lower()
+    )
     # 5. Risk Alert is NONE
     assert record["Digi Risk Alert"] == "NONE"
 

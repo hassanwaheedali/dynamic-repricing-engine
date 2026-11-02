@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import config
 from pricing_engine.ingestion import IngestionReport, ingest_catalog
 
 
@@ -34,7 +35,7 @@ def test_ingest_catalog_clean_6_column_csv(tmp_path: Path) -> None:
     assert p1.length == 87.0
     assert p1.width == 35.5
     assert p1.height == 92.0
-    assert p1.profit == 500.0
+    assert p1.profit == config.COMPANY_MIN_PROFIT_PKR
 
 
 def test_ingest_catalog_7_column_csv_with_profit(tmp_path: Path) -> None:
@@ -51,8 +52,8 @@ def test_ingest_catalog_7_column_csv_with_profit(tmp_path: Path) -> None:
     assert len(products) == 2
     assert report.profit_source == "column"
     assert products[0].profit == 1500.0
-    # Empty cell defaults gracefully to 500.0
-    assert products[1].profit == 500.0
+    # Empty cell defaults gracefully to configured minimum profit
+    assert products[1].profit == config.COMPANY_MIN_PROFIT_PKR
 
 
 def test_ingest_catalog_handles_price_with_commas(tmp_path: Path) -> None:

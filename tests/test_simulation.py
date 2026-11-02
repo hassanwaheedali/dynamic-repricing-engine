@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import config
 from pricing_engine.models import ScrapedOffer, ScrapeResult
 from pricing_engine.pipeline import run_pipeline
 
@@ -152,7 +153,10 @@ def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
                 # Verify that commission rate is explicitly tagged
                 assert "Digi Effective Commision" in out_df.columns
                 for comm in out_df["Digi Effective Commision"].dropna():
-                    assert comm in ("10.00%", "8.00%")
+                    assert comm in (
+                        f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
+                        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
+                    )
 
         asyncio.run(_run())
 

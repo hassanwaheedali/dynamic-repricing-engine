@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import openpyxl
 import pandas as pd
 
+import config
 from index import main, parse_args, prompt_run_mode
 from pricing_engine.calculator import (
     calculate_effective_min_profit,
@@ -60,20 +61,17 @@ def test_calculate_personal_commission_on_real_profit_only() -> None:
 
 
 def test_calculate_floors_with_5pct_personal_commission() -> None:
-    # Cost Base = 102,000. Min Company Profit = 500.
-    # Total Min Profit at floor = 500 / 0.95 = 526.315...
-    # Alfa Floor (10%) = (102,000 + 526.315) / 0.90 = 113,918.13
-    # Digi 8% Floor = (102,000 + 526.315) / 0.92 = 111,441.65
+    # Cost Base = 102,000. Min Company Profit = config.COMPANY_MIN_PROFIT_PKR.
     floors = calculate_floors(
         cost_base=102000.0,
-        min_profit=500.0,
+        min_profit=config.COMPANY_MIN_PROFIT_PKR,
         net_price=100000.0,
         personal_comm_pct=5.0,
     )
-    assert round(floors.floor_alfa) == 113918
-    assert round(floors.floor_digi_10) == 113918
-    assert round(floors.floor_digi_8) == 111442
-    assert floors.personal_comm == 26
+    eff_min = calculate_effective_min_profit(config.COMPANY_MIN_PROFIT_PKR, 5.0)
+    assert round(floors.floor_alfa) == round((102000.0 + eff_min) / config.get_alfa_payout_rate())
+    assert round(floors.floor_digi_10) == round((102000.0 + eff_min) / config.get_digi_standard_payout_rate())
+    assert round(floors.floor_digi_8) == round((102000.0 + eff_min) / config.get_digi_leverage_payout_rate())
 
 
 def test_process_product_5pct_win_and_columns() -> None:
@@ -110,18 +108,19 @@ def test_process_product_5pct_win_and_columns() -> None:
     # Verify 5% Personal Commission and Company Profit breakdown
     assert rec["Alfa Active Sellers"] == 2
     assert rec["Digi Active Sellers"] == 3
-    assert rec["Min Profit Target (5% + 500)"] == 527
+    target_profit_key = f"Min Profit Target (5% + {int(config.COMPANY_MIN_PROFIT_PKR)})"
+    assert rec[target_profit_key] == calculate_effective_target_profit(config.COMPANY_MIN_PROFIT_PKR, 5.0)
 
     alfa_p = rec["Alfa Real Profit"]
-    assert alfa_p is not None and alfa_p >= 527
+    assert alfa_p is not None and alfa_p >= rec[target_profit_key]
     assert rec["Alfa Company Profit"] == alfa_p - round(alfa_p * 0.05)
-    assert rec["Alfa Company Profit"] >= 500
+    assert rec["Alfa Company Profit"] >= config.COMPANY_MIN_PROFIT_PKR
     assert rec["Alfa 5% Goal"] == "WIN + 5% ACHIEVED"
 
     digi_p = rec["Digi Real Profit"]
-    assert digi_p is not None and digi_p >= 527
+    assert digi_p is not None and digi_p >= rec[target_profit_key]
     assert rec["Digi Company Profit"] == digi_p - round(digi_p * 0.05)
-    assert rec["Digi Company Profit"] >= 500
+    assert rec["Digi Company Profit"] >= config.COMPANY_MIN_PROFIT_PKR
     assert rec["Digi 5% Goal"] == "WIN + 5% ACHIEVED"
     assert rec["My 5% Commission"] == max(round(alfa_p * 0.05), round(digi_p * 0.05))
 

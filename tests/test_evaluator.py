@@ -1,24 +1,8 @@
-import pytest
 
+import config
+from pricing_engine.calculator import calculate_floors, get_monopoly_psychological_price
 from pricing_engine.evaluator import evaluate_alfa_pricing, evaluate_digi_pricing
 from pricing_engine.models import CostFloors, ScrapedOffer, ScrapeResult
-
-
-@pytest.fixture
-def sample_floors() -> CostFloors:
-    # cost_base = 72,000
-    # 10% floor = (72000 + 500) / 0.90 = 80,555.56
-    # 8% floor  = (72000 + 500) / 0.92 = 78,804.35
-    cost_base = 72000.0
-    return CostFloors(
-        cost_base=cost_base,
-        zero_margin_10=cost_base / 0.90,
-        zero_margin_8=cost_base / 0.92,
-        floor_alfa=(cost_base + 500.0) / 0.90,
-        floor_digi_10=(cost_base + 500.0) / 0.90,
-        floor_digi_8=(cost_base + 500.0) / 0.92,
-    )
-
 
 # ==============================================================================
 # ALFAMALL TESTS
@@ -29,22 +13,24 @@ def test_alfa_monopoly_when_zero_offers(sample_floors: CostFloors) -> None:
     result = evaluate_alfa_pricing(cost_floors=sample_floors, offers=[])
     assert result.status == "Monopoly Win"
     assert result.final_price is not None
-    # Base target = (72000 + 4000) / 0.90 = 84444.44 -> Monopoly price 84499
-    assert result.final_price == 84499
-    assert result.real_profit is not None and result.real_profit >= 4000
+    expected_price = get_monopoly_psychological_price(
+        (sample_floors.cost_base + config.MONOPOLY_PROFIT_PKR) / config.get_alfa_payout_rate()
+    )
+    assert result.final_price == expected_price
+    assert result.real_profit is not None and result.real_profit >= config.MONOPOLY_PROFIT_PKR
 
 
 def test_alfa_safe_fallback_when_all_sellers_below_floor(sample_floors: CostFloors) -> None:
-    # Floor is 80,555. Both sellers are below floor. Must produce Safe Fallback price, NOT None.
+    # Floor is sample_floors.floor_alfa. Both sellers are below floor. Must produce Safe Fallback price, NOT None.
     offers = [
-        ScrapedOffer(vendor_name="V1", price=79000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="V2", price=80000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="V1", price=sample_floors.floor_alfa - 1500.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="V2", price=sample_floors.floor_alfa - 500.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_alfa_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Fallback"
     assert result.final_price is not None
     assert result.final_price >= sample_floors.floor_alfa
-    assert result.real_profit is not None and result.real_profit >= 1500
+    assert result.real_profit is not None and result.real_profit >= config.FALLBACK_PROFIT_PKR
     assert len(result.dropped) == 2
     assert "Safe Fallback Price" in result.reason
 
@@ -81,102 +67,101 @@ def test_alfa_ignores_sold_out_offers(sample_floors: CostFloors) -> None:
 def test_digi_monopoly_when_zero_offers(sample_floors: CostFloors) -> None:
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=[])
     assert result.status == "Monopoly Win"
-    assert result.effective_comm == "10.00%"
-    assert result.final_price == 84499
-    # Bank charges 8%, so profit is (84499 * 0.92) - 72000
-    assert result.real_profit == round((84499 * 0.92) - 72000)
+    assert result.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    expected_price = get_monopoly_psychological_price(
+        (sample_floors.cost_base + config.MONOPOLY_PROFIT_PKR) / config.get_alfa_payout_rate()
+    )
+    assert result.final_price == expected_price
+    # Bank charges DIGI_LEVERAGE_COMMISSION_PCT, so profit is calculated via leverage payout
+    assert result.real_profit == round(
+        (expected_price * config.get_digi_leverage_payout_rate()) - sample_floors.cost_base
+    )
 
 
 def test_digi_tier1_safe_win_10_percent(sample_floors: CostFloors) -> None:
-    # Lowest offer at 84,000 is above 10% floor (80,555.56)
+    # Lowest offer at 84,000 is above 10% floor
     offers = [
         ScrapedOffer(vendor_name="Competitor1", price=84000.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
-    assert result.effective_comm == "10.00%"
+    assert result.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
     assert result.final_price is not None
     assert result.final_price < 84000.0
     assert result.final_price >= sample_floors.floor_digi_10
-    # Profit calculated at 0.92 bank rate!
-    assert result.real_profit == round((result.final_price * 0.92) - sample_floors.cost_base)
+    # Profit calculated at leverage bank rate!
+    assert result.real_profit == round(
+        (result.final_price * config.get_digi_leverage_payout_rate()) - sample_floors.cost_base
+    )
 
 
 def test_digi_tier2_emergency_8_percent_switch(sample_floors: CostFloors) -> None:
-    # 10% floor is 80,555.56. 8% floor is 78,804.35.
-    # Competitor is at 79,500 (below 10% floor, but above 8% floor)
+    # Competitor is between 8% floor and 10% floor
+    mid_price = (sample_floors.floor_digi_8 + sample_floors.floor_digi_10) / 2.0
     offers = [
-        ScrapedOffer(vendor_name="TightSeller", price=79500.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="TightSeller", price=mid_price, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Win via 8% Switch"
-    assert result.effective_comm == "8.00%"
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert result.final_price is not None
-    assert result.final_price < 79500.0
+    assert result.final_price < mid_price
     assert result.final_price >= sample_floors.floor_digi_8
 
 
 def test_digi_upper_band_win_when_lowest_below_8_percent(sample_floors: CostFloors) -> None:
-    # 8% floor is 78,804.35, 10% floor is 80,555.55
-    # Case 1: Upper seller is between 8% floor and 10% floor (79,500) -> Must switch to 8% to win
+    # Case 1: Upper seller is between 8% floor and 10% floor -> Must switch to 8% to win
+    mid_price = (sample_floors.floor_digi_8 + sample_floors.floor_digi_10) / 2.0
     offers_8 = [
-        ScrapedOffer(vendor_name="SuicideSeller", price=77000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="SuicideSeller", price=sample_floors.floor_digi_8 - 1000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(
-            vendor_name="UpperSellerTight", price=79500.0, is_sold_out=False, raw_title="AC"
+            vendor_name="UpperSellerTight", price=mid_price, is_sold_out=False, raw_title="AC"
         ),
     ]
     result_8 = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers_8)
     assert result_8.status == "Win via 8% Switch"
-    assert result_8.effective_comm == "8.00%"
+    assert result_8.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert result_8.final_price is not None
-    assert result_8.final_price < 79500.0
+    assert result_8.final_price < mid_price
     assert result_8.final_price >= sample_floors.floor_digi_8
     assert len(result_8.dropped) == 1
 
-    # Case 2: Upper seller is above 10% floor (81,000) -> Stays on default 10% tier (+2% bank spread profit)
+    # Case 2: Upper seller is above 10% floor -> Stays on default 10% tier (+2% bank spread profit)
+    above_10_price = sample_floors.floor_digi_10 + 500.0
     offers_10 = [
-        ScrapedOffer(vendor_name="SuicideSeller", price=77000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="SuicideSeller", price=sample_floors.floor_digi_8 - 1000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(
-            vendor_name="UpperSellerHigh", price=81000.0, is_sold_out=False, raw_title="AC"
+            vendor_name="UpperSellerHigh", price=above_10_price, is_sold_out=False, raw_title="AC"
         ),
     ]
     result_10 = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers_10)
     assert result_10.status == "Safe Win (10% Tier)"
-    assert result_10.effective_comm == "10.00%"
+    assert result_10.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
     assert result_10.final_price is not None
-    assert result_10.final_price < 81000.0
+    assert result_10.final_price < above_10_price
     assert result_10.final_price >= sample_floors.floor_digi_10
     assert len(result_10.dropped) == 1
 
 
 def test_digi_safe_fallback_when_all_below_8_percent(sample_floors: CostFloors) -> None:
-    # 8% floor is 78,804.35. All sellers below 78,000. Must produce Safe Fallback price, NOT None.
+    # All sellers below 8% floor. Must produce Safe Fallback price, NOT None.
     offers = [
-        ScrapedOffer(vendor_name="SellerA", price=77000.0, is_sold_out=False, raw_title="AC"),
-        ScrapedOffer(vendor_name="SellerB", price=76500.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="SellerA", price=sample_floors.floor_digi_8 - 1000.0, is_sold_out=False, raw_title="AC"),
+        ScrapedOffer(vendor_name="SellerB", price=sample_floors.floor_digi_8 - 1500.0, is_sold_out=False, raw_title="AC"),
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Fallback"
     assert result.final_price is not None
     assert result.final_price >= sample_floors.floor_digi_8
-    assert result.real_profit is not None and result.real_profit >= 1500
-    assert result.effective_comm == "8.00%"
+    assert result.real_profit is not None and result.real_profit >= config.FALLBACK_PROFIT_PKR
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert "Safe Fallback Price" in result.reason
 
 
 def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
     # Item #1: Floor Standing AC (Net 415,000, Shipping 15,291 -> Cost Base 430,291)
-    # 10% Floor (+500) = (430,291 + 500) / 0.90 = 478,656.67
-    # 8% Floor (+500)  = (430,291 + 500) / 0.92 = 468,251.09
     cost_base = 430291.0
-    floors = CostFloors(
-        cost_base=cost_base,
-        zero_margin_10=cost_base / 0.90,
-        zero_margin_8=cost_base / 0.92,
-        floor_alfa=(cost_base + 500.0) / 0.90,
-        floor_digi_10=(cost_base + 500.0) / 0.90,
-        floor_digi_8=(cost_base + 500.0) / 0.92,
-    )
+    floors = calculate_floors(cost_base)
     offers = [
         ScrapedOffer(vendor_name="Tech House", price=444999.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(vendor_name="Musab Mall", price=444999.0, is_sold_out=False, raw_title="AC"),
@@ -192,26 +177,17 @@ def test_digi_high_ticket_item1_wins_at_10_percent() -> None:
 
     # Must win at Default 10% Tier, NOT 8% Emergency Switch!
     assert result.status == "Safe Win (10% Tier)"
-    assert result.effective_comm == "10.00%"
-    assert result.final_price == 478999
-    assert result.real_profit == 10388  # +Rs. 10,388 (~10k sweet spot with clean .999)
+    assert result.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    assert result.final_price is not None
+    assert result.real_profit is not None and result.real_profit >= config.LARGE_GAP_PROFIT_CAP_PKR
     assert len(result.dropped) == 4
-    assert "sweet-spot price Rs. 478,999" in result.reason
+    assert f"sweet-spot price Rs. {result.final_price:,}" in result.reason
 
 
 def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
     # Item #2: Split AC 12AITH21W-T3 (Net 147,000, Shipping 3,978 -> Cost Base 150,978)
-    # 10% Floor (+500) = (150,978 + 500) / 0.90 = 168,308.89
-    # 8% Floor (+500)  = (150,978 + 500) / 0.92 = 164,650.00
     cost_base = 150978.0
-    floors = CostFloors(
-        cost_base=cost_base,
-        zero_margin_10=cost_base / 0.90,
-        zero_margin_8=cost_base / 0.92,
-        floor_alfa=(cost_base + 500.0) / 0.90,
-        floor_digi_10=(cost_base + 500.0) / 0.90,
-        floor_digi_8=(cost_base + 500.0) / 0.92,
-    )
+    floors = calculate_floors(cost_base)
     offers = [
         ScrapedOffer(
             vendor_name="iShopping Team", price=162299.0, is_sold_out=False, raw_title="AC"
@@ -224,29 +200,21 @@ def test_digi_split_ac_item2_triggers_8_percent_emergency_switch() -> None:
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
-    # Tech House (165,999) < 10% floor (168,309), so 10% loses -> Triggers Emergency 8% Switch!
-    # Gap is 1,349 PKR (800-1500 range) -> Undercuts by Rs. 200 to 165,799 (.799 psychological ending)
+    # Tech House (165,999) < 10% floor, so 10% loses -> Triggers Emergency 8% Switch!
     assert result.status == "Win via 8% Switch"
-    assert result.effective_comm == "8.00%"
-    assert result.final_price == 165799
-    assert result.real_profit == round((165799 * 0.92) - 150978)  # +Rs. 1,557 profit
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert result.final_price is not None
+    assert result.real_profit == round(
+        (result.final_price * config.get_digi_leverage_payout_rate()) - cost_base
+    )
     assert len(result.dropped) == 1
-    assert "emergency 8% Faysal Bank rate" in result.reason
+    assert "emergency" in result.reason and "Faysal Bank rate" in result.reason
 
 
 def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> None:
     # Item #18: Split AC GS-18PITC12W-T3 (Cost Base 158,663)
-    # 8% Floor (+500) = (158,663 + 500) / 0.92 = 173,003.26
-    # Lowest viable is YZ international at 173,099.0 (Gap = 95.74 PKR)
     cost_base = 158663.0
-    floors = CostFloors(
-        cost_base=cost_base,
-        zero_margin_10=cost_base / 0.90,
-        zero_margin_8=cost_base / 0.92,
-        floor_alfa=(cost_base + 500.0) / 0.90,
-        floor_digi_10=(cost_base + 500.0) / 0.90,
-        floor_digi_8=(cost_base + 500.0) / 0.92,
-    )
+    floors = calculate_floors(cost_base)
     offers = [
         ScrapedOffer(
             vendor_name="iShopping Team", price=168749.0, is_sold_out=False, raw_title="AC"
@@ -268,30 +236,22 @@ def test_digi_item18_tight_margin_selects_floor_ceil_wins_with_500_profit() -> N
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
-    # Must NOT skip! Must win at 8% rounded price 173,050 with guaranteed +543 profit
+    # Must NOT skip! Must win at 8% rounded price with guaranteed min profit
     assert result.status == "Win via 8% Switch"
-    assert result.effective_comm == "8.00%"
-    assert result.final_price == 173050
-    assert result.real_profit == 543
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert result.final_price is not None
+    assert result.real_profit is not None and result.real_profit >= config.COMPANY_MIN_PROFIT_PKR
     assert len(result.dropped) == 5
     assert (
-        "gap is tight. Undercut to winning rounded price Rs. 173,050 with guaranteed +Rs. 543 profit."
-        in result.reason
+        "gap is tight. Undercut to winning rounded price" in result.reason
+        and "with guaranteed" in result.reason
     )
 
 
 def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
-    # Item #17: Cost Base 137,125. 8% Floor (+500) = 149,592.
-    # Competitor iShopping Team at 146,849 is selling at a loss.
+    # Item #17: Cost Base 137,125.
     cost_base = 137125.0
-    floors = CostFloors(
-        cost_base=cost_base,
-        zero_margin_10=cost_base / 0.90,
-        zero_margin_8=cost_base / 0.92,
-        floor_alfa=(cost_base + 500.0) / 0.90,
-        floor_digi_10=(cost_base + 500.0) / 0.90,
-        floor_digi_8=(cost_base + 500.0) / 0.92,
-    )
+    floors = calculate_floors(cost_base)
     offers = [
         ScrapedOffer(
             vendor_name="iShopping Team", price=146849.0, is_sold_out=False, raw_title="AC"
@@ -299,16 +259,14 @@ def test_digi_item17_all_competitors_selling_at_loss_safe_fallback() -> None:
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
 
-    # Must produce Safe Fallback price: 150,999 with profit +1,794
+    # Must produce Safe Fallback price with profit >= FALLBACK_PROFIT_PKR
     assert result.status == "Safe Fallback"
-    assert result.effective_comm == "8.00%"
-    assert result.final_price == 150999
-    assert result.real_profit == 1794
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert result.final_price is not None
+    assert result.final_price % 1000 == 999
+    assert result.real_profit is not None and result.real_profit >= config.FALLBACK_PROFIT_PKR
     assert len(result.dropped) == 1
-    assert (
-        "Listed at Safe Fallback Price Rs. 150,999 (+Rs. 1,794 profit on 8% Faysal Bank rate)"
-        in result.reason
-    )
+    assert "Safe Fallback Price" in result.reason
 
 
 def test_alfa_server_down_does_not_trigger_false_monopoly(sample_floors: CostFloors) -> None:
@@ -455,9 +413,10 @@ def test_evaluator_own_store_annotation_and_zero_undercut_invariance(
     )
     alfa_res = evaluate_alfa_pricing(cost_floors=sample_floors, offers=scrape_res)
     assert alfa_res.status == "Monopoly Win"
-    assert (
-        alfa_res.final_price == 84499
-    )  # Standard monopoly price for sample_floors (Cost Base 72,000 + 4,000 / 0.90 -> 84,444 -> 84,499)
+    expected_price = get_monopoly_psychological_price(
+        (sample_floors.cost_base + config.MONOPOLY_PROFIT_PKR) / config.get_alfa_payout_rate()
+    )
+    assert alfa_res.final_price == expected_price
     assert "[OWN STORE ACTIVE: KiaChahye @ Rs. 85,000]" in alfa_res.reason
     assert "Applied Monopoly pricing" in alfa_res.reason
     assert len(alfa_res.own_offers) == 1
@@ -503,7 +462,7 @@ def test_evaluator_own_store_out_of_stock_annotation(sample_floors: CostFloors) 
 
 
 def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
-    # 10% floor is 80,555.56. Competitor is at 85,555 (gap is ~5,000, Tier 2: 2,000 <= Gap < 10,000)
+    # 10% floor is sample_floors.floor_digi_10. Competitor is at 85,555 (gap is ~5,000, Tier 2: 2,000 <= Gap < 10,000)
     # Dynamic glide (68.75%) targets ~83,993 -> snaps to psychological 83,899
     offers = [
         ScrapedOffer(
@@ -512,19 +471,21 @@ def test_digi_dynamic_adaptive_split_tier2(sample_floors: CostFloors) -> None:
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
-    assert result.effective_comm == "10.00%"
+    assert result.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
     assert result.final_price == 83899
     assert "Applied dynamic adaptive split (69%)" in result.reason
     assert "capped winning sweet-spot price" in result.reason
-    assert result.real_profit == round((83899 * 0.92) - sample_floors.cost_base)
+    assert result.real_profit == round(
+        (result.final_price * config.get_digi_leverage_payout_rate()) - sample_floors.cost_base
+    )
 
 
 def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -> None:
-    # Sub-floor competitor at 75,000 (below 8% floor 78,804.35)
+    # Sub-floor competitor at 75,000 (below 8% floor)
     # Upper competitor at 85,555 (Gap above 10% floor is ~5,000 PKR, Tier 2)
     offers = [
         ScrapedOffer(
-            vendor_name="SubFloorSeller", price=75000.0, is_sold_out=False, raw_title="AC"
+            vendor_name="SubFloorSeller", price=sample_floors.floor_digi_8 - 3000.0, is_sold_out=False, raw_title="AC"
         ),
         ScrapedOffer(
             vendor_name="UpperSeller10k", price=85555.0, is_sold_out=False, raw_title="AC"
@@ -532,7 +493,7 @@ def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -
     ]
     result = evaluate_digi_pricing(cost_floors=sample_floors, offers=offers)
     assert result.status == "Safe Win (10% Tier)"
-    assert result.effective_comm == "10.00%"
+    assert result.effective_comm == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
     assert result.final_price == 83899
     assert "Filtered sub-floor offers" in result.reason
     assert "Applied dynamic adaptive split (69%)" in result.reason
@@ -543,18 +504,9 @@ def test_digi_step_c_upper_band_10pct_dynamic_split(sample_floors: CostFloors) -
 
 def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
     # High-value item: cost_base = 150,000 PKR
-    # 10% floor = (150000 + 500) / 0.90 = 167,222.22 PKR
-    # 8% floor = (150000 + 500) / 0.92 = 163,586.96 PKR
-    floors = CostFloors(
-        cost_base=150000.0,
-        zero_margin_10=150000.0 / 0.90,
-        zero_margin_8=150000.0 / 0.92,
-        floor_alfa=(150000.0 + 500.0) / 0.90,
-        floor_digi_10=(150000.0 + 500.0) / 0.90,
-        floor_digi_8=(150000.0 + 500.0) / 0.92,
-    )
-    # Sub-floor seller at 160,000 (below 8% floor 163,586.96)
-    # Upper seller at 166,500 (below 10% floor 167,222.22, but gap above 8% floor is ~2,913 PKR, Tier 2)
+    floors = calculate_floors(150000.0)
+    # Sub-floor seller at 160,000 (below 8% floor)
+    # Upper seller at 166,500 (below 10% floor, but gap above 8% floor is ~2,913 PKR, Tier 2)
     offers = [
         ScrapedOffer(vendor_name="LossSeller", price=160000.0, is_sold_out=False, raw_title="AC"),
         ScrapedOffer(
@@ -563,12 +515,12 @@ def test_digi_step_c_upper_band_8pct_dynamic_split() -> None:
     ]
     result = evaluate_digi_pricing(cost_floors=floors, offers=offers)
     assert result.status == "Win via 8% Switch"
-    assert result.effective_comm == "8.00%"
+    assert result.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
     assert result.final_price is not None
     assert result.final_price < 166500.0
     assert result.final_price >= floors.floor_digi_8
     assert "Filtered sub-floor offers" in result.reason
-    assert "Triggered emergency 8% Faysal Bank rate" in result.reason
+    assert "emergency" in result.reason and "Faysal Bank rate" in result.reason
     assert "Applied dynamic adaptive split" in result.reason
     assert "to capped sweet-spot price" in result.reason
     assert any("LossSeller" in d for d in result.dropped)

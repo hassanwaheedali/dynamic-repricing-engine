@@ -1,17 +1,8 @@
 import math
 from dataclasses import replace
+from typing import Any
 
-from config import (
-    ALFA_COMMISSION_PCT,
-    DIGI_LEVERAGE_COMMISSION_PCT,
-    DIGI_STANDARD_COMMISSION_PCT,
-    FALLBACK_PROFIT_PKR,
-    LARGE_GAP_PROFIT_CAP_PKR,
-    MONOPOLY_PROFIT_PKR,
-    get_alfa_payout_rate,
-    get_digi_leverage_payout_rate,
-    get_digi_standard_payout_rate,
-)
+import config
 from pricing_engine.calculator import (
     calculate_adaptive_target_price,
     find_winning_psychological_price,
@@ -38,8 +29,13 @@ from pricing_engine.models import (
     is_non_competitor_vendor,
 )
 
-MONOPOLY_PROFIT: float = MONOPOLY_PROFIT_PKR
-FALLBACK_PROFIT: float = FALLBACK_PROFIT_PKR
+
+def __getattr__(name: str) -> Any:
+    if name == "MONOPOLY_PROFIT":
+        return config.MONOPOLY_PROFIT_PKR
+    if name == "FALLBACK_PROFIT":
+        return config.FALLBACK_PROFIT_PKR
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRange:
@@ -194,7 +190,7 @@ def _annotate_non_competitor_reason(
 def evaluate_alfa_pricing(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
-    monopoly_profit: float = MONOPOLY_PROFIT,
+    monopoly_profit: float | None = None,
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
     """Evaluate pricing on AlfaMall with automatic fallback and own-store reason annotations."""
@@ -305,7 +301,7 @@ def _format_winning_reason(
 def _evaluate_alfa_core(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
-    monopoly_profit: float = MONOPOLY_PROFIT,
+    monopoly_profit: float | None = None,
     max_profit_cap: float | None = None,
 ) -> tuple[PlatformPricingResult, ScrapedOffer | None]:
     """Evaluate pricing on AlfaMall under configured platform commission rules.
@@ -318,8 +314,11 @@ def _evaluate_alfa_core(
     - If no viable sellers remain, set Safe Fallback Price (+Rs. 1,500 profit) to ensure upload.
     - Otherwise, strictly undercut lowest viable competitor with psychological price.
     """
-    alfa_payout = get_alfa_payout_rate()
-    alfa_comm_str = f"{ALFA_COMMISSION_PCT:.2f}%"
+    eff_monopoly_profit = (
+        config.MONOPOLY_PROFIT_PKR if monopoly_profit is None else monopoly_profit
+    )
+    alfa_payout = config.get_alfa_payout_rate()
+    alfa_comm_str = f"{config.ALFA_COMMISSION_PCT:.2f}%"
 
     if isinstance(offers, ScrapeResult):
         scrape_success = offers.is_success
@@ -430,9 +429,9 @@ def _evaluate_alfa_core(
             )
 
         eff_monopoly_alfa = (
-            max(monopoly_profit, floor_profit_alfa + 1000.0)
+            max(eff_monopoly_profit, floor_profit_alfa + 1000.0)
             if extra_personal_comm_alfa > 0
-            else monopoly_profit
+            else eff_monopoly_profit
         )
         raw_target = (cost_floors.cost_base + eff_monopoly_alfa) / alfa_payout
         monopoly_p = get_monopoly_psychological_price(raw_target)
@@ -466,7 +465,7 @@ def _evaluate_alfa_core(
             cost_base=cost_floors.cost_base,
             floor_min=cost_floors.floor_alfa,
             payout_rate=alfa_payout,
-            profit_target=FALLBACK_PROFIT + extra_personal_comm_alfa,
+            profit_target=config.FALLBACK_PROFIT_PKR + extra_personal_comm_alfa,
         )
         profit = round((final_fallback_p * alfa_payout) - cost_floors.cost_base)
         return (
@@ -494,7 +493,7 @@ def _evaluate_alfa_core(
     large_cap_alfa = (
         max_profit_cap
         if max_profit_cap is not None
-        else (LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_alfa)
+        else (config.LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_alfa)
     )
     target_adaptive_alfa = calculate_adaptive_target_price(
         floor_min=cost_floors.floor_alfa,
@@ -581,7 +580,7 @@ def _evaluate_alfa_core(
 def evaluate_digi_pricing(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
-    monopoly_profit: float = MONOPOLY_PROFIT,
+    monopoly_profit: float | None = None,
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
     """Evaluate pricing on DigiMall with automatic fallback and own-store reason annotations."""
@@ -622,14 +621,17 @@ def evaluate_digi_pricing(
 def _evaluate_digi_core(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
-    monopoly_profit: float = MONOPOLY_PROFIT,
+    monopoly_profit: float | None = None,
     max_profit_cap: float | None = None,
 ) -> tuple[PlatformPricingResult, ScrapedOffer | None]:
     """Evaluate pricing on DigiMall with Two-Tier Commission Switch (10% -> 8%)."""
-    digi_std_payout = get_digi_standard_payout_rate()
-    digi_lev_payout = get_digi_leverage_payout_rate()
-    digi_std_comm_str = f"{DIGI_STANDARD_COMMISSION_PCT:.2f}%"
-    digi_lev_comm_str = f"{DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    eff_monopoly_profit = (
+        config.MONOPOLY_PROFIT_PKR if monopoly_profit is None else monopoly_profit
+    )
+    digi_std_payout = config.get_digi_standard_payout_rate()
+    digi_lev_payout = config.get_digi_leverage_payout_rate()
+    digi_std_comm_str = f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    digi_lev_comm_str = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
 
     if isinstance(offers, ScrapeResult):
         scrape_success = offers.is_success
@@ -740,9 +742,9 @@ def _evaluate_digi_core(
             )
 
         eff_monopoly_digi = (
-            max(monopoly_profit, floor_profit_digi + 1000.0)
+            max(eff_monopoly_profit, floor_profit_digi + 1000.0)
             if extra_personal_comm_digi > 0
-            else monopoly_profit
+            else eff_monopoly_profit
         )
         raw_target = (cost_floors.cost_base + eff_monopoly_digi) / digi_std_payout
         monopoly_p = get_monopoly_psychological_price(raw_target)
@@ -754,7 +756,7 @@ def _evaluate_digi_core(
                 final_price=monopoly_p,
                 real_profit=profit,
                 status="Monopoly Win",
-                reason="No competitors found in market. Applied Monopoly 10% baseline pricing and captured extra 2% bank spread profit via 8% Faysal Bank rate.",
+                reason=f"No competitors found in market. Applied Monopoly {digi_std_comm_str} baseline pricing and captured extra bank spread profit via {digi_lev_comm_str} Faysal Bank rate.",
                 dropped=[],
                 active_pool=[],
                 effective_comm=digi_std_comm_str,
@@ -767,7 +769,7 @@ def _evaluate_digi_core(
     large_cap = (
         max_profit_cap
         if max_profit_cap is not None
-        else (LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_digi)
+        else (config.LARGE_GAP_PROFIT_CAP_PKR + extra_personal_comm_digi)
     )
     min_int_digi_10 = math.ceil(cost_floors.floor_digi_10)
     min_int_digi_8 = math.ceil(cost_floors.floor_digi_8)
@@ -998,7 +1000,7 @@ def _evaluate_digi_core(
         cost_base=cost_floors.cost_base,
         floor_min=cost_floors.floor_digi_8,
         payout_rate=digi_lev_payout,
-        profit_target=FALLBACK_PROFIT + extra_personal_comm_digi,
+        profit_target=config.FALLBACK_PROFIT_PKR + extra_personal_comm_digi,
     )
     profit = round((final_fallback_p * digi_lev_payout) - cost_floors.cost_base)
     return (
@@ -1010,7 +1012,7 @@ def _evaluate_digi_core(
             status="Safe Fallback",
             reason=(
                 f"All competitors are selling at a loss (< Floor Rs. {round(cost_floors.floor_digi_8):,}{lowest_str}). "
-                f"Undercut skipped to prevent loss. Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit on 8% Faysal Bank rate) "
+                f"Undercut skipped to prevent loss. Listed at Safe Fallback Price Rs. {final_fallback_p:,.0f} (+Rs. {profit:,} profit on {digi_lev_comm_str} Faysal Bank rate) "
                 f"to ensure catalog upload."
             ),
             dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],

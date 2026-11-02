@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+import config
 from pricing_engine.models import (
     WINNING_5PCT_GOALS,
     format_comm_pct_label,
@@ -63,7 +64,7 @@ def format_export_shipping(val: Any) -> str:
 
 
 _DYNAMIC_COMM_COL_RE = re.compile(r"^My [\d.]+% Commission$")
-_DYNAMIC_MIN_TARGET_COL_RE = re.compile(r"^Min Profit Target \([\d.]+% \+ 500\)$")
+_DYNAMIC_MIN_TARGET_COL_RE = re.compile(r"^Min Profit Target \([\d.]+% \+ \d+\)$")
 _DYNAMIC_ALFA_GOAL_COL_RE = re.compile(r"^Alfa [\d.]+% Goal$")
 _DYNAMIC_DIGI_GOAL_COL_RE = re.compile(r"^Digi [\d.]+% Goal$")
 
@@ -75,6 +76,28 @@ def is_price_int_column(col_name: Any) -> bool:
         s in PRICE_INT_COLUMNS
         or bool(_DYNAMIC_COMM_COL_RE.match(s))
         or bool(_DYNAMIC_MIN_TARGET_COL_RE.match(s))
+    )
+
+
+def _excel_payout_expr(cell_ref: str, default_payout: float) -> str:
+    """Generate Excel formula expression computing (1 - commission) dynamically.
+
+    Handles numeric percentage cells (e.g. 0.08 or 0.10), percentage text strings (e.g. '8.00%'),
+    and blank cells with zero reliance on substring searching ('FIND') or static percentage assumptions.
+    """
+    return (
+        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_payout:.2f}, '
+        f"IF(ISNUMBER({cell_ref}), 1-{cell_ref}, "
+        f'1-SUBSTITUTE({cell_ref}, "%", "")/100))'
+    )
+
+
+def _excel_comm_expr(cell_ref: str, default_comm: float) -> str:
+    """Generate Excel formula expression extracting commission decimal dynamically from cell."""
+    return (
+        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_comm:.2f}, '
+        f"IF(ISNUMBER({cell_ref}), {cell_ref}, "
+        f'SUBSTITUTE({cell_ref}, "%", "")/100))'
     )
 
 
@@ -255,55 +278,74 @@ def export_excel_workbook(
         prof_alfa = col_map.get("Alfa Real Profit")
         prof_digi = col_map.get("Digi Real Profit")
 
+        vol_divisor = (
+            int(config.VOLUMETRIC_DIVISOR)
+            if config.VOLUMETRIC_DIVISOR.is_integer()
+            else config.VOLUMETRIC_DIVISOR
+        )
+        courier_rate = (
+            int(config.COURIER_RATE_PER_KG)
+            if config.COURIER_RATE_PER_KG.is_integer()
+            else config.COURIER_RATE_PER_KG
+        )
+        alfa_payout = config.get_alfa_payout_rate()
+        digi_lev_payout = config.get_digi_leverage_payout_rate()
+        min_profit_val = (
+            int(config.COMPANY_MIN_PROFIT_PKR)
+            if config.COMPANY_MIN_PROFIT_PKR.is_integer()
+            else config.COMPANY_MIN_PROFIT_PKR
+        )
+        alfa_comm_dec = round(config.ALFA_COMMISSION_PCT / 100.0, 4)
+
         # 1. Shipping Estimate
         if ship and l_col and w_col and h_col:
             l_val = _safe_float(row.get("Length"), 0.0)
             w_val = _safe_float(row.get("Width"), 0.0)
             h_val = _safe_float(row.get("Height"), 0.0)
             if l_val > 0 and w_val > 0 and h_val > 0:
-                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/5000)*70, 2)"
+                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/{vol_divisor})*{courier_rate}, 2)"
 
         # 2. Total Without Profit
         eff_comm = comm or comm_col
         if twop and net and ship:
             if eff_comm:
-                ws[f"{twop}{r}"] = (
-                    f"=ROUND(({net}{r}+{ship}{r})/IF(ISNUMBER({eff_comm}{r}), 1-{eff_comm}{r}, "
-                    f'IF(ISNUMBER(FIND("8", {eff_comm}{r})), 0.92, 0.90)), 0)'
-                )
+                payout_expr = _excel_payout_expr(f"{eff_comm}{r}", alfa_payout)
+                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/{payout_expr}, 0)"
             else:
-                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/0.90, 0)"
+                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/{alfa_payout:.2f}, 0)"
 
         # 3. Dynamic Calculation (Referencing Commission Cell)
         if calc and net and ship:
-            p_expr = f"IF(ISBLANK({p_col}{r}), 500, {p_col}{r})" if p_col else "500"
+            p_expr = f"IF(ISBLANK({p_col}{r}), {min_profit_val}, {p_col}{r})" if p_col else str(min_profit_val)
             if comm_col:
-                comm_expr = (
-                    f"IF(ISNUMBER({comm_col}{r}), {comm_col}{r}, "
-                    f'IF(ISNUMBER(FIND("8", {comm_col}{r})), 0.08, 0.10))'
-                )
+                comm_expr = _excel_comm_expr(f"{comm_col}{r}", alfa_comm_dec)
                 ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/(1-{comm_expr}), 0)"
             else:
-                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/0.90, 0)"
+                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/{alfa_payout:.2f}, 0)"
 
         # 4. Alfa Real Profit
         if prof_alfa and final_alfa and net and ship:
-            ws[f"{prof_alfa}{r}"] = (
-                f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
-            )
+            if comm_col:
+                alfa_payout_expr = _excel_payout_expr(f"{comm_col}{r}", alfa_payout)
+                ws[f"{prof_alfa}{r}"] = (
+                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout_expr})-({net}{r}+{ship}{r}), 0))'
+                )
+            else:
+                ws[f"{prof_alfa}{r}"] = (
+                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout:.2f})-({net}{r}+{ship}{r}), 0))'
+                )
 
         # 7. Digi Real Profit
         if prof_digi and final_digi and net and ship:
             digi_comm_col = comm or comm_col
             if digi_comm_col:
+                digi_payout_expr = _excel_payout_expr(f"{digi_comm_col}{r}", digi_lev_payout)
                 ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*'
-                    f'IF(ISNUMBER({digi_comm_col}{r}), 1-{digi_comm_col}{r}, IF(ISNUMBER(FIND("8", {digi_comm_col}{r})), 0.92, 0.90)))'
-                    f"-({net}{r}+{ship}{r}), 0))"
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_payout_expr})-({net}{r}+{ship}{r}), 0))'
                 )
             else:
                 ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*0.90)-({net}{r}+{ship}{r}), 0))'
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_lev_payout:.2f})-({net}{r}+{ship}{r}), 0))'
                 )
 
         # 8. Personal Commission & Company Profit Breakdown
@@ -311,14 +353,14 @@ def export_excel_workbook(
         my_comm_col = col_map.get(f"My {lbl}% Commission") or next(
             (col_map[h] for h in headers if _DYNAMIC_COMM_COL_RE.match(str(h))), None
         )
-        min_target_col = col_map.get(f"Min Profit Target ({lbl}% + 500)") or next(
+        min_target_col = col_map.get(f"Min Profit Target ({lbl}% + {min_profit_val})") or next(
             (col_map[h] for h in headers if _DYNAMIC_MIN_TARGET_COL_RE.match(str(h))), None
         )
         co_alfa_col = col_map.get("Alfa Company Profit")
         co_digi_col = col_map.get("Digi Company Profit")
 
         if my_comm_col:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             if prof_alfa and prof_digi:
                 ws[f"{my_comm_col}{r}"] = (
                     f"=ROUND(MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))*{comm_mult:g}, 0)"
@@ -330,15 +372,15 @@ def export_excel_workbook(
             else:
                 ws[f"{my_comm_col}{r}"] = f"=ROUND(0*{comm_mult:g}, 0)"
         if min_target_col:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
-            ws[f"{min_target_col}{r}"] = f"=ROUNDUP(500/(1-{comm_mult:g}), 0)"
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
+            ws[f"{min_target_col}{r}"] = f"=ROUNDUP({min_profit_val}/(1-{comm_mult:g}), 0)"
         if co_alfa_col and prof_alfa:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             ws[f"{co_alfa_col}{r}"] = (
                 f'=IF(ISBLANK({prof_alfa}{r}), "", {prof_alfa}{r}-ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0))'
             )
         if co_digi_col and prof_digi:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else 0.05
+            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             ws[f"{co_digi_col}{r}"] = (
                 f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
             )
