@@ -20,6 +20,14 @@ from pricing_engine.calculator import (
     get_monopoly_psychological_price,
 )
 from pricing_engine.models import (
+    DISCOVERY_CANDIDATES_REJECTED,
+    DISCOVERY_COMPLETE_NO_COMPETITORS,
+    DISCOVERY_COMPLETE_WITH_OFFERS,
+    DISCOVERY_INCOMPLETE,
+    DISCOVERY_PAGINATION_INCOMPLETE,
+    DISCOVERY_SEARCH_FAILED,
+    STATUS_CANDIDATES_REJECTED,
+    STATUS_INCOMPLETE_DISCOVERY,
     STATUS_SERVER_DOWN,
     CostFloors,
     MarketRange,
@@ -65,6 +73,18 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
 
 def format_fallback_descriptions(mod: str, source: str = "target") -> tuple[str, str, str]:
     """Generates (audit_text, reason_prefix, banner_text) for active modifier fallbacks."""
+    if mod.startswith("Extended Edition (") or mod.startswith("Extended Designation ("):
+        extracted_name = mod.split("(", 1)[1].rstrip(")")
+        audit = f"⚠️ COMPATIBILITY NOTICE: Accepted extended designation '{extracted_name}'"
+        reason = (
+            f"[COMPATIBILITY NOTICE: Accepted legitimate extended model designation '{extracted_name}' — "
+            f"verify edition/color alignment]"
+        )
+        banner = (
+            f"[bold yellow]⚠️  COMPATIBILITY NOTICE (DO CROSS-CHECK):[/] Accepted legitimate extended model designation "
+            f"[bold cyan]'{extracted_name}'[/] — verify edition/color alignment."
+        )
+        return audit, reason, banner
     if mod.startswith("Dual-Color"):
         audit = f"⚠️ {mod.upper()} LISTING MATCHED"
         reason = f"[CROSS-CHECK NOTICE: Matched combined {mod} marketplace listing]"
@@ -188,6 +208,27 @@ def evaluate_alfa_pricing(
     active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
     res = _annotate_fallback_reason(res, active_fallback, active_source)
+
+    compat_notice = None
+    if isinstance(offers, ScrapeResult) and offers.extended_model_designation:
+        compat_notice = (
+            f"Accepted legitimate extended model designation '{offers.extended_model_designation}' "
+            f"— verify edition/color alignment"
+        )
+    elif active_fallback and (
+        "Extended Edition (" in active_fallback or "Extended Designation (" in active_fallback
+    ):
+        extracted = active_fallback.split("(", 1)[1].rstrip(")")
+        compat_notice = (
+            f"Accepted legitimate extended model designation '{extracted}' "
+            f"— verify edition/color alignment"
+        )
+    if compat_notice:
+        prefix = f"[COMPATIBILITY NOTICE: {compat_notice}]"
+        if prefix not in res.reason and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
+            res = replace(res, reason=f"{prefix} {res.reason}")
+        res = replace(res, compatibility_notice=compat_notice)
+
     return _annotate_non_competitor_reason(res, own_offers)
 
 
@@ -306,6 +347,7 @@ def _evaluate_alfa_core(
                 dropped=[],
                 active_pool=[],
                 effective_comm=alfa_comm_str,
+                discovery_status=DISCOVERY_SEARCH_FAILED,
             ),
             None,
         )
@@ -322,8 +364,71 @@ def _evaluate_alfa_core(
     floor_profit_alfa = (cost_floors.floor_alfa * alfa_payout) - cost_floors.cost_base
     extra_personal_comm_alfa = float(cost_floors.alfa_personal_comm)
 
-    # Scenario 1: Zero competitors in market -> Monopoly Pricing
+    disc_status = (
+        offers.discovery_status
+        if isinstance(offers, ScrapeResult) and offers.discovery_status
+        else (DISCOVERY_COMPLETE_WITH_OFFERS if valid_prices else DISCOVERY_COMPLETE_NO_COMPETITORS)
+    )
+
+    # Scenario 1: Zero competitors in market -> Monopoly Pricing or Incomplete Discovery Guard
     if not valid_prices:
+        if isinstance(offers, ScrapeResult) and offers.discovery_status in (
+            DISCOVERY_INCOMPLETE,
+            DISCOVERY_SEARCH_FAILED,
+            DISCOVERY_PAGINATION_INCOMPLETE,
+        ):
+            reason_detail = (
+                "AlfaMall search pagination incomplete or query timed out. "
+                "Monopoly pricing suppressed to prevent blind mispricing."
+            )
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=None,
+                    real_profit=0,
+                    status=STATUS_INCOMPLETE_DISCOVERY,
+                    reason=reason_detail,
+                    dropped=[],
+                    active_pool=[],
+                    effective_comm=alfa_comm_str,
+                    discovery_status=offers.discovery_status,
+                ),
+                None,
+            )
+
+        if (
+            isinstance(offers, ScrapeResult)
+            and offers.discovery_status == DISCOVERY_CANDIDATES_REJECTED
+        ):
+            top_reasons = sorted(
+                offers.rejection_reasons.items(), key=lambda x: x[1], reverse=True
+            )[:2]
+            reasons_summary = (
+                ", ".join(f"{count}x {cat}" for cat, count in top_reasons)
+                if top_reasons
+                else f"{offers.rejected_count} candidates rejected"
+            )
+            reason_detail = (
+                f"Competitor candidates found ({offers.rejected_count} total) but all rejected by referee ({reasons_summary}). "
+                "Monopoly pricing suppressed to prevent blind mispricing."
+            )
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=None,
+                    real_profit=0,
+                    status=STATUS_CANDIDATES_REJECTED,
+                    reason=reason_detail,
+                    dropped=[],
+                    active_pool=[],
+                    effective_comm=alfa_comm_str,
+                    discovery_status=DISCOVERY_CANDIDATES_REJECTED,
+                ),
+                None,
+            )
+
         eff_monopoly_alfa = (
             max(monopoly_profit, floor_profit_alfa + 1000.0)
             if extra_personal_comm_alfa > 0
@@ -343,6 +448,7 @@ def _evaluate_alfa_core(
                 dropped=[],
                 active_pool=[],
                 effective_comm=alfa_comm_str,
+                discovery_status=DISCOVERY_COMPLETE_NO_COMPETITORS,
             ),
             None,
         )
@@ -378,6 +484,7 @@ def _evaluate_alfa_core(
                 dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
                 active_pool=[],
                 effective_comm=alfa_comm_str,
+                discovery_status=disc_status,
             ),
             lowest_dropped_obj,
         )
@@ -429,6 +536,7 @@ def _evaluate_alfa_core(
                 dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
                 active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
                 effective_comm=alfa_comm_str,
+                discovery_status=disc_status,
             ),
             lowest_viable,
         )
@@ -464,6 +572,7 @@ def _evaluate_alfa_core(
             dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
             active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable],
             effective_comm=alfa_comm_str,
+            discovery_status=disc_status,
         ),
         lowest_viable,
     )
@@ -486,6 +595,27 @@ def evaluate_digi_pricing(
     active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
     res = _annotate_fallback_reason(res, active_fallback, active_source)
+
+    compat_notice = None
+    if isinstance(offers, ScrapeResult) and offers.extended_model_designation:
+        compat_notice = (
+            f"Accepted legitimate extended model designation '{offers.extended_model_designation}' "
+            f"— verify edition/color alignment"
+        )
+    elif active_fallback and (
+        "Extended Edition (" in active_fallback or "Extended Designation (" in active_fallback
+    ):
+        extracted = active_fallback.split("(", 1)[1].rstrip(")")
+        compat_notice = (
+            f"Accepted legitimate extended model designation '{extracted}' "
+            f"— verify edition/color alignment"
+        )
+    if compat_notice:
+        prefix = f"[COMPATIBILITY NOTICE: {compat_notice}]"
+        if prefix not in res.reason and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
+            res = replace(res, reason=f"{prefix} {res.reason}")
+        res = replace(res, compatibility_notice=compat_notice)
+
     return _annotate_non_competitor_reason(res, own_offers)
 
 
@@ -527,6 +657,7 @@ def _evaluate_digi_core(
                 dropped=[],
                 active_pool=[],
                 effective_comm=digi_lev_comm_str,
+                discovery_status=DISCOVERY_SEARCH_FAILED,
             ),
             None,
         )
@@ -543,8 +674,71 @@ def _evaluate_digi_core(
     floor_profit_digi = (cost_floors.floor_digi_10 * digi_std_payout) - cost_floors.cost_base
     extra_personal_comm_digi = float(cost_floors.digi_personal_comm)
 
-    # Scenario 1: Zero competitors in market -> Monopoly Pricing
+    disc_status = (
+        offers.discovery_status
+        if isinstance(offers, ScrapeResult) and offers.discovery_status
+        else (DISCOVERY_COMPLETE_WITH_OFFERS if valid_prices else DISCOVERY_COMPLETE_NO_COMPETITORS)
+    )
+
+    # Scenario 1: Zero competitors in market -> Monopoly Pricing or Incomplete Discovery Guard
     if not valid_prices:
+        if isinstance(offers, ScrapeResult) and offers.discovery_status in (
+            DISCOVERY_INCOMPLETE,
+            DISCOVERY_SEARCH_FAILED,
+            DISCOVERY_PAGINATION_INCOMPLETE,
+        ):
+            reason_detail = (
+                "DigiMall search pagination incomplete or query timed out. "
+                "Monopoly pricing suppressed to prevent blind mispricing."
+            )
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=None,
+                    real_profit=0,
+                    status=STATUS_INCOMPLETE_DISCOVERY,
+                    reason=reason_detail,
+                    dropped=[],
+                    active_pool=[],
+                    effective_comm=digi_lev_comm_str,
+                    discovery_status=offers.discovery_status,
+                ),
+                None,
+            )
+
+        if (
+            isinstance(offers, ScrapeResult)
+            and offers.discovery_status == DISCOVERY_CANDIDATES_REJECTED
+        ):
+            top_reasons = sorted(
+                offers.rejection_reasons.items(), key=lambda x: x[1], reverse=True
+            )[:2]
+            reasons_summary = (
+                ", ".join(f"{count}x {cat}" for cat, count in top_reasons)
+                if top_reasons
+                else f"{offers.rejected_count} candidates rejected"
+            )
+            reason_detail = (
+                f"Competitor candidates found ({offers.rejected_count} total) but all rejected by referee ({reasons_summary}). "
+                "Monopoly pricing suppressed to prevent blind mispricing."
+            )
+            return (
+                PlatformPricingResult(
+                    min_price=min_p,
+                    max_price=max_p,
+                    final_price=None,
+                    real_profit=0,
+                    status=STATUS_CANDIDATES_REJECTED,
+                    reason=reason_detail,
+                    dropped=[],
+                    active_pool=[],
+                    effective_comm=digi_lev_comm_str,
+                    discovery_status=DISCOVERY_CANDIDATES_REJECTED,
+                ),
+                None,
+            )
+
         eff_monopoly_digi = (
             max(monopoly_profit, floor_profit_digi + 1000.0)
             if extra_personal_comm_digi > 0
@@ -564,6 +758,7 @@ def _evaluate_digi_core(
                 dropped=[],
                 active_pool=[],
                 effective_comm=digi_std_comm_str,
+                discovery_status=DISCOVERY_COMPLETE_NO_COMPETITORS,
             ),
             None,
         )
@@ -620,6 +815,7 @@ def _evaluate_digi_core(
                     dropped=[],
                     active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
                     effective_comm=digi_std_comm_str,
+                    discovery_status=disc_status,
                 ),
                 lowest_offer,
             )
@@ -676,6 +872,7 @@ def _evaluate_digi_core(
                     dropped=[],
                     active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in active_offers],
                     effective_comm=digi_lev_comm_str,
+                    discovery_status=disc_status,
                 ),
                 lowest_offer,
             )
@@ -730,6 +927,7 @@ def _evaluate_digi_core(
                             dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
                             active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
                             effective_comm=digi_std_comm_str,
+                            discovery_status=disc_status,
                         ),
                         lowest_upper,
                     )
@@ -783,6 +981,7 @@ def _evaluate_digi_core(
                         dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
                         active_pool=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in viable_8],
                         effective_comm=digi_lev_comm_str,
+                        discovery_status=disc_status,
                     ),
                     lowest_upper,
                 )
@@ -817,6 +1016,7 @@ def _evaluate_digi_core(
             dropped=[f"{o.vendor_name} (Rs. {o.price:,.0f})" for o in dropped],
             active_pool=[],
             effective_comm=digi_lev_comm_str,
+            discovery_status=disc_status,
         ),
         lowest_dropped_obj,
     )

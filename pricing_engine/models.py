@@ -4,6 +4,25 @@ from dataclasses import dataclass, field
 from typing import Any
 
 STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
+STATUS_INCOMPLETE_DISCOVERY: str = "Incomplete Discovery"
+STATUS_CANDIDATES_REJECTED: str = "Needs Review (Candidates Rejected)"
+
+DISCOVERY_COMPLETE_WITH_OFFERS: str = "COMPLETE_WITH_OFFERS"
+DISCOVERY_COMPLETE_NO_COMPETITORS: str = "COMPLETE_NO_COMPETITORS"
+DISCOVERY_INCOMPLETE: str = "INCOMPLETE_DISCOVERY"
+DISCOVERY_SEARCH_FAILED: str = "SEARCH_FAILED"
+DISCOVERY_CANDIDATES_REJECTED: str = "CANDIDATES_REJECTED"
+DISCOVERY_PAGINATION_INCOMPLETE: str = "PAGINATION_INCOMPLETE"
+
+INCOMPLETE_DISCOVERY_STATUSES: frozenset[str] = frozenset(
+    {
+        DISCOVERY_INCOMPLETE,
+        DISCOVERY_SEARCH_FAILED,
+        DISCOVERY_CANDIDATES_REJECTED,
+        DISCOVERY_PAGINATION_INCOMPLETE,
+    }
+)
+
 WINNING_5PCT_GOALS: frozenset[str] = frozenset({"WIN + 5% ACHIEVED", "SOLO (5% COVERED)"})
 
 
@@ -98,6 +117,8 @@ class ScrapedOffer:
     missing_modifier: str | None = None
     modifier_source: str = "target"
     product_handle: str | None = None
+    scraped_model: str | None = None
+    color_family: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +146,26 @@ class ScrapeResult:
     base_offers: list[ScrapedOffer] = field(default_factory=list)
     own_offers: list[ScrapedOffer] = field(default_factory=list)
     ambiguity_conflict: AmbiguousVariantConflict | None = None
+    discovery_status: str = ""
+    raw_candidate_count: int = 0
+    rejected_count: int = 0
+    rejection_reasons: dict[str, int] = field(default_factory=dict)
+    suspicious_rejected_count: int = 0
+    pages_fetched: int = 1
+    total_available: int | None = None
+    pagination_complete: bool = True
+    extended_model_designation: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.discovery_status:
+            if not self.is_success:
+                object.__setattr__(self, "discovery_status", DISCOVERY_SEARCH_FAILED)
+            elif self.offers or self.base_offers:
+                object.__setattr__(self, "discovery_status", DISCOVERY_COMPLETE_WITH_OFFERS)
+            elif not self.pagination_complete:
+                object.__setattr__(self, "discovery_status", DISCOVERY_PAGINATION_INCOMPLETE)
+            else:
+                object.__setattr__(self, "discovery_status", DISCOVERY_COMPLETE_NO_COMPETITORS)
 
     def __iter__(self) -> Iterator[ScrapedOffer]:
         return iter(self.offers)
@@ -161,6 +202,8 @@ class PlatformPricingResult:
     active_pool: list[str] = field(default_factory=list)
     effective_comm: str = "10.00%"
     own_offers: list[ScrapedOffer] = field(default_factory=list)
+    discovery_status: str = ""
+    compatibility_notice: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

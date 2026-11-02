@@ -14,6 +14,12 @@ from rich.console import Console
 
 from pricing_engine.matcher import referee_match
 from pricing_engine.models import (
+    DISCOVERY_CANDIDATES_REJECTED,
+    DISCOVERY_COMPLETE_NO_COMPETITORS,
+    DISCOVERY_COMPLETE_WITH_OFFERS,
+    DISCOVERY_INCOMPLETE,
+    DISCOVERY_PAGINATION_INCOMPLETE,
+    DISCOVERY_SEARCH_FAILED,
     AmbiguousVariantConflict,
     ScrapedOffer,
     ScrapeResult,
@@ -126,13 +132,15 @@ def get_scraper_cache() -> dict[tuple[str, str, str], ScrapeResult]:
     return dict(_query_cache)
 
 
-def _offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float]:
-    """Build deduplication key, preserving distinct listings when vendor_name is missing/unknown."""
+def _offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float, str, str]:
+    """Build deduplication key, preserving distinct color/variant listings even from the same vendor."""
     v_norm = off.vendor_name.lower().strip()
     if not v_norm or v_norm == "unknown vendor":
         fallback_id = (off.product_handle or off.raw_title).lower().strip()
         v_norm = f"unknown::{fallback_id}"
-    return (v_norm, round(off.price, 2))
+    col = (off.color_family or "").lower().strip()
+    var = (off.detected_variant or "").lower().strip()
+    return (v_norm, round(off.price, 2), col, var)
 
 
 def _select_winning_modifier_meta(
@@ -178,9 +186,9 @@ def _select_winning_modifier(
 
 
 def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
-    """Deduplicate offers by vendor key and price, tracking duplicate counts and preserving metadata."""
-    counts: dict[tuple[str, float], int] = {}
-    first_seen: dict[tuple[str, float], ScrapedOffer] = {}
+    """Deduplicate offers by vendor key, price, color family, and variant, tracking duplicate counts and preserving metadata."""
+    counts: dict[tuple[str, float, str, str], int] = {}
+    first_seen: dict[tuple[str, float, str, str], ScrapedOffer] = {}
     for off in offers:
         key = _offer_dedupe_key(off)
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
@@ -204,6 +212,8 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
                     missing_modifier=off.missing_modifier,
                     modifier_source=off.modifier_source,
                     product_handle=off.product_handle,
+                    scraped_model=off.scraped_model,
+                    color_family=off.color_family,
                 )
             )
         else:
@@ -233,9 +243,9 @@ async def _execute_waterfall(
     collected_offers: list[ScrapedOffer] = []
     collected_base_offers: list[ScrapedOffer] = []
     collected_own_offers: list[ScrapedOffer] = []
-    seen_offers: set[tuple[str, float]] = set()
-    seen_base_offers: set[tuple[str, float]] = set()
-    seen_own_offers: set[tuple[str, float]] = set()
+    seen_offers: set[tuple[str, float, str, str]] = set()
+    seen_base_offers: set[tuple[str, float, str, str]] = set()
+    seen_own_offers: set[tuple[str, float, str, str]] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
     any_success = False
@@ -247,6 +257,14 @@ async def _execute_waterfall(
     executed_queries: list[str] = []
     tier_summary: dict[str, int] = {}
     matched_tier: str | None = None
+    total_raw_count = 0
+    total_rejected_count = 0
+    merged_rejection_reasons: dict[str, int] = {}
+    total_suspicious_rejected = 0
+    max_pages_fetched = 1
+    max_total_available: int | None = None
+    all_pagination_complete = True
+    collected_extended_designation: str | None = None
 
     tier_order = ["tier_1", "tier_2", "tier_3"]
     all_tiers = [t for t in tier_order if t in patterns] + [
@@ -296,6 +314,19 @@ async def _execute_waterfall(
                 last_status = sub_res.status_code
                 if sub_res.error_detail:
                     last_error = sub_res.error_detail
+
+                total_raw_count += sub_res.raw_candidate_count
+                total_rejected_count += sub_res.rejected_count
+                for r_k, r_v in sub_res.rejection_reasons.items():
+                    merged_rejection_reasons[r_k] = merged_rejection_reasons.get(r_k, 0) + r_v
+                total_suspicious_rejected += sub_res.suspicious_rejected_count
+                max_pages_fetched = max(max_pages_fetched, sub_res.pages_fetched)
+                if sub_res.total_available is not None:
+                    max_total_available = max(max_total_available or 0, sub_res.total_available)
+                if not sub_res.pagination_complete:
+                    all_pagination_complete = False
+                if sub_res.extended_model_designation and not collected_extended_designation:
+                    collected_extended_designation = sub_res.extended_model_designation
 
                 for off in sub_res.offers:
                     dedupe_key = _offer_dedupe_key(off)
@@ -388,6 +419,19 @@ async def _execute_waterfall(
     )
     final_error = None if overall_success else (first_failure_error or last_error)
 
+    if not overall_success:
+        discovery_status = DISCOVERY_SEARCH_FAILED
+    elif any_failure and not has_viable_external_competitor:
+        discovery_status = DISCOVERY_INCOMPLETE
+    elif final_offers:
+        discovery_status = DISCOVERY_COMPLETE_WITH_OFFERS
+    elif not all_pagination_complete:
+        discovery_status = DISCOVERY_PAGINATION_INCOMPLETE
+    elif total_suspicious_rejected > 0 and not collected_own_offers:
+        discovery_status = DISCOVERY_CANDIDATES_REJECTED
+    else:
+        discovery_status = DISCOVERY_COMPLETE_NO_COMPETITORS
+
     return ScrapeResult(
         offers=final_offers,
         active_modifier_fallback=active_fallback,
@@ -401,6 +445,15 @@ async def _execute_waterfall(
         matched_tier=matched_tier,
         tier_summary=tier_summary,
         ambiguity_conflict=ambiguity,
+        discovery_status=discovery_status,
+        raw_candidate_count=total_raw_count,
+        rejected_count=total_rejected_count,
+        rejection_reasons=merged_rejection_reasons,
+        suspicious_rejected_count=total_suspicious_rejected,
+        pages_fetched=max_pages_fetched,
+        total_available=max_total_available,
+        pagination_complete=all_pagination_complete,
+        extended_model_designation=collected_extended_designation,
     )
 
 
@@ -424,17 +477,59 @@ def parse_price_value(price_raw: object) -> float:
     return 0.0
 
 
-def _parse_offers_from_raw_items(
+MAX_SEARCH_PAGES: int = 3
+
+DEFINITIVE_REJECTION_PREFIXES: tuple[str, ...] = (
+    "Appliance category collision",
+    "AC form-factor collision",
+    "Capacity / screen size mismatch",
+    "SKU prefix collision",
+    "Variant tag collision",
+    "Generation series collision",
+    "Inverter mode collision",
+    "Operating mode collision",
+    "Single-letter variant suffix collision",
+    "Foreign brand mismatch",
+)
+
+
+def _has_viable_above_floor_offer(offers: list[ScrapedOffer], floor_price: float | None) -> bool:
+    """Return True if any active external in-stock offer exceeds floor price."""
+    if floor_price is None:
+        return False
+    min_int = math.ceil(floor_price)
+    return any(
+        not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name) and o.price > min_int
+        for o in offers
+    )
+
+
+def _parse_offers_with_diagnostics(
     raw_items: list[dict[str, Any]],
     target_model: str,
     brand: str = "",
     target_desc: str = "",
-) -> tuple[list[ScrapedOffer], list[ScrapedOffer], str | None, list[ScrapedOffer]]:
-    """Extract and validate offers from raw API items array, segregating exact from base matches and own stores."""
+) -> tuple[
+    list[ScrapedOffer],
+    list[ScrapedOffer],
+    str | None,
+    list[ScrapedOffer],
+    int,
+    int,
+    dict[str, int],
+    int,
+    str | None,
+]:
+    """Extract and validate offers from raw API items array with structured rejection diagnostics."""
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
     own_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
+    extended_designation: str | None = None
+    raw_candidate_count: int = len(raw_items)
+    rejected_count: int = 0
+    rejection_reasons: dict[str, int] = {}
+    suspicious_rejected_count: int = 0
     match_target = target_desc.strip() if target_desc and target_desc.strip() else target_model
 
     for item in raw_items:
@@ -443,15 +538,10 @@ def _parse_offers_from_raw_items(
         is_exact = decision.is_match
         is_base = decision.is_base_match
 
-        if not is_exact and not is_base:
-            continue
-
         sold_out = bool(item.get("sold_out", False))
         variant = item.get("variant_detail", {})
         price_str = variant.get("discounted_price") or variant.get("original_price") or "0"
         price = parse_price_value(price_str)
-        if price <= 0:
-            continue
 
         vendor_obj = item.get("vendor") or {}
         vendor_handle = str(vendor_obj.get("handle") or "").strip()
@@ -459,6 +549,52 @@ def _parse_offers_from_raw_items(
         is_non_comp = is_non_competitor_vendor(str(vendor)) or is_non_competitor_vendor(
             vendor_handle
         )
+
+        if not is_exact and not is_base:
+            rejected_count += 1
+            reason_category = decision.reason.split(":")[0].strip()
+            rejection_reasons[reason_category] = rejection_reasons.get(reason_category, 0) + 1
+
+            if price > 0 and not sold_out and not is_non_comp:
+                is_definitive = any(
+                    reason_category.startswith(p) for p in DEFINITIVE_REJECTION_PREFIXES
+                )
+                if not is_definitive:
+                    title_upper = title.upper()
+                    target_brand = brand.strip().upper()
+                    brand_ok = not target_brand or target_brand in title_upper
+                    if brand_ok:
+                        target_clean = match_target.upper()
+                        t_digits = re.findall(r"\d{2,}", target_clean)
+                        shares_digits = (
+                            any(d in title_upper for d in t_digits) if t_digits else False
+                        )
+                        target_words = set(re.findall(r"[A-Z0-9]+", target_clean))
+                        common_stops = {
+                            "TON",
+                            "INVERTER",
+                            "INV",
+                            "AC",
+                            "SPLIT",
+                            "AIR",
+                            "CONDITIONER",
+                            "SERIES",
+                            "WALL",
+                            "MOUNT",
+                        }
+                        sig_words = {
+                            w
+                            for w in target_words
+                            if len(w) >= 3 and w not in common_stops and w != target_brand
+                        }
+                        shares_series_word = any(w in title_upper for w in sig_words)
+                        if shares_digits or shares_series_word:
+                            suspicious_rejected_count += 1
+            continue
+
+        if price <= 0:
+            continue
+
         item_handle = (
             str(item.get("handle") or item.get("slug") or item.get("id") or "").strip() or None
         )
@@ -478,30 +614,66 @@ def _parse_offers_from_raw_items(
             else:
                 cand_var = upper_mod
 
-        if price > 0:
-            offer = ScrapedOffer(
-                vendor_name=str(vendor),
-                price=price,
-                is_sold_out=sold_out,
-                raw_title=title,
-                detected_variant=cand_var,
-                missing_modifier=decision.missing_modifier,
-                modifier_source=decision.modifier_source,
-                product_handle=item_handle,
-            )
-            if is_non_comp:
-                own_offers.append(offer)
-            elif is_exact:
-                exact_offers.append(offer)
-            elif is_base:
-                base_offers.append(offer)
+        if decision.missing_modifier and "Extended Edition (" in decision.missing_modifier:
+            m_ext = re.search(r"Extended Edition \(([^)]+)\)", decision.missing_modifier)
+            if m_ext and not extended_designation:
+                extended_designation = m_ext.group(1).strip()
+
+        scraped_model_val = decision.candidate_slots.anchor if decision.candidate_slots else None
+        color_family_val = (
+            decision.candidate_slots.guarded_facets.color_family
+            if decision.candidate_slots
+            else None
+        )
+
+        offer = ScrapedOffer(
+            vendor_name=str(vendor),
+            price=price,
+            is_sold_out=sold_out,
+            raw_title=title,
+            detected_variant=cand_var,
+            missing_modifier=decision.missing_modifier,
+            modifier_source=decision.modifier_source,
+            product_handle=item_handle,
+            scraped_model=scraped_model_val,
+            color_family=color_family_val,
+        )
+        if is_non_comp:
+            own_offers.append(offer)
+        elif is_exact:
+            exact_offers.append(offer)
+        elif is_base:
+            base_offers.append(offer)
 
     if base_offers:
         detected_modifier = _select_winning_modifier(base_offers, None)
     elif exact_offers:
         detected_modifier = _select_winning_modifier(exact_offers, None)
 
-    return exact_offers, base_offers, detected_modifier, own_offers
+    return (
+        exact_offers,
+        base_offers,
+        detected_modifier,
+        own_offers,
+        raw_candidate_count,
+        rejected_count,
+        rejection_reasons,
+        suspicious_rejected_count,
+        extended_designation,
+    )
+
+
+def _parse_offers_from_raw_items(
+    raw_items: list[dict[str, Any]],
+    target_model: str,
+    brand: str = "",
+    target_desc: str = "",
+) -> tuple[list[ScrapedOffer], list[ScrapedOffer], str | None, list[ScrapedOffer]]:
+    """Extract and validate offers from raw API items array, maintaining 100% backward compatibility."""
+    e, b, d, o, _, _, _, _, _ = _parse_offers_with_diagnostics(
+        raw_items, target_model, brand=brand, target_desc=target_desc
+    )
+    return e, b, d, o
 
 
 async def _scrape_platform_single_query(
@@ -509,7 +681,7 @@ async def _scrape_platform_single_query(
     session: AsyncSession[Any],
     query: str,
     target_model: str,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
@@ -533,42 +705,103 @@ async def _scrape_platform_single_query(
     )
     if raw_cache_key in _raw_items_cache:
         raw_cached = list(_raw_items_cache[raw_cache_key])
-        e_cached, b_cached, d_cached, o_cached = _parse_offers_from_raw_items(
+        (
+            e_cached,
+            b_cached,
+            d_cached,
+            o_cached,
+            r_cnt_c,
+            rej_cnt_c,
+            rej_reasons_c,
+            susp_cnt_c,
+            ext_des_c,
+        ) = _parse_offers_with_diagnostics(
             raw_cached, target_model, brand=brand, target_desc=target_desc
         )
-        cached_total, p2_probed = _raw_items_meta_cache.get(raw_cache_key, (None, False))
+        cached_meta = _raw_items_meta_cache.get(raw_cache_key)
+        cached_total = cached_meta[0] if cached_meta else None
+        p_complete = cached_meta[1] if (cached_meta and len(cached_meta) >= 2) else True
+        pages_probed = 1 if not p_complete else 2
+
         active_cached_probe = e_cached or b_cached
-        needs_p2_probe = (
-            floor_price is not None
-            and not p2_probed
-            and (cached_total is None or cached_total > len(raw_cached))
-            and bool(active_cached_probe)
-            and all(o.price <= floor_price for o in active_cached_probe)
+        has_viable_cached = _has_viable_above_floor_offer(active_cached_probe, floor_price)
+        needs_more_pages = (
+            cached_total is not None
+            and cached_total > len(raw_cached)
+            and len(raw_cached) > 0
+            and pages_probed < MAX_SEARCH_PAGES
+            and (not active_cached_probe or (floor_price is not None and not has_viable_cached))
         )
-        if needs_p2_probe:
-            params_p2 = {**config.base_params, "q": query, "page": "2"}
-            try:
-                resp_p2 = await session.get(
-                    config.search_url, params=params_p2, headers=config.headers, timeout=timeout
-                )
-                if resp_p2.status_code == 200:
-                    data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
-                    raw_p2 = data_p2.get("results") or data_p2.get("data") or []
-                    if isinstance(raw_p2, list):
-                        if raw_p2:
-                            raw_cached.extend(raw_p2)
+        if needs_more_pages:
+            for next_page in range(pages_probed + 1, MAX_SEARCH_PAGES + 1):
+                if len(raw_cached) >= (cached_total or 0):
+                    break
+                params_p = {**config.base_params, "q": query, "page": str(next_page)}
+                try:
+                    resp_p = await session.get(
+                        config.search_url, params=params_p, headers=config.headers, timeout=timeout
+                    )
+                    if resp_p.status_code == 200:
+                        data_p = resp_p.json() if hasattr(resp_p, "json") else {}
+                        raw_p = data_p.get("results") if isinstance(data_p, dict) else None
+                        if raw_p is None and isinstance(data_p, dict):
+                            raw_p = data_p.get("data")
+                        if isinstance(raw_p, list):
+                            if not raw_p:
+                                break
+                            pages_probed = next_page
+                            raw_cached.extend(raw_p)
                             _raw_items_cache[raw_cache_key] = list(raw_cached)
-                            e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
-                                raw_p2, target_model, brand=brand, target_desc=target_desc
+                            (
+                                e_p,
+                                b_p,
+                                d_p,
+                                o_p,
+                                r_p,
+                                rej_p,
+                                reasons_p,
+                                susp_p,
+                                ext_p,
+                            ) = _parse_offers_with_diagnostics(
+                                raw_p, target_model, brand=brand, target_desc=target_desc
                             )
-                            e_cached.extend(e_p2)
-                            b_cached.extend(b_p2)
-                            o_cached.extend(o_p2)
-                            if d_p2 and not d_cached:
-                                d_cached = d_p2
-                        _raw_items_meta_cache[raw_cache_key] = (cached_total, True)
-            except Exception as exc_p2:
-                logger.debug("%s cached page 2 probe exception: %s", config.display_name, exc_p2)
+                            e_cached.extend(e_p)
+                            b_cached.extend(b_p)
+                            o_cached.extend(o_p)
+                            r_cnt_c += r_p
+                            rej_cnt_c += rej_p
+                            for rk, rv in reasons_p.items():
+                                rej_reasons_c[rk] = rej_reasons_c.get(rk, 0) + rv
+                            susp_cnt_c += susp_p
+                            if d_p and not d_cached:
+                                d_cached = d_p
+                            if ext_p and not ext_des_c:
+                                ext_des_c = ext_p
+                            _raw_items_meta_cache[raw_cache_key] = (cached_total, p_complete)
+                            if floor_price is not None and _has_viable_above_floor_offer(
+                                e_cached or b_cached, floor_price
+                            ):
+                                break
+                            if brand and not (e_p or b_p):
+                                b_lower = brand.lower()
+                                if not any(
+                                    b_lower in str(it.get("title", "")).lower() for it in raw_p
+                                ):
+                                    break
+                    else:
+                        p_complete = False
+                        _raw_items_meta_cache[raw_cache_key] = (cached_total, p_complete)
+                        break
+                except Exception as exc_p:
+                    p_complete = False
+                    _raw_items_meta_cache[raw_cache_key] = (cached_total, p_complete)
+                    logger.debug(
+                        "%s cached page %d probe exception: %s",
+                        config.display_name,
+                        next_page,
+                        exc_p,
+                    )
+                    break
 
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
@@ -591,6 +824,14 @@ async def _scrape_platform_single_query(
             is_success=True,
             status_code=200,
             error_detail=None,
+            raw_candidate_count=r_cnt_c,
+            rejected_count=rej_cnt_c,
+            rejection_reasons=rej_reasons_c,
+            suspicious_rejected_count=susp_cnt_c,
+            pages_fetched=pages_probed,
+            total_available=cached_total,
+            pagination_complete=p_complete,
+            extended_model_designation=ext_des_c,
         )
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
@@ -606,6 +847,8 @@ async def _scrape_platform_single_query(
                     missing_modifier=o.missing_modifier,
                     modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
+                    scraped_model=o.scraped_model,
+                    color_family=o.color_family,
                 )
                 for o in cached.offers
             ],
@@ -620,6 +863,8 @@ async def _scrape_platform_single_query(
                     missing_modifier=o.missing_modifier,
                     modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
+                    scraped_model=o.scraped_model,
+                    color_family=o.color_family,
                 )
                 for o in cached.base_offers
             ],
@@ -634,6 +879,8 @@ async def _scrape_platform_single_query(
                     missing_modifier=o.missing_modifier,
                     modifier_source=o.modifier_source,
                     product_handle=o.product_handle,
+                    scraped_model=o.scraped_model,
+                    color_family=o.color_family,
                 )
                 for o in cached.own_offers
             ],
@@ -642,6 +889,15 @@ async def _scrape_platform_single_query(
             is_success=cached.is_success,
             status_code=cached.status_code,
             error_detail=cached.error_detail,
+            discovery_status=cached.discovery_status,
+            raw_candidate_count=cached.raw_candidate_count,
+            rejected_count=cached.rejected_count,
+            rejection_reasons=dict(cached.rejection_reasons),
+            suspicious_rejected_count=cached.suspicious_rejected_count,
+            pages_fetched=cached.pages_fetched,
+            total_available=cached.total_available,
+            pagination_complete=cached.pagination_complete,
+            extended_model_designation=cached.extended_model_designation,
         )
 
     params = {**config.base_params, "q": query}
@@ -655,9 +911,10 @@ async def _scrape_platform_single_query(
     last_error: str | None = None
 
     for attempt in range(max_retries):
+        cur_timeout = timeout + (attempt * 5.0)
         try:
             resp = await session.get(
-                config.search_url, params=params, headers=headers, timeout=timeout
+                config.search_url, params=params, headers=headers, timeout=cur_timeout
             )
             last_status = resp.status_code
 
@@ -686,7 +943,17 @@ async def _scrape_platform_single_query(
                     last_error = "Missing results/data array in payload"
                     continue
 
-                e_items, b_items, d_mod, o_items = _parse_offers_from_raw_items(
+                (
+                    e_items,
+                    b_items,
+                    d_mod,
+                    o_items,
+                    r_cnt,
+                    rej_cnt,
+                    rej_reasons,
+                    susp_cnt,
+                    ext_des,
+                ) = _parse_offers_with_diagnostics(
                     raw_items, target_model, brand=brand, target_desc=target_desc
                 )
                 exact_offers.extend(e_items)
@@ -694,44 +961,111 @@ async def _scrape_platform_single_query(
                 own_offers.extend(o_items)
                 if d_mod and not detected_modifier:
                     detected_modifier = d_mod
+                active_extended_designation = ext_des
 
-                # Conditional page 2 probe if all page 1 offers are sub-floor
+                total_raw_count = r_cnt
+                total_rejected_count = rej_cnt
+                merged_rejection_reasons = dict(rej_reasons)
+                total_suspicious_rejected = susp_cnt
+
                 total_count_raw = data.get("count") or data.get("total")
                 total_count = int(total_count_raw) if isinstance(total_count_raw, int) else None
-                p2_probed = False
                 combined_raw_items = list(raw_items)
-                active_probe_offers = exact_offers or base_offers
-                if (
-                    floor_price is not None
-                    and total_count is not None
+                pages_fetched = 1
+                pagination_complete = True
+
+                active_p1_probe = exact_offers or base_offers
+                has_viable_p1 = _has_viable_above_floor_offer(active_p1_probe, floor_price)
+                needs_pagination = (
+                    total_count is not None
                     and total_count > len(raw_items)
-                    and active_probe_offers
-                    and all(o.price <= floor_price for o in active_probe_offers)
-                ):
-                    params_p2 = {**params, "page": "2"}
-                    try:
-                        resp_p2 = await session.get(
-                            config.search_url,
-                            params=params_p2,
-                            headers=headers,
-                            timeout=timeout,
-                        )
-                        if resp_p2.status_code == 200:
-                            data_p2 = resp_p2.json() if hasattr(resp_p2, "json") else {}
-                            raw_p2 = data_p2.get("results") or data_p2.get("data") or []
-                            if isinstance(raw_p2, list):
-                                p2_probed = True
-                                combined_raw_items.extend(raw_p2)
-                                e_p2, b_p2, d_p2, o_p2 = _parse_offers_from_raw_items(
-                                    raw_p2, target_model, brand=brand, target_desc=target_desc
+                    and len(raw_items) > 0
+                    and (not active_p1_probe or (floor_price is not None and not has_viable_p1))
+                )
+
+                if needs_pagination:
+                    for next_page in range(2, MAX_SEARCH_PAGES + 1):
+                        if len(combined_raw_items) >= (total_count or 0):
+                            break
+                        params_next = {**params, "page": str(next_page)}
+                        try:
+                            resp_next = await session.get(
+                                config.search_url,
+                                params=params_next,
+                                headers=headers,
+                                timeout=cur_timeout,
+                            )
+                            if resp_next.status_code == 200:
+                                data_next = resp_next.json() if hasattr(resp_next, "json") else {}
+                                raw_next = (
+                                    data_next.get("results")
+                                    if isinstance(data_next, dict)
+                                    else None
                                 )
-                                exact_offers.extend(e_p2)
-                                base_offers.extend(b_p2)
-                                own_offers.extend(o_p2)
-                                if d_p2 and not detected_modifier:
-                                    detected_modifier = d_p2
-                    except Exception as exc_p2:
-                        logger.debug("%s page 2 probe exception: %s", config.display_name, exc_p2)
+                                if raw_next is None and isinstance(data_next, dict):
+                                    raw_next = data_next.get("data")
+                                if isinstance(raw_next, list):
+                                    if not raw_next:
+                                        break
+                                    pages_fetched = next_page
+                                    combined_raw_items.extend(raw_next)
+                                    (
+                                        e_p,
+                                        b_p,
+                                        d_p,
+                                        o_p,
+                                        r_p,
+                                        rej_p,
+                                        reasons_p,
+                                        susp_p,
+                                        ext_p,
+                                    ) = _parse_offers_with_diagnostics(
+                                        raw_next, target_model, brand=brand, target_desc=target_desc
+                                    )
+                                    exact_offers.extend(e_p)
+                                    base_offers.extend(b_p)
+                                    own_offers.extend(o_p)
+                                    total_raw_count += r_p
+                                    total_rejected_count += rej_p
+                                    for rk, rv in reasons_p.items():
+                                        merged_rejection_reasons[rk] = (
+                                            merged_rejection_reasons.get(rk, 0) + rv
+                                        )
+                                    total_suspicious_rejected += susp_p
+                                    if d_p and not detected_modifier:
+                                        detected_modifier = d_p
+                                    if ext_p and not active_extended_designation:
+                                        active_extended_designation = ext_p
+                                    if floor_price is not None and _has_viable_above_floor_offer(
+                                        exact_offers or base_offers, floor_price
+                                    ):
+                                        break
+                                    if brand and not (e_p or b_p):
+                                        b_lower = brand.lower()
+                                        if not any(
+                                            b_lower in str(it.get("title", "")).lower()
+                                            for it in raw_next
+                                        ):
+                                            break
+                            else:
+                                pagination_complete = False
+                                logger.warning(
+                                    "%s page %d returned status %s for query %s",
+                                    config.display_name,
+                                    next_page,
+                                    resp_next.status_code,
+                                    query,
+                                )
+                                break
+                        except Exception as exc_p:
+                            pagination_complete = False
+                            logger.debug(
+                                "%s page %d probe exception: %s",
+                                config.display_name,
+                                next_page,
+                                exc_p,
+                            )
+                            break
 
                 exact_offers = deduplicate_offers(exact_offers)
                 base_offers = deduplicate_offers(base_offers)
@@ -756,12 +1090,20 @@ async def _scrape_platform_single_query(
                     is_success=True,
                     status_code=200,
                     error_detail=None,
+                    raw_candidate_count=total_raw_count,
+                    rejected_count=total_rejected_count,
+                    rejection_reasons=merged_rejection_reasons,
+                    suspicious_rejected_count=total_suspicious_rejected,
+                    pages_fetched=pages_fetched,
+                    total_available=total_count,
+                    pagination_complete=pagination_complete,
+                    extended_model_designation=active_extended_designation,
                 )
                 if exact_offers or base_offers or own_offers:
                     _query_cache[cache_key] = result
                     if combined_raw_items:
                         _raw_items_cache[raw_cache_key] = combined_raw_items
-                        _raw_items_meta_cache[raw_cache_key] = (total_count, p2_probed)
+                        _raw_items_meta_cache[raw_cache_key] = (total_count, pagination_complete)
                 elif raw_items is not None and not raw_items:
                     _query_cache[cache_key] = result
                     _raw_items_cache[raw_cache_key] = []
@@ -835,6 +1177,8 @@ async def _scrape_platform_single_query(
         is_success=False,
         status_code=last_status,
         error_detail=last_error or "Exhausted all retries without successful response",
+        pagination_complete=False,
+        discovery_status=DISCOVERY_SEARCH_FAILED,
     )
 
 
@@ -842,7 +1186,7 @@ async def _scrape_alfamall_single_query(
     session: AsyncSession[Any],
     query: str,
     target_model: str,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
@@ -866,7 +1210,7 @@ async def scrape_alfamall(
     session: AsyncSession[Any],
     query: str | dict[str, list[str]],
     target_model: str,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
@@ -881,7 +1225,7 @@ async def scrape_alfamall(
         session: Active curl_cffi AsyncSession with Chrome impersonation.
         query: Search keyword string or tiered patterns dictionary.
         target_model: Target model string for strict variant validation.
-        timeout: HTTP request timeout in seconds (default: 10.0s).
+        timeout: HTTP request timeout in seconds (default: 15.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor to probe page 2 if all page 1 items are sub-floor.
         brand: Optional brand name for strict matching.
@@ -921,7 +1265,7 @@ async def _scrape_digimall_single_query(
     session: AsyncSession[Any],
     query: str,
     target_model: str,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
@@ -945,7 +1289,7 @@ async def scrape_digimall(
     session: AsyncSession[Any],
     query: str | dict[str, list[str]],
     target_model: str,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     max_retries: int = 3,
     floor_price: float | None = None,
     brand: str = "",
@@ -960,7 +1304,7 @@ async def scrape_digimall(
         session: Active curl_cffi AsyncSession with Chrome impersonation.
         query: Search keyword string or tiered patterns dictionary.
         target_model: Target model string for strict variant validation.
-        timeout: HTTP request timeout in seconds (default: 10.0s).
+        timeout: HTTP request timeout in seconds (default: 15.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
         floor_price: Optional price floor for conditional sub-floor page 2 probing.
         brand: Optional brand name for strict matching.

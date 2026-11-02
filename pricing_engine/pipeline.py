@@ -62,6 +62,11 @@ from pricing_engine.matcher import (
     referee_match,
 )
 from pricing_engine.models import (
+    DISCOVERY_CANDIDATES_REJECTED,
+    DISCOVERY_INCOMPLETE,
+    DISCOVERY_PAGINATION_INCOMPLETE,
+    STATUS_CANDIDATES_REJECTED,
+    STATUS_INCOMPLETE_DISCOVERY,
     STATUS_SERVER_DOWN,
     WINNING_5PCT_GOALS,
     CheckpointState,
@@ -163,6 +168,10 @@ def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> 
         return "AMBIGUOUS_VARIANT"
     if res.status == "SKIPPED":
         return ""
+    if res.status == STATUS_INCOMPLETE_DISCOVERY:
+        return "INCOMPLETE_DISCOVERY"
+    if res.status == STATUS_CANDIDATES_REJECTED:
+        return "CANDIDATES_REJECTED"
     if res.status == STATUS_SERVER_DOWN or res.final_price is None or res.real_profit is None:
         return "SERVER_DOWN"
     if res.real_profit <= 0:
@@ -309,6 +318,12 @@ def determine_platform_status(
         or alert_str == "SERVER_DOWN"
     ):
         return "SERVER_DOWN"
+
+    if alert_str == "INCOMPLETE_DISCOVERY" or "incomplete discovery" in reason_lower:
+        return "INCOMPLETE"
+
+    if alert_str == "CANDIDATES_REJECTED" or "candidates rejected" in reason_lower:
+        return "REJECTED"
 
     if alert_str == "SAFE_FALLBACK" or "safe fallback" in reason_lower:
         return "FALLBACK"
@@ -719,6 +734,10 @@ def _render_platform_offers_to_table(
         )
 
     if not offers:
+        if res.status == STATUS_INCOMPLETE_DISCOVERY:
+            empty_label = "[bold red]Incomplete Discovery (Search Failed/Incomplete)[/]"
+        elif res.status == STATUS_CANDIDATES_REJECTED:
+            empty_label = "[bold yellow]Candidates Rejected by Referee[/]"
         empty_seller_label = (
             "[dim]No external sellers[/]" if own_offers else "[dim]No sellers found[/]"
         )
@@ -983,6 +1002,10 @@ def build_platform_decision_table(
             alfa_p_str = f"[bold green]Rs. {alfa_res.final_price:,} (WINNING UNDERCUT)[/]"
         else:
             alfa_p_str = f"[bold #2c4699]Rs. {alfa_res.final_price:,}[/]"
+    elif alfa_res.status == STATUS_INCOMPLETE_DISCOVERY:
+        alfa_p_str = "[bold red][INCOMPLETE DISCOVERY - NO WINNER][/]"
+    elif alfa_res.status == STATUS_CANDIDATES_REJECTED:
+        alfa_p_str = "[bold yellow][CANDIDATES REJECTED - NO WINNER][/]"
     else:
         alfa_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
@@ -1025,6 +1048,10 @@ def build_platform_decision_table(
             )
         else:
             digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
+    elif digi_res.status == STATUS_INCOMPLETE_DISCOVERY:
+        digi_p_str = "[bold red][INCOMPLETE DISCOVERY - NO WINNER][/]"
+    elif digi_res.status == STATUS_CANDIDATES_REJECTED:
+        digi_p_str = "[bold yellow][CANDIDATES REJECTED - NO WINNER][/]"
     else:
         digi_p_str = "[bold yellow]SKIP / NaN (Loss Prevented)[/]"
 
@@ -1046,6 +1073,8 @@ def build_platform_decision_table(
             alfa_prof_str = f"[bold green]+Rs. {alfa_res.real_profit:,}[/]"
         else:
             alfa_prof_str = "[dim]Rs. 0[/]"
+    elif alfa_res.status in (STATUS_INCOMPLETE_DISCOVERY, STATUS_CANDIDATES_REJECTED):
+        alfa_prof_str = "[dim yellow]Rs. 0 (Review Required)[/]"
     else:
         alfa_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
@@ -1064,6 +1093,8 @@ def build_platform_decision_table(
             digi_prof_str = f"[bold green]+Rs. {digi_res.real_profit:,}[/]"
         else:
             digi_prof_str = "[dim]Rs. 0[/]"
+    elif digi_res.status in (STATUS_INCOMPLETE_DISCOVERY, STATUS_CANDIDATES_REJECTED):
+        digi_prof_str = "[dim yellow]Rs. 0 (Review Required)[/]"
     else:
         digi_prof_str = "[dim]Rs. 0 (Loss Prevented)[/]"
 
@@ -1217,6 +1248,19 @@ def render_audit_card(
                 )
             else:
                 tried_str = ", ".join(f"'{q}'" for q in q_list[:2])
+                if offers_res.discovery_status == DISCOVERY_CANDIDATES_REJECTED:
+                    return (
+                        f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str}[/] -> "
+                        f"[bold yellow]{offers_res.rejected_count} candidate(s) rejected by referee[/]"
+                    )
+                elif offers_res.discovery_status in (
+                    DISCOVERY_INCOMPLETE,
+                    DISCOVERY_PAGINATION_INCOMPLETE,
+                ):
+                    return (
+                        f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str}[/] -> "
+                        f"[bold red]Discovery Incomplete (Pagination/Network Failure)[/]"
+                    )
                 return (
                     f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str} (0 offers found in market)[/] -> "
                     f"[bold cyan]Monopoly Price Applied[/]"
@@ -1262,6 +1306,16 @@ def render_audit_card(
             padding=(0, 1),
         )
         content.add_row(warning_banner)
+
+    compat_notice = alfa_res.compatibility_notice or digi_res.compatibility_notice
+    if compat_notice:
+        compat_banner = Panel(
+            f"[bold yellow]⚠️  COMPATIBILITY NOTICE (DO CROSS-CHECK):[/] {compat_notice}",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(0, 1),
+        )
+        content.add_row(compat_banner)
 
     card = Panel(
         content,
