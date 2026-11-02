@@ -517,3 +517,316 @@ def test_tv_screen_size_collision_protection() -> None:
     slots = extract_product_slots("Haier 2 Ton Inverter Split AC 24HFAB", "Haier")
     assert slots.guarded_facets.capacity in ("2.0T", "2.0 Ton", "24000BTU", "2T")
     assert not any("INCH" in str(f) for f in (slots.guarded_facets.capacity or ""))
+
+
+# ==============================================================================
+# 14. Target Case: Dawlance Sprinter X Model Normalization & Strict Facet Preservation
+# ==============================================================================
+
+
+def test_dawlance_sprinter_x_equivalence_all_positions_and_missing_x() -> None:
+    """Ensure Sprinter X 15, Sprinter 15 X, Sprinter 15, Sprinter X15, and Sprinter 15X are equivalent."""
+    target = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
+    brand = "Dawlance"
+
+    valid_candidates = [
+        "Dawlance 1 Ton Sprinter 15 X Self Clean DC Inverter A/C (Heat&Cool) FREE INSTALLATION 0% Processing 0% markup ON INSTALLMENTS-UE006",
+        "Dawlance - Air Conditioner 1.0 Ton Inverter Heat & Cool Sprinter 15 - hub",
+        "Dawlance Sprinter 15 Inverter Split Air Conditioner 1.0 Ton - ISPK-0623",
+        "Dawlance 1 Ton Inverter Sprinter 15X Split Air Conditioner",
+        "Dawlance 1 Ton Inverter Sprinter X15 Split Air Conditioner",
+        "Dawlance | 1.0 Ton | Sprinter 15 | Inverter Split Air Conditioner - On Installment Upto 36 Months - ElectroEase",
+    ]
+    for cand in valid_candidates:
+        res = referee_match(target, cand, brand=brand)
+        assert res.is_match is True, f"Failed for {cand}: reason={res.reason}"
+
+
+def test_dawlance_sprinter_reverse_target_without_x_matches_candidate_with_x() -> None:
+    """Ensure a target without X matches a candidate with X for Dawlance AC series."""
+    target_no_x = "Dawlance 1 Ton Inverter Sprinter 15 Split Air Conditioner"
+    cand_with_x = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
+    res = referee_match(target_no_x, cand_with_x, brand="Dawlance")
+    assert res.is_match is True, f"Failed reverse match: reason={res.reason}"
+
+
+def test_dawlance_sprinter_strict_t3_rejection() -> None:
+    """Ensure T3 models are strictly rejected against non-T3 Dawlance Sprinter target."""
+    target = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
+    cand_t3 = "Dawlance Sprinter X T3 15 Inverter Split Air Conditioner 1.0 Ton - Best Price - With FREE SURPRISE GIFT - HomeCart"
+    res = referee_match(target, cand_t3, brand="Dawlance")
+    assert res.is_match is False
+    assert "T3" in (res.reason or "")
+
+
+def test_dawlance_sprinter_strict_capacity_rejection() -> None:
+    """Ensure 1.5 Ton (30) models are strictly rejected against 1.0 Ton (15) target."""
+    target = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
+    cand_30 = "Dawlance 1.5 TON Sprinter X 30 (HeatCool) Inverter Air Conditioner ON INSTALLMENTS"
+    res = referee_match(target, cand_30, brand="Dawlance")
+    assert res.is_match is False
+    assert "Capacity" in (res.reason or "") or "size mismatch" in (res.reason or "")
+
+
+def test_dawlance_sprinter_inverter_evidence_preservation() -> None:
+    """Ensure listings omitting Inverter prose are kept as base offers and NOT promoted to exact match."""
+    target = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
+    cand_no_inv = "Dawlance 1 Ton Split Air Conditioner SPRINTER X 15 ON INSTALLMENTS"
+    res = referee_match(target, cand_no_inv, brand="Dawlance")
+    assert res.is_match is False
+    assert res.is_base_match is True
+    assert res.missing_modifier == "INVERTER"
+
+
+def test_dawlance_sprinter_cross_brand_x_isolation() -> None:
+    """Ensure non-Dawlance brands (e.g. Haier) do not treat X as an optional sub-series token."""
+    haier_target = "Haier 1.5 Ton Inverter Thunder 18 Split Air Conditioner"
+    haier_cand_x = "Haier 1.5 Ton Inverter Thunder X 18 Split Air Conditioner"
+    res = referee_match(haier_target, haier_cand_x, brand="Haier")
+    assert res.is_match is False
+    assert "Sub-series mismatch" in (res.reason or "")
+
+
+def test_dawlance_sprinter_search_pattern_generation() -> None:
+    """Ensure generate_search_patterns generates both Sprinter X 15 and Sprinter 15 queries."""
+    from pricing_engine.matcher import generate_search_patterns
+
+    patterns = generate_search_patterns(
+        "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner", "Dawlance"
+    )
+    t1 = patterns.get("tier_1", [])
+    assert any("Sprinter X 15" in q for q in t1)
+    assert any("Sprinter 15" in q for q in t1)
+
+
+def test_dawlance_ac_adversarial_scope_isolation() -> None:
+    """Ensure Dawlance AC X optionality does not accidentally merge across series, sub-series, or brands."""
+    scenarios = [
+        # Cross-Series with X (Different Base Series)
+        (
+            "Aura X vs Sprinter X",
+            "Dawlance 1.5 Ton Inverter Aura X 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Mega X vs Sprinter X",
+            "Dawlance 1 Ton Inverter Mega X 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Suave X vs Sprinter X",
+            "Dawlance 1.5 Ton Inverter Suave X 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Elegance X vs Sprinter X",
+            "Dawlance 1 Ton Inverter Elegance X 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Cross-Series: One has X, One does NOT have X
+        (
+            "Aura vs Sprinter X",
+            "Dawlance 1.5 Ton Inverter Aura 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter vs Aura X",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1 Ton Inverter Aura X 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Mega vs Sprinter X",
+            "Dawlance 1 Ton Inverter Mega 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Sub-Series Collision (Pro, Plus, Max, Ultra vs X)
+        (
+            "Sprinter X vs Sprinter Pro",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter Pro 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter vs Sprinter Pro",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter Pro 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter X vs Sprinter Plus",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter Plus 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Aura X vs Aura Pro",
+            "Dawlance 1.5 Ton Inverter Aura X 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Aura Pro 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Capacity Mismatches (1 Ton vs 1.5 Ton vs 2 Ton)
+        (
+            "Sprinter X 15 vs Sprinter X 30",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter 15 vs Sprinter X 30",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1.5 Ton Inverter Sprinter X 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Aura X 15 vs Aura 30",
+            "Dawlance 1 Ton Inverter Aura X 15 Split AC",
+            "Dawlance 1.5 Ton Inverter Aura 30 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Inverter vs Non-Inverter / Fixed Speed
+        (
+            "Sprinter X Inv vs Sprinter Non-Inv",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance 1 Ton Non-Inverter Sprinter 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter Inv vs Sprinter X Fixed Speed",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1 Ton Fixed Speed Sprinter X 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # T3 Capability Guard
+        (
+            "Sprinter X Non-T3 vs Sprinter X T3",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 T3 Split AC",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Sprinter Non-T3 vs Sprinter T3",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter 15 T3 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Heat & Cool vs Cool Only Guard
+        (
+            "Sprinter X Cool Only vs Sprinter X H&C",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Cool Only AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Heat and Cool AC",
+            "Dawlance",
+            False,
+        ),
+        # Hypothetical Model with ONLY 'X' as Series (Cannot match non-X)
+        (
+            "Hypothetical Dawlance X 15 vs Dawlance 15",
+            "Dawlance 1 Ton Inverter X 15 Split AC",
+            "Dawlance 1 Ton Inverter 15 Split AC",
+            "Dawlance",
+            False,
+        ),
+        # Non-Dawlance Brands (Must NEVER apply X optionality)
+        (
+            "Gree Fairy X vs Gree Fairy",
+            "Gree 1.5 Ton Fairy X Split AC",
+            "Gree 1.5 Ton Fairy Split AC",
+            "Gree",
+            False,
+        ),
+        (
+            "Haier Dawn X vs Haier Dawn",
+            "Haier 1.5 Ton Dawn X Split AC",
+            "Haier 1.5 Ton Dawn Split AC",
+            "Haier",
+            False,
+        ),
+        # Non-AC Appliance Categories (Refrigerators, Freezers, Washers must reject X differences)
+        (
+            "Dawlance Ref Elegance X vs Elegance",
+            "Dawlance Refrigerator Elegance X Glass Door",
+            "Dawlance Refrigerator Elegance Glass Door",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Dawlance DF 300 X vs 300",
+            "Dawlance Deep Freezer 300 X Inverter",
+            "Dawlance Deep Freezer 300 Inverter",
+            "Dawlance",
+            False,
+        ),
+        (
+            "Dawlance WM DWT 260 X vs 260",
+            "Dawlance Washing Machine DWT 260 X LVS",
+            "Dawlance Washing Machine DWT 260 LVS",
+            "Dawlance",
+            False,
+        ),
+        # Legitimate Same-Model Matches across X Variations (Should Match!)
+        (
+            "Sprinter 15 vs Sprinter X 15",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance",
+            True,
+        ),
+        (
+            "Sprinter 15 X vs Sprinter X 15",
+            "Dawlance 1 Ton Inverter Sprinter 15 X Split AC",
+            "Dawlance 1 Ton Inverter Sprinter X 15 Split AC",
+            "Dawlance",
+            True,
+        ),
+        (
+            "Sprinter X15 vs Sprinter 15",
+            "Dawlance 1 Ton Inverter Sprinter X15 Split AC",
+            "Dawlance 1 Ton Inverter Sprinter 15 Split AC",
+            "Dawlance",
+            True,
+        ),
+        (
+            "Aura 30 vs Aura X 30",
+            "Dawlance 1.5 Ton Inverter Aura 30 Split AC",
+            "Dawlance 1.5 Ton Inverter Aura X 30 Split AC",
+            "Dawlance",
+            True,
+        ),
+        (
+            "Mega 15 vs Mega 15X",
+            "Dawlance 1 Ton Inverter Mega 15 Split AC",
+            "Dawlance 1 Ton Inverter Mega 15X Split AC",
+            "Dawlance",
+            True,
+        ),
+    ]
+
+    for label, target, candidate, brand, expected in scenarios:
+        res = referee_match(target, candidate, brand=brand)
+        assert res.is_match is expected, (
+            f"Failed for {label}: expected={expected}, got={res.is_match}, reason={res.reason}"
+        )

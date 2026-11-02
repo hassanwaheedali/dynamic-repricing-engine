@@ -802,7 +802,7 @@ def _join_spaced_ac_btu_sku(text: str) -> str:
 
 
 def _normalize_ac_transposed_cap_x(text: str, brand: str = "") -> str:
-    """Normalize transposed AC series capacity+X notation ('Aura 15X' -> 'Aura X 15') in AC titles."""
+    """Normalize transposed and glued AC series capacity+X notation ('Aura 15X', 'Sprinter 15 X', 'Sprinter X15' -> 'Sprinter X 15') in AC titles."""
     if _detect_appliance_family(text) != "AIR_CONDITIONER" and not re.search(
         r"\b(?:TON|ΤΟN|SPLIT\s+AC|AIR\s+CONDITIONER)\b", text, re.IGNORECASE
     ):
@@ -823,7 +823,13 @@ def _normalize_ac_transposed_cap_x(text: str, brand: str = "") -> str:
             return f"{prev_w} X {cap_num}"
         return m.group(0)
 
-    return re.sub(r"\b([A-Za-z]{3,})\s+(\d{2})[xX]\b", _repl, text)
+    # 1. Glued suffix: 'Sprinter 15X' -> 'Sprinter X 15'
+    t = re.sub(r"\b([A-Za-z]{3,})\s+(\d{2})[xX]\b", _repl, text)
+    # 2. Spaced transposition: 'Sprinter 15 X' -> 'Sprinter X 15'
+    t = re.sub(r"\b([A-Za-z]{3,})\s+(\d{2})\s+[xX]\b", _repl, t)
+    # 3. Glued prefix: 'Sprinter X15' -> 'Sprinter X 15'
+    t = re.sub(r"\b([A-Za-z]{3,})\s+[xX](\d{2})\b", _repl, t)
+    return t
 
 
 MERCHANT_TRACKING_CODE_RE = re.compile(
@@ -844,7 +850,7 @@ MARKETPLACE_NOISE_RE = re.compile(
     r"|\s*\(\s*(?:with\s+)?(?:free\s+)?(?:gift|air\s*buds|earbuds|buds|watch|speakers?|discount|voucher|surprise)[^)]*\)"
     r"|\b(?:QUANTUM\s+DOT|QUANTUM|TECHNOLOGY)\b"
     r"|\b(?:ELECTROEASE|HOMECART|METRO|HYPERSTAR|ALFAMALL|FAYSAL\s*BANK|QISTBAZAAR|ESBUY|TELEMART|YAYVO)\b"
-    r"|\b(?:HEAT\s*(?:&|AND|/)\s*COOL|H\s*&\s*C|COOLING\s*ONLY|COOL\s*ONLY)\b"
+    r"|\b(?:HEAT\s*(?:&|AND|/)\s*COOL|HE\s*(?:&|AND)\s*COOL|H\s*&\s*C|COOLING\s*ONLY|COOL\s*ONLY)\b"
     r"|\b(?:INVERTER\s*AC|DC\s*INVERTER|FIX(?:ED)?\s*SPEED|NON[\s\-]*INVERTER|E[\s\-]*STAR)\b"
     r"|\b(?:AAA\+|AA\+|A\+{1,3}|AAA|AA)\b"
     r"|\b(?:FOR\s+[A-Za-z]+\s+ONLY)\b"
@@ -1095,9 +1101,9 @@ def _is_product_spec_trailer(segment: str) -> bool:
         re.IGNORECASE,
     ):
         return True
-    # Preserve segments containing genuine SKU model identifiers (letters + >= 2 consecutive digits, e.g. DWT1016-PRIMA, GF-36TFIH)
+    # Preserve segments containing genuine SKU model identifiers (letters + >= 2 consecutive digits, e.g. DWT1016-PRIMA, GF-36TFIH, Sprinter 15)
     if re.search(
-        r"\b(?:[A-Za-z]{1,5}[-_]?\d{2,}[A-Za-z0-9\-_]*|\d{2,}[A-Za-z]{1,5}[A-Za-z0-9\-_]*)\b",
+        r"\b(?:[A-Za-z]{1,5}[-_]?\d{2,}[A-Za-z0-9\-_]*|\d{2,}[A-Za-z]{1,5}[A-Za-z0-9\-_]*|[A-Za-z]{3,}\s+\d{2,})\b",
         clean_seg,
     ):
         return True
@@ -1118,9 +1124,9 @@ def _is_product_spec_trailer(segment: str) -> bool:
 def _strip_trailing_seller_clauses(text: str) -> str:
     """Iteratively strip rightmost pipe/dash seller/promo clauses while preserving genuine hardware specs."""
     cur = text.strip()
-    for _ in range(5):
+    for _ in range(8):
         m = re.search(
-            r"(?:\s+[-–—]|\s*\|)\s*(?:(By\s+|From\s+|Official\s+))?[A-Za-z0-9\s.,&'/+-]{2,}$",
+            r"(?:\s+[-–—]|\s*\|)\s*(?:(By\s+|From\s+|Official\s+))?[^|–—\-\n]{2,}$",
             cur,
             flags=re.IGNORECASE,
         )
@@ -2453,6 +2459,59 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             series_options = [s.strip() for s in series_clean.split("/") if s.strip()]
         else:
             series_options = [series_clean] if series_clean else [" ".join(series_tokens)]
+
+        # Generic Series Refinement:
+        # 1. Base series without trailing capability token (e.g. T3, T4, UV, WIFI, IOT)
+        base_series_opts: list[str] = []
+        for s in series_options:
+            base_s = re.sub(
+                r"\s+\b(?:T[34]|UV|WIFI|WI-FI|IOT)\b$", "", s, flags=re.IGNORECASE
+            ).strip()
+            if (
+                base_s
+                and base_s != s
+                and base_s not in series_options
+                and base_s not in base_series_opts
+            ):
+                base_series_opts.append(base_s)
+        series_options.extend(base_series_opts)
+
+        # 2. Generic unhyphenated variant expansion (e.g. 'Solar Hybrid-IV' -> 'Solar Hybrid IV')
+        unhyphen_series_opts: list[str] = []
+        for s in series_options:
+            if "-" in s:
+                s_unhyphen = re.sub(r"-(?=[A-Za-z0-9])", " ", s).strip()
+                if (
+                    s_unhyphen != s
+                    and s_unhyphen not in series_options
+                    and s_unhyphen not in unhyphen_series_opts
+                ):
+                    unhyphen_series_opts.append(s_unhyphen)
+        series_options.extend(unhyphen_series_opts)
+
+        # 3. For Dawlance AC series, generate the base series without 'X' so listings titled e.g. 'Sprinter 15' are retrieved
+        is_dawlance_ac = detected_brand.upper() == "DAWLANCE" and (
+            _detect_appliance_family(canonical_name) == "AIR_CONDITIONER"
+            or bool(
+                re.search(
+                    r"\b(?:TON|ΤΟN|SPLIT\s+AC|AIR\s+CONDITIONER)\b",
+                    canonical_name,
+                    re.IGNORECASE,
+                )
+            )
+        )
+        if is_dawlance_ac:
+            dawlance_no_x_opts: list[str] = []
+            for s in series_options:
+                s_no_x = re.sub(r"\s+\bX\b", "", s, flags=re.IGNORECASE).strip()
+                if (
+                    s_no_x
+                    and s_no_x != s
+                    and s_no_x not in series_options
+                    and s_no_x not in dawlance_no_x_opts
+                ):
+                    dawlance_no_x_opts.append(s_no_x)
+            series_options.extend(dawlance_no_x_opts)
 
         # When capacity code was synthesized from tonnage (not present in source title, e.g. Solar Hybrid-III T3),
         # prioritize clean source-faithful series queries in Tier 1 so Tier 1 never fails on synthesized codes.
@@ -4629,10 +4688,29 @@ def referee_match(
         if cand_slots.series:
             cand_series_words |= _tokenize_series_words(cand_slots.series)
 
+        target_text = (
+            target if isinstance(target, str) else f"{target_slots.series} {target_slots.anchor}"
+        )
+        is_dawlance_ac = (brand or "").strip().upper() == "DAWLANCE" and (
+            _detect_appliance_family(target_text) == "AIR_CONDITIONER"
+            or _detect_appliance_family(candidate_title) == "AIR_CONDITIONER"
+            or (target_slots.guarded_facets.capacity or "").endswith("T")
+            or (cand_slots.guarded_facets.capacity or "").endswith("T")
+        )
+
         matched_alt = None
         for alt in alternatives:
             alt_words = _tokenize_series_words(alt)
-            if not (alt_words - cand_series_words):
+            diff = alt_words - cand_series_words
+            if not diff:
+                matched_alt = alt
+                break
+            if (
+                is_dawlance_ac
+                and diff == {"X"}
+                and (alt_words - {"X"})
+                and (alt_words - {"X"}).issubset(cand_series_words)
+            ):
                 matched_alt = alt
                 break
 
@@ -4694,6 +4772,8 @@ def referee_match(
         target_sub_tokens = _tokenize_series_words(matched_alt) & GENUINE_SUB_SERIES_TOKENS
         cand_sub_tokens = _tokenize_series_words(cand_slots.series) & GENUINE_SUB_SERIES_TOKENS
         extra_sub = cand_sub_tokens - target_sub_tokens
+        if is_dawlance_ac:
+            extra_sub.discard("X")
         if extra_sub:
             return MatchDecision(
                 is_match=False,
