@@ -23,6 +23,7 @@ from pricing_engine.models import (
     WINNING_5PCT_GOALS,
     format_comm_pct_label,
     get_winning_comm_goals,
+    has_compatibility_or_fallback_notice,
 )
 
 console = Console()
@@ -196,6 +197,7 @@ def export_excel_workbook(
     # Header styling: Dark navy with bold white text
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    notice_fill = PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid")
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
     thin_border = Border(
         left=Side(style="thin", color="D9D9D9"),
@@ -385,10 +387,15 @@ def export_excel_workbook(
                 f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
             )
 
-        # Apply cell formats & borders
+        # Apply cell formats, borders & soft yellow fill for compatibility/fallback notices
+        row_has_notice = has_compatibility_or_fallback_notice(
+            row.get("Alfa Reason")
+        ) or has_compatibility_or_fallback_notice(row.get("Digi Reason"))
         for c_idx, col_name in enumerate(headers, start=1):
             cell = ws.cell(row=r, column=c_idx)
             cell.border = thin_border
+            if row_has_notice:
+                cell.fill = notice_fill
             if col_name in price_cols_set or is_price_int_column(col_name):
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")

@@ -79,6 +79,7 @@ from pricing_engine.models import (
     classify_non_competitor_vendor,
     format_comm_pct_label,
     get_winning_comm_goals,
+    has_compatibility_or_fallback_notice,
 )
 from pricing_engine.registry import InMemoryRegistry
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
@@ -1262,6 +1263,16 @@ def render_audit_card(
     def _format_search_telemetry(
         p_name: str, p_color: str, offers_res: list[ScrapedOffer] | ScrapeResult
     ) -> str:
+        if isinstance(offers_res, ScrapeResult) and offers_res.compatibility_notice and (
+            "[SIBLING SUB-MODEL FALLBACK:" in offers_res.compatibility_notice
+            or "[OPTIONAL SPECIFICATION:" in offers_res.compatibility_notice
+            or "but market listing is base model" in offers_res.compatibility_notice
+        ):
+            count = len(offers_res.offers)
+            return (
+                f"[{p_color}]{p_name}:[/] [bold yellow]{offers_res.compatibility_notice}[/] -> "
+                f"[bold green]Matched {count} verified offer{'s' if count != 1 else ''} (DO CROSS-CHECK)[/]"
+            )
         if isinstance(offers_res, ScrapeResult) and offers_res.active_modifier_fallback:
             mod = offers_res.active_modifier_fallback
             count = len(offers_res.offers)
@@ -1338,37 +1349,49 @@ def render_audit_card(
     content.add_row(sellers_tbl)
     content.add_row(plat_tbl)
 
-    active_fallback_res = (
-        alfa_offers
-        if isinstance(alfa_offers, ScrapeResult) and alfa_offers.active_modifier_fallback
-        else (
-            digi_offers
-            if isinstance(digi_offers, ScrapeResult) and digi_offers.active_modifier_fallback
-            else None
+    notice_lines: list[str] = []
+    if alfa_res.compatibility_notice and digi_res.compatibility_notice:
+        if alfa_res.compatibility_notice == digi_res.compatibility_notice:
+            notice_lines.append(
+                f"[bold yellow]⚠️  COMPATIBILITY NOTICE (DO CROSS-CHECK):[/] {alfa_res.compatibility_notice}"
+            )
+        else:
+            notice_lines.append(
+                f"[bold yellow]⚠️  AlfaMall (DO CROSS-CHECK):[/] {alfa_res.compatibility_notice}"
+            )
+            notice_lines.append(
+                f"[bold yellow]⚠️  DigiMall (DO CROSS-CHECK):[/] {digi_res.compatibility_notice}"
+            )
+    elif alfa_res.compatibility_notice or digi_res.compatibility_notice:
+        single_notice = alfa_res.compatibility_notice or digi_res.compatibility_notice
+        notice_lines.append(
+            f"[bold yellow]⚠️  COMPATIBILITY NOTICE (DO CROSS-CHECK):[/] {single_notice}"
         )
-    )
-    if active_fallback_res and active_fallback_res.active_modifier_fallback:
-        _, _, banner_text = format_fallback_descriptions(
-            active_fallback_res.active_modifier_fallback,
-            source=active_fallback_res.active_modifier_source,
+    else:
+        active_fallback_res = (
+            alfa_offers
+            if isinstance(alfa_offers, ScrapeResult) and alfa_offers.active_modifier_fallback
+            else (
+                digi_offers
+                if isinstance(digi_offers, ScrapeResult) and digi_offers.active_modifier_fallback
+                else None
+            )
         )
-        warning_banner = Panel(
-            banner_text,
-            border_style="yellow",
-            box=box.ROUNDED,
-            padding=(0, 1),
-        )
-        content.add_row(warning_banner)
+        if active_fallback_res and active_fallback_res.active_modifier_fallback:
+            _, _, banner_text = format_fallback_descriptions(
+                active_fallback_res.active_modifier_fallback,
+                source=active_fallback_res.active_modifier_source,
+            )
+            notice_lines.append(banner_text)
 
-    compat_notice = alfa_res.compatibility_notice or digi_res.compatibility_notice
-    if compat_notice:
-        compat_banner = Panel(
-            f"[bold yellow]⚠️  COMPATIBILITY NOTICE (DO CROSS-CHECK):[/] {compat_notice}",
+    if notice_lines:
+        notice_banner = Panel(
+            "\n".join(notice_lines),
             border_style="yellow",
             box=box.ROUNDED,
             padding=(0, 1),
         )
-        content.add_row(compat_banner)
+        content.add_row(notice_banner)
 
     card = Panel(
         content,
@@ -1734,8 +1757,7 @@ def _format_summary_price(
 
     raw_p = f"{int(float(price_val)):,}"
     price_str = f"[{brand_color}]{raw_p}[/]"
-    r_low = reason.lower()
-    is_modifier_fallback = "fallback model" in r_low or "cross-check notice" in r_low
+    is_modifier_fallback = has_compatibility_or_fallback_notice(reason)
     mod_tag = " [bold yellow]CROSS-CHECK[/]" if is_modifier_fallback else ""
 
     if status == "FALLBACK":

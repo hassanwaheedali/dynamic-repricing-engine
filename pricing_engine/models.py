@@ -25,6 +25,22 @@ INCOMPLETE_DISCOVERY_STATUSES: frozenset[str] = frozenset(
 
 WINNING_5PCT_GOALS: frozenset[str] = frozenset({"WIN + 5% ACHIEVED", "SOLO (5% COVERED)"})
 
+COMPATIBILITY_NOTICE_MARKERS: tuple[str, ...] = (
+    "fallback model",
+    "sibling sub-model fallback",
+    "optional specification",
+    "cross-check notice",
+    "compatibility notice",
+)
+
+
+def has_compatibility_or_fallback_notice(text: Any) -> bool:
+    """Return True if a reason or notice string contains any compatibility or fallback marker."""
+    if text is None:
+        return False
+    low = str(text).lower()
+    return any(marker in low for marker in COMPATIBILITY_NOTICE_MARKERS)
+
 
 def format_comm_pct_label(personal_comm_pct: float = 5.0) -> str:
     """Format personal commission percentage for dynamic column headers and badges (e.g. '5', '8', '3.5')."""
@@ -119,6 +135,8 @@ class ScrapedOffer:
     product_handle: str | None = None
     scraped_model: str | None = None
     color_family: str | None = None
+    match_tier: int | None = None
+    compatibility_notice: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +162,7 @@ class ScrapeResult:
     active_modifier_fallback: str | None = None
     active_modifier_source: str = "target"
     base_offers: list[ScrapedOffer] = field(default_factory=list)
+    sibling_offers: list[ScrapedOffer] = field(default_factory=list)
     own_offers: list[ScrapedOffer] = field(default_factory=list)
     ambiguity_conflict: AmbiguousVariantConflict | None = None
     discovery_status: str = ""
@@ -155,12 +174,13 @@ class ScrapeResult:
     total_available: int | None = None
     pagination_complete: bool = True
     extended_model_designation: str | None = None
+    compatibility_notice: str | None = None
 
     def __post_init__(self) -> None:
         if not self.discovery_status:
             if not self.is_success:
                 object.__setattr__(self, "discovery_status", DISCOVERY_SEARCH_FAILED)
-            elif self.offers or self.base_offers:
+            elif self.offers or self.base_offers or self.sibling_offers:
                 object.__setattr__(self, "discovery_status", DISCOVERY_COMPLETE_WITH_OFFERS)
             elif not self.pagination_complete:
                 object.__setattr__(self, "discovery_status", DISCOVERY_PAGINATION_INCOMPLETE)

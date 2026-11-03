@@ -766,27 +766,27 @@ def test_dawlance_ac_adversarial_scope_isolation() -> None:
             "Haier",
             False,
         ),
-        # Non-AC Appliance Categories (Refrigerators, Freezers, Washers must reject X differences)
+        # Dawlance Multi-Category Isolated 'X' Neutralization (Defect 3B: Dawlance-scoped 'X' is ERP/marketing noise)
         (
             "Dawlance Ref Elegance X vs Elegance",
             "Dawlance Refrigerator Elegance X Glass Door",
             "Dawlance Refrigerator Elegance Glass Door",
             "Dawlance",
-            False,
+            True,
         ),
         (
             "Dawlance DF 300 X vs 300",
             "Dawlance Deep Freezer 300 X Inverter",
             "Dawlance Deep Freezer 300 Inverter",
             "Dawlance",
-            False,
+            True,
         ),
         (
             "Dawlance WM DWT 260 X vs 260",
             "Dawlance Washing Machine DWT 260 X LVS",
             "Dawlance Washing Machine DWT 260 LVS",
             "Dawlance",
-            False,
+            True,
         ),
         # Legitimate Same-Model Matches across X Variations (Should Match!)
         (

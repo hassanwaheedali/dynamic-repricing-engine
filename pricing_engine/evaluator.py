@@ -1,4 +1,5 @@
 import math
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -187,6 +188,74 @@ def _annotate_non_competitor_reason(
     return res
 
 
+def _apply_compatibility_and_fallback_annotations(
+    res: PlatformPricingResult,
+    offers: list[ScrapedOffer] | ScrapeResult,
+    ref_offer: ScrapedOffer | None,
+) -> PlatformPricingResult:
+    """Propagate canonical compatibility and fallback notices onto reason and result metadata."""
+    suppressed_statuses = (
+        STATUS_SERVER_DOWN,
+        "Monopoly Win",
+        STATUS_INCOMPLETE_DISCOVERY,
+        STATUS_CANDIDATES_REJECTED,
+    )
+    if res.status in suppressed_statuses:
+        return replace(res, compatibility_notice=None)
+
+    active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
+    offer_list = offers.offers if isinstance(offers, ScrapeResult) else list(offers)
+    has_per_offer_compat = any(o.compatibility_notice is not None for o in offer_list)
+
+    raw_compat_notice: str | None = None
+    if ref_offer is not None and (ref_offer.compatibility_notice is not None or has_per_offer_compat):
+        raw_compat_notice = ref_offer.compatibility_notice
+    elif isinstance(offers, ScrapeResult) and offers.compatibility_notice:
+        raw_compat_notice = offers.compatibility_notice
+    elif isinstance(offers, ScrapeResult) and offers.extended_model_designation:
+        raw_compat_notice = (
+            f"Accepted legitimate extended model designation '{offers.extended_model_designation}' "
+            f"— verify edition/color alignment"
+        )
+    elif active_fallback and (
+        "Extended Edition (" in active_fallback or "Extended Designation (" in active_fallback
+    ):
+        extracted = active_fallback.split("(", 1)[1].rstrip(")")
+        raw_compat_notice = (
+            f"Accepted legitimate extended model designation '{extracted}' "
+            f"— verify edition/color alignment"
+        )
+
+    if raw_compat_notice and (
+        "[OPTIONAL SPECIFICATION:" in raw_compat_notice
+        or "[SIBLING SUB-MODEL FALLBACK:" in raw_compat_notice
+        or "but market listing is base model" in raw_compat_notice
+    ):
+        new_reason = (
+            f"{raw_compat_notice} {res.reason}"
+            if raw_compat_notice not in res.reason
+            else res.reason
+        )
+        return replace(res, reason=new_reason, compatibility_notice=raw_compat_notice)
+
+    res = _annotate_fallback_reason(res, active_fallback, active_source)
+
+    if raw_compat_notice and "Accepted legitimate extended model designation" in raw_compat_notice:
+        clean_compat = re.sub(r"^(?:⚠️|ℹ️)\s*", "", raw_compat_notice).strip()
+        prefix = (
+            raw_compat_notice
+            if raw_compat_notice.startswith("[COMPATIBILITY NOTICE:")
+            else f"[COMPATIBILITY NOTICE: {clean_compat}]"
+        )
+        if "[COMPATIBILITY NOTICE:" not in res.reason:
+            res = replace(res, reason=f"{prefix} {res.reason}")
+        return replace(res, compatibility_notice=raw_compat_notice)
+
+    if raw_compat_notice:
+        return replace(res, compatibility_notice=raw_compat_notice)
+    return res
+
+
 def evaluate_alfa_pricing(
     cost_floors: CostFloors,
     offers: list[ScrapedOffer] | ScrapeResult,
@@ -201,30 +270,8 @@ def evaluate_alfa_pricing(
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
-    active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
-    res = _annotate_fallback_reason(res, active_fallback, active_source)
-
-    compat_notice = None
-    if isinstance(offers, ScrapeResult) and offers.extended_model_designation:
-        compat_notice = (
-            f"Accepted legitimate extended model designation '{offers.extended_model_designation}' "
-            f"— verify edition/color alignment"
-        )
-    elif active_fallback and (
-        "Extended Edition (" in active_fallback or "Extended Designation (" in active_fallback
-    ):
-        extracted = active_fallback.split("(", 1)[1].rstrip(")")
-        compat_notice = (
-            f"Accepted legitimate extended model designation '{extracted}' "
-            f"— verify edition/color alignment"
-        )
-    if compat_notice:
-        prefix = f"[COMPATIBILITY NOTICE: {compat_notice}]"
-        if prefix not in res.reason and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
-            res = replace(res, reason=f"{prefix} {res.reason}")
-        res = replace(res, compatibility_notice=compat_notice)
-
+    res = _apply_compatibility_and_fallback_annotations(res, offers, ref_offer)
     return _annotate_non_competitor_reason(res, own_offers)
 
 
@@ -591,30 +638,8 @@ def evaluate_digi_pricing(
         monopoly_profit=monopoly_profit,
         max_profit_cap=max_profit_cap,
     )
-    active_fallback, active_source = _resolve_active_fallback(offers, ref_offer)
     res = replace(res, own_offers=own_offers)
-    res = _annotate_fallback_reason(res, active_fallback, active_source)
-
-    compat_notice = None
-    if isinstance(offers, ScrapeResult) and offers.extended_model_designation:
-        compat_notice = (
-            f"Accepted legitimate extended model designation '{offers.extended_model_designation}' "
-            f"— verify edition/color alignment"
-        )
-    elif active_fallback and (
-        "Extended Edition (" in active_fallback or "Extended Designation (" in active_fallback
-    ):
-        extracted = active_fallback.split("(", 1)[1].rstrip(")")
-        compat_notice = (
-            f"Accepted legitimate extended model designation '{extracted}' "
-            f"— verify edition/color alignment"
-        )
-    if compat_notice:
-        prefix = f"[COMPATIBILITY NOTICE: {compat_notice}]"
-        if prefix not in res.reason and res.status not in (STATUS_SERVER_DOWN, "Monopoly Win"):
-            res = replace(res, reason=f"{prefix} {res.reason}")
-        res = replace(res, compatibility_notice=compat_notice)
-
+    res = _apply_compatibility_and_fallback_annotations(res, offers, ref_offer)
     return _annotate_non_competitor_reason(res, own_offers)
 
 

@@ -193,11 +193,11 @@ def test_task05_spaced_alphanumeric_haier_drum_stem_preserved() -> None:
 
 
 def test_task06_ads_plus_capability_extraction_and_isolation() -> None:
-    """TASK-06 / BUG-01d: ADS+ is extracted as capability 'ADS'; base model rejects upgraded ADS+."""
+    """TASK-06 / BUG-01d & REG-22: ADS+ is extracted with '+' intact as 'ADS+'; base model rejects upgraded ADS+."""
     s_ads = extract_product_slots(
         "Dawlance DWT 1166 ADS+ Top Load Washing Machine", brand="Dawlance"
     )
-    assert "ADS" in s_ads.guarded_facets.capabilities
+    assert "ADS+" in s_ads.guarded_facets.capabilities
     assert s_ads.series == ""
 
     dec_upgrade = referee_match(
@@ -215,7 +215,7 @@ def test_task06_ads_plus_capability_extraction_and_isolation() -> None:
     )
     assert dec_fallback.is_match is False
     assert dec_fallback.is_base_match is True
-    assert dec_fallback.missing_modifier == "ADS"
+    assert dec_fallback.missing_modifier == "ADS+"
 
 
 def test_task06_dwt_270_lvs_plus_soft_compatibility_preserved() -> None:
@@ -683,7 +683,7 @@ def test_task16_own_store_offers_preserve_missing_modifier_metadata() -> None:
             target_desc="Dawlance DWT 1166 ADS+ Top Load Washing Machine",
         )
         assert len(res.own_offers) == 1
-        assert res.own_offers[0].missing_modifier == "ADS"
+        assert res.own_offers[0].missing_modifier == "ADS+"
 
     asyncio.run(_run())
 

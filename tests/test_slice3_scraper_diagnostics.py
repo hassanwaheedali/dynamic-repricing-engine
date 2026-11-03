@@ -178,9 +178,9 @@ def test_suspicious_rejected_candidates_classification() -> None:
     """Ensure same-brand external candidates rejected for non-definitive reasons are flagged suspicious."""
     # Target is 18HFPCA
     target_desc = "Haier 1.5 Ton DC Inverter Split AC 18HFPCA"
-    # Candidate is HSU-18HFP (rejected by referee for variant tag collision)
+    # Candidate omits SKU anchor while sharing capacity/digits (rejected for Anchor model mismatch)
     raw_item = {
-        "title": "Haier 1.5 Ton DC Inverter Split AC HSU-18HFP/023DC",
+        "title": "Haier 1.5 Ton DC Inverter Split AC 18000 BTU Pearl Series",
         "sold_out": False,
         "variant_detail": {"discounted_price": "165,000"},
         "vendor": {"name": "CompetitorElectronics"},

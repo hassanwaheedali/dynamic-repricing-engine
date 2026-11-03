@@ -6,7 +6,7 @@ import random
 import re
 import sys
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from curl_cffi.requests import AsyncSession
@@ -143,6 +143,27 @@ def _offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float, str, str]:
     return (v_norm, round(off.price, 2), col, var)
 
 
+def _select_winning_offer(
+    offers: list[ScrapedOffer],
+    floor_price: float | None = None,
+) -> ScrapedOffer | None:
+    """Select the winning external reference offer (viable in-stock > sub-floor in-stock > sold-out)."""
+    in_stock = [
+        o for o in offers if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+    ]
+    if in_stock:
+        if floor_price is not None:
+            min_int_floor = math.ceil(floor_price)
+            viable = [o for o in in_stock if o.price > min_int_floor]
+            if viable:
+                return min(viable, key=lambda x: x.price)
+        return min(in_stock, key=lambda x: x.price)
+    any_ext = [o for o in offers if not is_non_competitor_vendor(o.vendor_name)]
+    if any_ext:
+        return min(any_ext, key=lambda x: x.price)
+    return None
+
+
 def _select_winning_modifier_meta(
     offers: list[ScrapedOffer],
     fallback_mod: str | None = None,
@@ -155,23 +176,34 @@ def _select_winning_modifier_meta(
     so an exact single-color winner is never contaminated by a costlier Dual-Color listing,
     and prefers viable offers (> floor_price) over discarded sub-floor offers.
     """
-    in_stock = [
-        o for o in offers if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
-    ]
-    if in_stock:
-        if floor_price is not None:
-            min_int_floor = math.ceil(floor_price)
-            viable = [o for o in in_stock if o.price > min_int_floor]
-            if viable:
-                best = min(viable, key=lambda x: x.price)
-                return best.missing_modifier, best.modifier_source
-        best = min(in_stock, key=lambda x: x.price)
-        return best.missing_modifier, best.modifier_source
-    any_ext = [o for o in offers if not is_non_competitor_vendor(o.vendor_name)]
-    if any_ext:
-        best = min(any_ext, key=lambda x: x.price)
+    best = _select_winning_offer(offers, floor_price=floor_price)
+    if best is not None:
         return best.missing_modifier, best.modifier_source
     return fallback_mod, fallback_src
+
+
+def _select_winning_compatibility_notice(
+    offers: list[ScrapedOffer],
+    floor_price: float | None = None,
+) -> str | None:
+    """Select compatibility_notice from the winning external reference offer."""
+    best = _select_winning_offer(offers, floor_price=floor_price)
+    return best.compatibility_notice if best is not None else None
+
+
+def _select_active_tier_pool(
+    exact_offers: list[ScrapedOffer],
+    base_offers: list[ScrapedOffer],
+    sibling_offers: list[ScrapedOffer],
+) -> list[ScrapedOffer]:
+    """Return the highest-priority tier offer pool containing at least one in-stock offer."""
+    if exact_offers and any(not o.is_sold_out for o in exact_offers):
+        return exact_offers
+    if base_offers and any(not o.is_sold_out for o in base_offers):
+        return base_offers
+    if sibling_offers and any(not o.is_sold_out for o in sibling_offers):
+        return sibling_offers
+    return exact_offers or base_offers or sibling_offers
 
 
 def _select_winning_modifier(
@@ -192,8 +224,13 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     for off in offers:
         key = _offer_dedupe_key(off)
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
-        if key not in first_seen or (
-            first_seen[key].missing_modifier is not None and off.missing_modifier is None
+        if (
+            key not in first_seen
+            or (first_seen[key].missing_modifier is not None and off.missing_modifier is None)
+            or (
+                first_seen[key].compatibility_notice is not None
+                and off.compatibility_notice is None
+            )
         ):
             first_seen[key] = off
 
@@ -201,21 +238,7 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     for key, off in first_seen.items():
         total_dupes = counts[key]
         if total_dupes > 1:
-            unique_offers.append(
-                ScrapedOffer(
-                    vendor_name=off.vendor_name,
-                    price=off.price,
-                    is_sold_out=off.is_sold_out,
-                    raw_title=off.raw_title,
-                    duplicate_count=total_dupes,
-                    detected_variant=off.detected_variant,
-                    missing_modifier=off.missing_modifier,
-                    modifier_source=off.modifier_source,
-                    product_handle=off.product_handle,
-                    scraped_model=off.scraped_model,
-                    color_family=off.color_family,
-                )
-            )
+            unique_offers.append(replace(off, duplicate_count=total_dupes))
         else:
             unique_offers.append(off)
     return unique_offers
@@ -242,9 +265,11 @@ async def _execute_waterfall(
     """
     collected_offers: list[ScrapedOffer] = []
     collected_base_offers: list[ScrapedOffer] = []
+    collected_sibling_offers: list[ScrapedOffer] = []
     collected_own_offers: list[ScrapedOffer] = []
     seen_offers: set[tuple[str, float, str, str]] = set()
     seen_base_offers: set[tuple[str, float, str, str]] = set()
+    seen_sibling_offers: set[tuple[str, float, str, str]] = set()
     seen_own_offers: set[tuple[str, float, str, str]] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
@@ -341,6 +366,12 @@ async def _execute_waterfall(
                         seen_base_offers.add(dedupe_key)
                         collected_base_offers.append(off)
 
+                for off in getattr(sub_res, "sibling_offers", []):
+                    dedupe_key = _offer_dedupe_key(off)
+                    if dedupe_key not in seen_sibling_offers:
+                        seen_sibling_offers.add(dedupe_key)
+                        collected_sibling_offers.append(off)
+
                 for off in sub_res.own_offers:
                     dedupe_key = _offer_dedupe_key(off)
                     if dedupe_key not in seen_own_offers:
@@ -354,21 +385,25 @@ async def _execute_waterfall(
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
             matched_tier = tier_name
-        if not exhaustive and len(collected_offers) >= 2:
+        instock_exact_count = sum(1 for o in collected_offers if not o.is_sold_out)
+        if not exhaustive and instock_exact_count >= 2:
             break
 
     has_instock_exact = any(not o.is_sold_out for o in collected_offers)
     has_instock_base = any(not o.is_sold_out for o in collected_base_offers)
+    has_instock_sibling = any(not o.is_sold_out for o in collected_sibling_offers)
 
-    # Priority 1: Exact matches take precedence when in-stock (or when base offers have no in-stock alternatives)
-    if collected_offers and (has_instock_exact or not has_instock_base):
+    # Priority 1: Exact Tier 1 matches take precedence when in-stock (or when no lower tier has in-stock offers)
+    if collected_offers and (
+        has_instock_exact or (not has_instock_base and not has_instock_sibling)
+    ):
         final_offers = collected_offers
         active_fallback, active_source = _select_winning_modifier_meta(
             collected_offers, None, "target", floor_price=floor_price
         )
         ambiguity = None
-    elif collected_base_offers:
-        # Priority 2: When zero in-stock exact matches exist, fallback to base model offers
+    elif collected_base_offers and (has_instock_base or not has_instock_sibling):
+        # Priority 2: When zero in-stock exact matches exist, fallback to Tier 2 base model offers
         final_offers = collected_base_offers
         sel_mod, sel_src = _select_winning_modifier_meta(
             collected_base_offers,
@@ -391,11 +426,24 @@ async def _execute_waterfall(
             )
         else:
             ambiguity = None
+    elif collected_sibling_offers:
+        # Priority 3: When zero in-stock exact or base matches exist, fallback to Tier 3 sibling sub-model offers
+        final_offers = collected_sibling_offers
+        sel_mod, sel_src = _select_winning_modifier_meta(
+            collected_sibling_offers, None, "market", floor_price=floor_price
+        )
+        active_fallback = sel_mod
+        active_source = sel_src
+        ambiguity = None
     else:
         final_offers = []
         active_fallback = None
         active_source = "target"
         ambiguity = None
+
+    final_compat_notice = _select_winning_compatibility_notice(
+        final_offers, floor_price=floor_price
+    )
 
     # AUD-CRIT-06: During partial waterfall outages (any_failure=True), own-store listings and
     # sold-out/sub-floor listings do NOT prove healthy external competitor discovery.
@@ -410,7 +458,10 @@ async def _execute_waterfall(
         overall_success = has_viable_external_competitor
     else:
         overall_success = any_success or bool(
-            final_offers or collected_base_offers or collected_own_offers
+            final_offers
+            or collected_base_offers
+            or collected_sibling_offers
+            or collected_own_offers
         )
     final_status = (
         (first_failure_status or last_status)
@@ -437,6 +488,7 @@ async def _execute_waterfall(
         active_modifier_fallback=active_fallback,
         active_modifier_source=active_source,
         base_offers=collected_base_offers,
+        sibling_offers=collected_sibling_offers,
         own_offers=collected_own_offers,
         is_success=overall_success,
         status_code=final_status,
@@ -454,6 +506,7 @@ async def _execute_waterfall(
         total_available=max_total_available,
         pagination_complete=all_pagination_complete,
         extended_model_designation=collected_extended_designation,
+        compatibility_notice=final_compat_notice,
     )
 
 
@@ -504,12 +557,13 @@ def _has_viable_above_floor_offer(offers: list[ScrapedOffer], floor_price: float
     )
 
 
-def _parse_offers_with_diagnostics(
+def _parse_offers_with_tiers(
     raw_items: list[dict[str, Any]],
     target_model: str,
     brand: str = "",
     target_desc: str = "",
 ) -> tuple[
+    list[ScrapedOffer],
     list[ScrapedOffer],
     list[ScrapedOffer],
     str | None,
@@ -520,9 +574,10 @@ def _parse_offers_with_diagnostics(
     int,
     str | None,
 ]:
-    """Extract and validate offers from raw API items array with structured rejection diagnostics."""
+    """Extract and validate Tier 1, Tier 2, Tier 3, and own-store offers with diagnostics."""
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
+    sibling_offers: list[ScrapedOffer] = []
     own_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
     extended_designation: str | None = None
@@ -535,8 +590,16 @@ def _parse_offers_with_diagnostics(
     for item in raw_items:
         title = str(item.get("title", ""))
         decision = referee_match(match_target, title, brand=brand)
-        is_exact = decision.is_match
-        is_base = decision.is_base_match
+        effective_tier = decision.match_tier
+        if effective_tier is None:
+            if decision.is_match:
+                effective_tier = 1
+            elif decision.is_base_match:
+                effective_tier = 2
+
+        is_exact = effective_tier == 1
+        is_base = effective_tier == 2
+        is_sibling = effective_tier == 3
 
         sold_out = bool(item.get("sold_out", False))
         variant = item.get("variant_detail", {})
@@ -550,7 +613,7 @@ def _parse_offers_with_diagnostics(
             vendor_handle
         )
 
-        if not is_exact and not is_base:
+        if not is_exact and not is_base and not is_sibling:
             rejected_count += 1
             reason_category = decision.reason.split(":")[0].strip()
             rejection_reasons[reason_category] = rejection_reasons.get(reason_category, 0) + 1
@@ -637,6 +700,8 @@ def _parse_offers_with_diagnostics(
             product_handle=item_handle,
             scraped_model=scraped_model_val,
             color_family=color_family_val,
+            match_tier=effective_tier,
+            compatibility_notice=decision.compatibility_notice,
         )
         if is_non_comp:
             own_offers.append(offer)
@@ -644,12 +709,61 @@ def _parse_offers_with_diagnostics(
             exact_offers.append(offer)
         elif is_base:
             base_offers.append(offer)
+        elif is_sibling:
+            sibling_offers.append(offer)
 
     if base_offers:
         detected_modifier = _select_winning_modifier(base_offers, None)
     elif exact_offers:
         detected_modifier = _select_winning_modifier(exact_offers, None)
+    elif sibling_offers:
+        detected_modifier = _select_winning_modifier(sibling_offers, None)
 
+    return (
+        exact_offers,
+        base_offers,
+        sibling_offers,
+        detected_modifier,
+        own_offers,
+        raw_candidate_count,
+        rejected_count,
+        rejection_reasons,
+        suspicious_rejected_count,
+        extended_designation,
+    )
+
+
+def _parse_offers_with_diagnostics(
+    raw_items: list[dict[str, Any]],
+    target_model: str,
+    brand: str = "",
+    target_desc: str = "",
+) -> tuple[
+    list[ScrapedOffer],
+    list[ScrapedOffer],
+    str | None,
+    list[ScrapedOffer],
+    int,
+    int,
+    dict[str, int],
+    int,
+    str | None,
+]:
+    """Extract and validate offers from raw API items array with structured rejection diagnostics."""
+    (
+        exact_offers,
+        base_offers,
+        _,
+        detected_modifier,
+        own_offers,
+        raw_candidate_count,
+        rejected_count,
+        rejection_reasons,
+        suspicious_rejected_count,
+        extended_designation,
+    ) = _parse_offers_with_tiers(
+        raw_items, target_model, brand=brand, target_desc=target_desc
+    )
     return (
         exact_offers,
         base_offers,
@@ -708,6 +822,7 @@ async def _scrape_platform_single_query(
         (
             e_cached,
             b_cached,
+            s_cached,
             d_cached,
             o_cached,
             r_cnt_c,
@@ -715,7 +830,7 @@ async def _scrape_platform_single_query(
             rej_reasons_c,
             susp_cnt_c,
             ext_des_c,
-        ) = _parse_offers_with_diagnostics(
+        ) = _parse_offers_with_tiers(
             raw_cached, target_model, brand=brand, target_desc=target_desc
         )
         cached_meta = _raw_items_meta_cache.get(raw_cache_key)
@@ -723,14 +838,18 @@ async def _scrape_platform_single_query(
         p_complete = cached_meta[1] if (cached_meta and len(cached_meta) >= 2) else True
         pages_probed = 1 if not p_complete else 2
 
-        active_cached_probe = e_cached or b_cached
+        active_cached_probe = _select_active_tier_pool(e_cached, b_cached, s_cached)
+        has_instock_cached = any(
+            not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+            for o in active_cached_probe
+        )
         has_viable_cached = _has_viable_above_floor_offer(active_cached_probe, floor_price)
         needs_more_pages = (
             cached_total is not None
             and cached_total > len(raw_cached)
             and len(raw_cached) > 0
             and pages_probed < MAX_SEARCH_PAGES
-            and (not active_cached_probe or (floor_price is not None and not has_viable_cached))
+            and (not has_instock_cached or (floor_price is not None and not has_viable_cached))
         )
         if needs_more_pages:
             for next_page in range(pages_probed + 1, MAX_SEARCH_PAGES + 1):
@@ -755,6 +874,7 @@ async def _scrape_platform_single_query(
                             (
                                 e_p,
                                 b_p,
+                                s_p,
                                 d_p,
                                 o_p,
                                 r_p,
@@ -762,11 +882,12 @@ async def _scrape_platform_single_query(
                                 reasons_p,
                                 susp_p,
                                 ext_p,
-                            ) = _parse_offers_with_diagnostics(
+                            ) = _parse_offers_with_tiers(
                                 raw_p, target_model, brand=brand, target_desc=target_desc
                             )
                             e_cached.extend(e_p)
                             b_cached.extend(b_p)
+                            s_cached.extend(s_p)
                             o_cached.extend(o_p)
                             r_cnt_c += r_p
                             rej_cnt_c += rej_p
@@ -778,11 +899,17 @@ async def _scrape_platform_single_query(
                             if ext_p and not ext_des_c:
                                 ext_des_c = ext_p
                             _raw_items_meta_cache[raw_cache_key] = (cached_total, p_complete)
+                            cur_pool_c = _select_active_tier_pool(e_cached, b_cached, s_cached)
                             if floor_price is not None and _has_viable_above_floor_offer(
-                                e_cached or b_cached, floor_price
+                                cur_pool_c, floor_price
                             ):
                                 break
-                            if brand and not (e_p or b_p):
+                            if floor_price is None and any(
+                                not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+                                for o in cur_pool_c
+                            ):
+                                break
+                            if brand and not (e_p or b_p or s_p):
                                 b_lower = brand.lower()
                                 if not any(
                                     b_lower in str(it.get("title", "")).lower() for it in raw_p
@@ -805,6 +932,7 @@ async def _scrape_platform_single_query(
 
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
+        s_cached = deduplicate_offers(s_cached)
         o_cached = deduplicate_offers(o_cached)
         d_src_cached = "target"
         if b_cached:
@@ -815,9 +943,13 @@ async def _scrape_platform_single_query(
             d_cached, d_src_cached = _select_winning_modifier_meta(
                 e_cached, d_cached, "target", floor_price=floor_price
             )
+        compat_cached = _select_winning_compatibility_notice(
+            _select_active_tier_pool(e_cached, b_cached, s_cached), floor_price=floor_price
+        )
         return ScrapeResult(
             offers=e_cached,
             base_offers=b_cached,
+            sibling_offers=s_cached,
             own_offers=o_cached,
             active_modifier_fallback=d_cached,
             active_modifier_source=d_src_cached,
@@ -832,58 +964,15 @@ async def _scrape_platform_single_query(
             total_available=cached_total,
             pagination_complete=p_complete,
             extended_model_designation=ext_des_c,
+            compatibility_notice=compat_cached,
         )
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         return ScrapeResult(
-            offers=[
-                ScrapedOffer(
-                    vendor_name=o.vendor_name,
-                    price=o.price,
-                    is_sold_out=o.is_sold_out,
-                    raw_title=o.raw_title,
-                    duplicate_count=o.duplicate_count,
-                    detected_variant=o.detected_variant,
-                    missing_modifier=o.missing_modifier,
-                    modifier_source=o.modifier_source,
-                    product_handle=o.product_handle,
-                    scraped_model=o.scraped_model,
-                    color_family=o.color_family,
-                )
-                for o in cached.offers
-            ],
-            base_offers=[
-                ScrapedOffer(
-                    vendor_name=o.vendor_name,
-                    price=o.price,
-                    is_sold_out=o.is_sold_out,
-                    raw_title=o.raw_title,
-                    duplicate_count=o.duplicate_count,
-                    detected_variant=o.detected_variant,
-                    missing_modifier=o.missing_modifier,
-                    modifier_source=o.modifier_source,
-                    product_handle=o.product_handle,
-                    scraped_model=o.scraped_model,
-                    color_family=o.color_family,
-                )
-                for o in cached.base_offers
-            ],
-            own_offers=[
-                ScrapedOffer(
-                    vendor_name=o.vendor_name,
-                    price=o.price,
-                    is_sold_out=o.is_sold_out,
-                    raw_title=o.raw_title,
-                    duplicate_count=o.duplicate_count,
-                    detected_variant=o.detected_variant,
-                    missing_modifier=o.missing_modifier,
-                    modifier_source=o.modifier_source,
-                    product_handle=o.product_handle,
-                    scraped_model=o.scraped_model,
-                    color_family=o.color_family,
-                )
-                for o in cached.own_offers
-            ],
+            offers=[replace(o) for o in cached.offers],
+            base_offers=[replace(o) for o in cached.base_offers],
+            sibling_offers=[replace(o) for o in cached.sibling_offers],
+            own_offers=[replace(o) for o in cached.own_offers],
             active_modifier_fallback=cached.active_modifier_fallback,
             active_modifier_source=cached.active_modifier_source,
             is_success=cached.is_success,
@@ -898,6 +987,7 @@ async def _scrape_platform_single_query(
             total_available=cached.total_available,
             pagination_complete=cached.pagination_complete,
             extended_model_designation=cached.extended_model_designation,
+            compatibility_notice=cached.compatibility_notice,
         )
 
     params = {**config.base_params, "q": query}
@@ -905,6 +995,7 @@ async def _scrape_platform_single_query(
 
     exact_offers: list[ScrapedOffer] = []
     base_offers: list[ScrapedOffer] = []
+    sibling_offers: list[ScrapedOffer] = []
     own_offers: list[ScrapedOffer] = []
     detected_modifier: str | None = None
     last_status: int | None = None
@@ -946,6 +1037,7 @@ async def _scrape_platform_single_query(
                 (
                     e_items,
                     b_items,
+                    s_items,
                     d_mod,
                     o_items,
                     r_cnt,
@@ -953,11 +1045,12 @@ async def _scrape_platform_single_query(
                     rej_reasons,
                     susp_cnt,
                     ext_des,
-                ) = _parse_offers_with_diagnostics(
+                ) = _parse_offers_with_tiers(
                     raw_items, target_model, brand=brand, target_desc=target_desc
                 )
                 exact_offers.extend(e_items)
                 base_offers.extend(b_items)
+                sibling_offers.extend(s_items)
                 own_offers.extend(o_items)
                 if d_mod and not detected_modifier:
                     detected_modifier = d_mod
@@ -974,13 +1067,19 @@ async def _scrape_platform_single_query(
                 pages_fetched = 1
                 pagination_complete = True
 
-                active_p1_probe = exact_offers or base_offers
+                active_p1_probe = _select_active_tier_pool(
+                    exact_offers, base_offers, sibling_offers
+                )
+                has_instock_p1 = any(
+                    not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+                    for o in active_p1_probe
+                )
                 has_viable_p1 = _has_viable_above_floor_offer(active_p1_probe, floor_price)
                 needs_pagination = (
                     total_count is not None
                     and total_count > len(raw_items)
                     and len(raw_items) > 0
-                    and (not active_p1_probe or (floor_price is not None and not has_viable_p1))
+                    and (not has_instock_p1 or (floor_price is not None and not has_viable_p1))
                 )
 
                 if needs_pagination:
@@ -1012,6 +1111,7 @@ async def _scrape_platform_single_query(
                                     (
                                         e_p,
                                         b_p,
+                                        s_p,
                                         d_p,
                                         o_p,
                                         r_p,
@@ -1019,11 +1119,12 @@ async def _scrape_platform_single_query(
                                         reasons_p,
                                         susp_p,
                                         ext_p,
-                                    ) = _parse_offers_with_diagnostics(
+                                    ) = _parse_offers_with_tiers(
                                         raw_next, target_model, brand=brand, target_desc=target_desc
                                     )
                                     exact_offers.extend(e_p)
                                     base_offers.extend(b_p)
+                                    sibling_offers.extend(s_p)
                                     own_offers.extend(o_p)
                                     total_raw_count += r_p
                                     total_rejected_count += rej_p
@@ -1036,11 +1137,20 @@ async def _scrape_platform_single_query(
                                         detected_modifier = d_p
                                     if ext_p and not active_extended_designation:
                                         active_extended_designation = ext_p
+                                    cur_pool_p = _select_active_tier_pool(
+                                        exact_offers, base_offers, sibling_offers
+                                    )
                                     if floor_price is not None and _has_viable_above_floor_offer(
-                                        exact_offers or base_offers, floor_price
+                                        cur_pool_p, floor_price
                                     ):
                                         break
-                                    if brand and not (e_p or b_p):
+                                    if floor_price is None and any(
+                                        not o.is_sold_out
+                                        and not is_non_competitor_vendor(o.vendor_name)
+                                        for o in cur_pool_p
+                                    ):
+                                        break
+                                    if brand and not (e_p or b_p or s_p):
                                         b_lower = brand.lower()
                                         if not any(
                                             b_lower in str(it.get("title", "")).lower()
@@ -1069,6 +1179,7 @@ async def _scrape_platform_single_query(
 
                 exact_offers = deduplicate_offers(exact_offers)
                 base_offers = deduplicate_offers(base_offers)
+                sibling_offers = deduplicate_offers(sibling_offers)
                 own_offers = deduplicate_offers(own_offers)
                 detected_source = "target"
                 if base_offers:
@@ -1079,11 +1190,16 @@ async def _scrape_platform_single_query(
                     detected_modifier, detected_source = _select_winning_modifier_meta(
                         exact_offers, detected_modifier, "target", floor_price=floor_price
                     )
+                compat_single = _select_winning_compatibility_notice(
+                    _select_active_tier_pool(exact_offers, base_offers, sibling_offers),
+                    floor_price=floor_price,
+                )
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
                     offers=exact_offers,
                     base_offers=base_offers,
+                    sibling_offers=sibling_offers,
                     own_offers=own_offers,
                     active_modifier_fallback=detected_modifier,
                     active_modifier_source=detected_source,
@@ -1098,8 +1214,9 @@ async def _scrape_platform_single_query(
                     total_available=total_count,
                     pagination_complete=pagination_complete,
                     extended_model_designation=active_extended_designation,
+                    compatibility_notice=compat_single,
                 )
-                if exact_offers or base_offers or own_offers:
+                if exact_offers or base_offers or sibling_offers or own_offers:
                     _query_cache[cache_key] = result
                     if combined_raw_items:
                         _raw_items_cache[raw_cache_key] = combined_raw_items
