@@ -7,12 +7,16 @@ import re
 import sys
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pricing_engine.digi_discovery import DigiQueryPlan
+    from pricing_engine.digi_transport import DigiDiscoveryContext
 
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
-from pricing_engine.matcher import referee_match
+from pricing_engine.matcher import MatchDecision, referee_match
 from pricing_engine.models import (
     DISCOVERY_CANDIDATES_REJECTED,
     DISCOVERY_COMPLETE_NO_COMPETITORS,
@@ -562,6 +566,8 @@ def _parse_offers_with_tiers(
     target_model: str,
     brand: str = "",
     target_desc: str = "",
+    *,
+    definitive_rejection: Callable[[MatchDecision], bool] | None = None,
 ) -> tuple[
     list[ScrapedOffer],
     list[ScrapedOffer],
@@ -622,6 +628,8 @@ def _parse_offers_with_tiers(
                 is_definitive = any(
                     reason_category.startswith(p) for p in DEFINITIVE_REJECTION_PREFIXES
                 )
+                if definitive_rejection is not None:
+                    is_definitive = definitive_rejection(decision)
                 if not is_definitive:
                     title_upper = title.upper()
                     target_brand = brand.strip().upper()
@@ -1389,8 +1397,7 @@ async def _scrape_digimall_single_query(
     target_desc: str = "",
 ) -> ScrapeResult:
     """Internal single-query scraper for DigiMall storefront search API."""
-    return await _scrape_platform_single_query(
-        config=DIGIMALL_CONFIG,
+    return await scrape_digimall(
         session=session,
         query=query,
         target_model=target_model,
@@ -1404,7 +1411,7 @@ async def _scrape_digimall_single_query(
 
 async def scrape_digimall(
     session: AsyncSession[Any],
-    query: str | dict[str, list[str]],
+    query: "str | dict[str, list[str]] | DigiQueryPlan",
     target_model: str,
     timeout: float = 15.0,
     max_retries: int = 3,
@@ -1412,6 +1419,8 @@ async def scrape_digimall(
     brand: str = "",
     target_desc: str = "",
     exhaustive: bool = True,
+    *,
+    context: "DigiDiscoveryContext | None" = None,
 ) -> ScrapeResult:
     """Query DigiMall (Faysal Bank) storefront search API and extract verified product offers.
 
@@ -1419,39 +1428,29 @@ async def scrape_digimall(
 
     Args:
         session: Active curl_cffi AsyncSession with Chrome impersonation.
-        query: Search keyword string or tiered patterns dictionary.
+        query: Explicit keyword, legacy tiered dictionary, or adaptive DigiQueryPlan.
         target_model: Target model string for strict variant validation.
         timeout: HTTP request timeout in seconds (default: 15.0s).
         max_retries: Number of retry attempts on network/timeout failure (default: 3).
-        floor_price: Optional price floor for conditional sub-floor page 2 probing.
+        floor_price: Price floor used for reference metadata, never pagination exits.
         brand: Optional brand name for strict matching.
         target_desc: Optional full catalog product description for comprehensive facet matching.
+        context: Optional shared run-scoped raw-page cache and bounded request budget.
 
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
     """
-    if isinstance(query, str):
-        if not query.strip():
-            return await _scrape_digimall_single_query(
-                session=session,
-                query=query,
-                target_model=target_model,
-                timeout=timeout,
-                max_retries=max_retries,
-                floor_price=floor_price,
-                brand=brand,
-                target_desc=target_desc,
-            )
-        query = {"tier_1": [query]}
-    return await _execute_waterfall(
-        single_scraper_fn=_scrape_digimall_single_query,
-        session=session,
-        patterns=query,
-        target_model=target_model,
-        timeout=timeout,
-        max_retries=max_retries,
-        floor_price=floor_price,
-        brand=brand,
-        target_desc=target_desc,
-        exhaustive=exhaustive,
+    from pricing_engine.digi_discovery import discover_digimall
+
+    return await discover_digimall(
+        session,
+        query,
+        target_model,
+        timeout,
+        max_retries,
+        floor_price,
+        brand,
+        target_desc,
+        exhaustive,
+        context,
     )

@@ -301,6 +301,7 @@ def test_full_pipeline_lowercase_sno_first_column(tmp_path: Path) -> None:
 
     async def _run() -> None:
         with (
+            patch("pricing_engine.checkpoint.DEFAULT_CHECKPOINT_DIR", tmp_path / "checkpoints"),
             patch("pricing_engine.pipeline.scrape_alfamall", return_value=mock_offers),
             patch("pricing_engine.pipeline.scrape_digimall", return_value=mock_offers),
         ):

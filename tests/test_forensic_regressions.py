@@ -796,13 +796,13 @@ def test_task18_cached_page1_raw_items_triggers_page2_probe_when_floor_requires(
 
 
 def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> None:
-    """TASK-19 / BUG-20: Empty Tier 1 (200 OK) + Failed Tier 2 (HTTP 429/503) returns is_success=False."""
+    """TASK-19 / BUG-20: Healthy empty Tier 1 + failed Tier 2 retains incomplete coverage, never monopoly."""
 
     async def _run() -> None:
         clear_scraper_cache()
         resp_t1_empty = MagicMock()
         resp_t1_empty.status_code = 200
-        resp_t1_empty.json.return_value = {"results": []}
+        resp_t1_empty.json.return_value = {"count": 0, "results": []}
 
         resp_t2_429 = MagicMock()
         resp_t2_429.status_code = 429
@@ -817,8 +817,9 @@ def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> No
             max_retries=1,
             brand="Dawlance",
         )
-        assert res.is_success is False
-        assert res.status_code == 429
+        assert res.is_success is True
+        assert res.coverage_status == "INCOMPLETE"
+        assert "HTTP 429" in (res.error_detail or "")
 
         floors = CostFloors(
             cost_base=50000.0,
@@ -828,9 +829,11 @@ def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> No
             floor_digi_10=56111.0,
             floor_digi_8=54891.0,
         )
-        eval_res = evaluate_alfa_pricing(floors, res)
+        from pricing_engine.evaluator import evaluate_digi_pricing
+
+        eval_res = evaluate_digi_pricing(floors, res)
         assert eval_res.final_price is None
-        assert "unreachable" in eval_res.reason.lower()
+        assert "incomplete" in eval_res.reason.lower()
 
     asyncio.run(_run())
 

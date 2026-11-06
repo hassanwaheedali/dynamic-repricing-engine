@@ -733,6 +733,8 @@ def export_winning_5pct_results(
         if digi_goal_col is not None
         else pd.Series(False, index=df.index)
     )
+    if "Digi Discovery Coverage" in df.columns:
+        digi_win &= df["Digi Discovery Coverage"].fillna("").isin(["", "COMPLETE", "CAPPED"])
     win_mask = alfa_win | digi_win
     winners_df = df[win_mask].copy()
 

@@ -35,6 +35,8 @@ from pricing_engine.checkpoint import (
     save_checkpoint,
 )
 from pricing_engine.db import SupabaseClient
+from pricing_engine.digi_discovery import format_digimall_summary, generate_digimall_plan
+from pricing_engine.digi_transport import DigiDiscoveryContext
 from pricing_engine.evaluator import (
     evaluate_alfa_pricing,
     evaluate_digi_pricing,
@@ -66,6 +68,7 @@ from pricing_engine.models import (
     DISCOVERY_CANDIDATES_REJECTED,
     DISCOVERY_INCOMPLETE,
     DISCOVERY_PAGINATION_INCOMPLETE,
+    PROVISIONAL_COVERAGES,
     STATUS_CANDIDATES_REJECTED,
     STATUS_INCOMPLETE_DISCOVERY,
     STATUS_SERVER_DOWN,
@@ -77,6 +80,7 @@ from pricing_engine.models import (
     ScrapedOffer,
     ScrapeResult,
     classify_non_competitor_vendor,
+    discovery_coverage_alert,
     format_comm_pct_label,
     get_winning_comm_goals,
     has_compatibility_or_fallback_notice,
@@ -178,6 +182,8 @@ def determine_risk_alert(res: PlatformPricingResult, personal_comm: int = 0) -> 
         return "AMBIGUOUS_VARIANT"
     if res.status == "SKIPPED":
         return ""
+    if discovery_coverage_alert(res.coverage_status):
+        return discovery_coverage_alert(res.coverage_status)
     if res.status == STATUS_INCOMPLETE_DISCOVERY:
         return "INCOMPLETE_DISCOVERY"
     if res.status == STATUS_CANDIDATES_REJECTED:
@@ -322,6 +328,22 @@ def determine_platform_status(
     reason_lower = str(reason).lower()
     alert_str = str(alert)
 
+    if alert_str == "CAPPED_DISCOVERY" and price_val is not None and pd.notna(price_val):
+        if (min_comp_price is None or pd.isna(min_comp_price)) and "monopoly" in reason_lower:
+            return "SOLO — OBSERVED (3-page scan)"
+        if min_comp_price is not None and pd.notna(min_comp_price):
+            diff = float(min_comp_price) - float(price_val)
+            if diff > 0 and "sub-floor" not in reason_lower:
+                return f"WIN — OBSERVED (3-page scan) (-{int(round(diff)):,})"
+        return "OBSERVED — NO WIN"
+
+    if (
+        alert_str in {"INCOMPLETE_DISCOVERY", "CAPPED_DISCOVERY"}
+        and pd.notna(price_val)
+        and price_val is not None
+    ):
+        return "PROVISIONAL"
+
     if (
         "server is down" in reason_lower
         or "unreachable" in reason_lower
@@ -386,18 +408,20 @@ def determine_5pct_goal_status(
     lbl = format_comm_pct_label(personal_comm_pct)
     if is_skipped:
         return ""
+    if status_badge == "PROVISIONAL":
+        return "PROVISIONAL"
     if status_badge == "SERVER_DOWN":
         return "SERVER_DOWN"
     if status_badge == "FALLBACK":
         return "FALLBACK (UNCOMPETITIVE)"
     if (
         active_sellers > 0
-        and (status_badge.startswith("WIN (-") or status_badge.startswith("CAPPED (-"))
+        and (status_badge.startswith("WIN (-") or status_badge.startswith("WIN — OBSERVED") or status_badge.startswith("CAPPED (-"))
         and real_profit is not None
         and real_profit >= target_profit_5pct
     ):
         return f"WIN + {lbl}% ACHIEVED"
-    if status_badge == "SOLO" and real_profit is not None and real_profit >= target_profit_5pct:
+    if (status_badge == "SOLO" or status_badge.startswith("SOLO — OBSERVED")) and real_profit is not None and real_profit >= target_profit_5pct:
         return f"SOLO ({lbl}% COVERED)"
     if status_badge in ("CAPPED", "WIN"):
         return "SUB-FLOOR CHEAPER"
@@ -436,7 +460,18 @@ def build_output_record(
     sno_aliases = {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
     for k, v in product.raw_row.items():
         k_str = str(k).strip()
-        if k in sno_aliases or k_str.lower().startswith("unnamed:") or not k_str:
+        if (
+            k in sno_aliases
+            or k_str.lower().startswith("unnamed:")
+            or not k_str
+            or k_str
+            in {
+                "Digi Discovery Coverage",
+                "Digi Discovery Detail",
+                "Alfa Risk Alert",
+                "Digi Risk Alert",
+            }
+        ):
             continue
         out_record[k] = v
 
@@ -542,6 +577,9 @@ def build_output_record(
             personal_comm_pct=personal_comm_pct,
         )
 
+    if digi_res.coverage_status and plat_lower != "alfa":
+        out_record["Digi Discovery Coverage"] = digi_res.coverage_status
+        out_record["Digi Discovery Detail"] = digi_res.coverage_detail
     out_record["Alfa Risk Alert"] = alfa_alert
     out_record["Digi Risk Alert"] = digi_alert
 
@@ -764,7 +802,9 @@ def _render_platform_offers_to_table(
         )
 
     if not offers:
-        if res.status == STATUS_INCOMPLETE_DISCOVERY:
+        if res.coverage_status == "CAPPED" and res.status != STATUS_CANDIDATES_REJECTED:
+            empty_label = "[cyan]Not found — monopoly price applied[/]" if res.final_price is not None else "[yellow]No compatible offers within scan limit[/]"
+        elif res.status == STATUS_INCOMPLETE_DISCOVERY:
             empty_label = "[bold red]Incomplete Discovery (Search Failed/Incomplete)[/]"
         elif res.status == STATUS_CANDIDATES_REJECTED:
             empty_label = "[bold yellow]Candidates Rejected by Referee[/]"
@@ -1047,6 +1087,12 @@ def build_platform_decision_table(
         digi_p_str = "[dim]Skipped[/]"
     elif digi_res.status == STATUS_SERVER_DOWN:
         digi_p_str = "[bold red][SERVER DOWN - RETRY LATER][/]"
+    elif digi_res.final_price is not None and digi_res.coverage_status == "CAPPED":
+        badge = determine_platform_status(digi_res.final_price, digi_res.min_price, digi_res.reason, "CAPPED_DISCOVERY")
+        badge_color = "green" if badge.startswith(("WIN — OBSERVED", "SOLO — OBSERVED")) else "yellow"
+        digi_p_str = f"[bold {badge_color}]Rs. {digi_res.final_price:,} ({badge})[/]"
+    elif digi_res.final_price is not None and digi_res.coverage_status in PROVISIONAL_COVERAGES:
+        digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (PROVISIONAL — {digi_res.coverage_status})[/]"
     elif digi_res.final_price is not None:
         if digi_res.status == "Safe Fallback":
             digi_p_str = f"[bold red]Rs. {digi_res.final_price:,} (SAFE FALLBACK)[/]"
@@ -1094,6 +1140,8 @@ def build_platform_decision_table(
             )
         else:
             digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
+    elif digi_res.coverage_status == "CAPPED" and digi_res.final_price is None and digi_res.status != STATUS_CANDIDATES_REJECTED:
+        digi_p_str = "[yellow]NO COMPATIBLE OFFERS — SCAN LIMIT[/]"
     elif digi_res.status == STATUS_INCOMPLETE_DISCOVERY:
         digi_p_str = "[bold red][INCOMPLETE DISCOVERY - NO WINNER][/]"
     elif digi_res.status == STATUS_CANDIDATES_REJECTED:
@@ -1263,6 +1311,11 @@ def render_audit_card(
     def _format_search_telemetry(
         p_name: str, p_color: str, offers_res: list[ScrapedOffer] | ScrapeResult
     ) -> str:
+        if isinstance(offers_res, ScrapeResult) and offers_res.coverage_status:
+            color = "green" if offers_res.coverage_status == "COMPLETE" else "yellow"
+            return (
+                f"[{p_color}]{p_name}:[/] [{color}]{format_digimall_summary(offers_res)}[/]"
+            )
         if isinstance(offers_res, ScrapeResult) and offers_res.compatibility_notice and (
             "[SIBLING SUB-MODEL FALLBACK:" in offers_res.compatibility_notice
             or "[OPTIONAL SPECIFICATION:" in offers_res.compatibility_notice
@@ -1459,6 +1512,7 @@ async def process_item_async(
     personal_comm_pct: float = 0.0,
     dispatcher: InOrderCardDispatcher | None = None,
     row_idx: int | None = None,
+    digi_context: DigiDiscoveryContext | None = None,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
     plat = platform.lower().strip()
@@ -1493,14 +1547,30 @@ async def process_item_async(
             target_desc=product.name,
         )
     if plat in ("all", "digi"):
-        digi_task = scrape_digimall(
-            session,
-            patterns,
-            target_model,
-            floor_price=floors.floor_digi_8,
-            brand=product.brand,
-            target_desc=product.name,
-        )
+        try:
+            digi_plan = generate_digimall_plan(product.name, product.brand)
+        except ValueError as exc:
+            detail = str(exc)
+            digi_task = asyncio.sleep(
+                0,
+                result=ScrapeResult(
+                    is_success=False,
+                    status_code=None,
+                    error_detail=detail,
+                    coverage_status="FAILED",
+                    coverage_detail=detail,
+                ),
+            )
+        else:
+            digi_task = scrape_digimall(
+                session,
+                digi_plan,
+                target_model,
+                floor_price=floors.floor_digi_8,
+                brand=product.brand,
+                target_desc=product.name,
+                context=digi_context,
+            )
 
     async with semaphore:
         if alfa_task and digi_task:
@@ -1602,6 +1672,12 @@ async def process_item_async(
             final_price=None,
             status="SKIPPED",
             reason=f"SKIPPED (Ambiguous variants {conflict.detected_variants} found in market - specify in CSV)",
+            coverage_status=(
+                digi_offers.coverage_status if isinstance(digi_offers, ScrapeResult) else ""
+            ),
+            coverage_detail=(
+                digi_offers.coverage_detail if isinstance(digi_offers, ScrapeResult) else ""
+            ),
         )
     else:
         if plat in ("all", "alfa"):
@@ -1708,9 +1784,16 @@ async def _process_item_worker(
     verbose: bool = True,
     platform: str = "all",
     personal_comm_pct: float = 0.0,
+    digi_context: DigiDiscoveryContext | None = None,
 ) -> dict[str, Any]:
     """Helper worker to execute an item and attach its original row index for deterministic sorting."""
     extra_kwargs: dict[str, Any] = {}
+    if digi_context is not None:
+        sig = inspect.signature(process_item_async)
+        if "digi_context" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            extra_kwargs["digi_context"] = digi_context
     if platform != "all":
         extra_kwargs["platform"] = platform
     if personal_comm_pct > 0:
@@ -1750,6 +1833,8 @@ def _format_summary_price(
 ) -> str:
     """Format product price string with inline market winning badges for terminal executive summary table."""
     status = determine_platform_status(price_val, min_comp_price, reason, alert)
+    if status == "PROVISIONAL":
+        return f"[yellow]{float(price_val):,.0f} PROVISIONAL[/]"
     if status == "SERVER_DOWN":
         return "[bold red]DOWN[/]"
     if pd.isna(price_val) or price_val is None or str(price_val).strip() == "":
@@ -1764,8 +1849,8 @@ def _format_summary_price(
         return f"[bold red]{raw_p}[/] [red]FALLBACK[/]{mod_tag}"
     if status.startswith("WIN"):
         return f"{price_str} [bold green]{status}[/]{mod_tag}"
-    if status == "SOLO":
-        return f"{price_str} [dim]SOLO[/]{mod_tag}"
+    if status == "SOLO" or status.startswith("SOLO — OBSERVED"):
+        return f"{price_str} [dim]{status}[/]{mod_tag}"
     if status == "CAPPED":
         return f"{price_str} [bold yellow]{status}[/]{mod_tag}"
     return f"{price_str}{mod_tag}"
@@ -2135,6 +2220,7 @@ async def run_pipeline(
             )
 
         semaphore = asyncio.Semaphore(concurrency)
+        digi_context = DigiDiscoveryContext(concurrency)
         render_lock = asyncio.Lock()
         dispatcher = InOrderCardDispatcher(lock=render_lock) if verbose else None
 
@@ -2160,6 +2246,7 @@ async def run_pipeline(
                         verbose=verbose,
                         platform=plat,
                         personal_comm_pct=personal_comm_pct,
+                        digi_context=digi_context,
                     )
                 )
                 tasks.append(task)
@@ -2197,9 +2284,18 @@ async def run_pipeline(
                 or "SKIPPED (Ambiguous" in str(rec.get("Alfa Reason", ""))
                 or "SKIPPED (Ambiguous" in str(rec.get("Digi Reason", ""))
             )
-            if is_ambiguous:
+            retry_discovery = rec.get("Digi Discovery Coverage") in {
+                "FAILED",
+                "INCOMPLETE",
+                "UNKNOWN",
+            }
+            if is_ambiguous or retry_discovery:
                 pending_indices.append(i)
-                pending_reasons[i] = str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
+                pending_reasons[i] = (
+                    str(rec.get("Digi Discovery Detail", ""))
+                    if retry_discovery
+                    else str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
+                )
 
         if pending_indices:
             clean_completed = {
@@ -2220,6 +2316,9 @@ async def run_pipeline(
             delete_checkpoint(input_path)
 
         out_df = pd.DataFrame(records)
+        # Mixed/ambiguous rows can introduce columns after the first record.
+        risk_columns = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in out_df.columns]
+        out_df = out_df[[c for c in out_df.columns if c not in risk_columns] + risk_columns]
 
         if "Shipping Estimate" in out_df.columns:
             out_df["Shipping Estimate"] = out_df["Shipping Estimate"].apply(format_export_shipping)

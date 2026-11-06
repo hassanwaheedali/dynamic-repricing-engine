@@ -14,6 +14,20 @@ DISCOVERY_SEARCH_FAILED: str = "SEARCH_FAILED"
 DISCOVERY_CANDIDATES_REJECTED: str = "CANDIDATES_REJECTED"
 DISCOVERY_PAGINATION_INCOMPLETE: str = "PAGINATION_INCOMPLETE"
 
+PROVISIONAL_COVERAGES: frozenset[str] = frozenset({"INCOMPLETE", "UNKNOWN", "CAPPED"})
+
+
+def discovery_coverage_alert(coverage: str) -> str:
+    """Map retrieval coverage to its reporting risk without changing profit math."""
+    if coverage == "CAPPED":
+        return "CAPPED_DISCOVERY"
+    if coverage in {"INCOMPLETE", "UNKNOWN"}:
+        return "INCOMPLETE_DISCOVERY"
+    if coverage == "FAILED":
+        return "SERVER_DOWN"
+    return ""
+
+
 INCOMPLETE_DISCOVERY_STATUSES: frozenset[str] = frozenset(
     {
         DISCOVERY_INCOMPLETE,
@@ -175,6 +189,10 @@ class ScrapeResult:
     pagination_complete: bool = True
     extended_model_designation: str | None = None
     compatibility_notice: str | None = None
+    coverage_status: str = ""
+    coverage_detail: str = ""
+    query_audit: list[dict[str, Any]] = field(default_factory=list)
+    lowest_offers: list[ScrapedOffer] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.discovery_status:
@@ -206,6 +224,8 @@ class MarketRange:
     offer_count: int
     is_down: bool = False
     error_detail: str | None = None
+    coverage_status: str = ""
+    coverage_detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +244,8 @@ class PlatformPricingResult:
     own_offers: list[ScrapedOffer] = field(default_factory=list)
     discovery_status: str = ""
     compatibility_notice: str | None = None
+    coverage_status: str = ""
+    coverage_detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)

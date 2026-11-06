@@ -21,6 +21,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from pricing_engine.digi_discovery import generate_digimall_plan
+from pricing_engine.digi_transport import DigiDiscoveryContext
 from pricing_engine.evaluator import evaluate_market_range
 from pricing_engine.exporter import (
     RangeExportManifest,
@@ -87,12 +89,18 @@ GENERATED_COLUMNS: frozenset[str] = frozenset(
         "Digi Offers Found",
         "Alfa Risk Alert",
         "Digi Risk Alert",
+        "Digi Discovery Coverage",
+        "Digi Discovery Detail",
     }
 )
 
 
 def determine_range_alert(market: MarketRange) -> str:
     """Risk alert for range mode: SERVER_DOWN, NO_OFFERS (empty market) or NONE."""
+    from pricing_engine.models import discovery_coverage_alert
+
+    if discovery_coverage_alert(market.coverage_status):
+        return discovery_coverage_alert(market.coverage_status)
     if market.is_down:
         return RANGE_ALERT_SERVER_DOWN
     if market.offer_count == 0:
@@ -126,6 +134,9 @@ def build_range_record(
     for col in BLANK_DECISION_COLUMNS:
         record[col] = ""
 
+    if digi.coverage_status:
+        record["Digi Discovery Coverage"] = digi.coverage_status
+        record["Digi Discovery Detail"] = digi.coverage_detail
     record["Alfa Risk Alert"] = determine_range_alert(alfa)
     record["Digi Risk Alert"] = determine_range_alert(digi)
     return record
@@ -238,8 +249,9 @@ async def process_range_item_async(
     item_index: int = 1,
     total_items: int = 1,
     platform: str = "all",
+    digi_context: DigiDiscoveryContext | None = None,
 ) -> dict[str, Any]:
-    """Scrape selected mall(s) (all query tiers) and build the range record."""
+    """Build observed ranges: exhaustive Alfa tiers and adaptive DigiMall queries."""
     plat = platform.lower().strip()
     if plat not in ("all", "alfa", "digi"):
         raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
@@ -259,14 +271,30 @@ async def process_range_item_async(
             target_desc=product.name,
         )
     if plat in ("all", "digi"):
-        digi_task = scrape_digimall(
-            session,
-            patterns,
-            target_model,
-            floor_price=None,
-            brand=product.brand,
-            target_desc=product.name,
-        )
+        try:
+            digi_plan = generate_digimall_plan(product.name, product.brand)
+        except ValueError as exc:
+            detail = str(exc)
+            digi_task = asyncio.sleep(
+                0,
+                result=ScrapeResult(
+                    is_success=False,
+                    status_code=None,
+                    error_detail=detail,
+                    coverage_status="FAILED",
+                    coverage_detail=detail,
+                ),
+            )
+        else:
+            digi_task = scrape_digimall(
+                session,
+                digi_plan,
+                target_model,
+                floor_price=None,
+                brand=product.brand,
+                target_desc=product.name,
+                context=digi_context,
+            )
 
     async with semaphore:
         if alfa_task and digi_task:
@@ -323,6 +351,9 @@ async def process_range_item_async(
 
 
 def _fmt_range(low: Any, high: Any, count: Any, alert: str) -> str:
+    if alert in {"INCOMPLETE_DISCOVERY", "CAPPED_DISCOVERY"}:
+        observed = f"{int(low):,} - {int(high):,} ({int(count)})" if count else "No observed offers"
+        return f"[yellow]{observed} — {alert}[/]"
     if alert == RANGE_ALERT_SERVER_DOWN:
         return "[bold red]DOWN[/]"
     if low is None or pd.isna(low):
@@ -449,6 +480,7 @@ async def run_range_pipeline(
         render_range_start_banner(path, len(products), concurrency)
 
     semaphore = asyncio.Semaphore(concurrency)
+    digi_context = DigiDiscoveryContext(concurrency)
     render_lock = asyncio.Lock()
     tasks: list[asyncio.Task[dict[str, Any]]] = []
 
@@ -464,6 +496,7 @@ async def run_range_pipeline(
                     item_index=i + 1,
                     total_items=len(products),
                     platform=plat,
+                    digi_context=digi_context,
                 )
             else:
                 coro = process_range_item_async(
@@ -474,6 +507,7 @@ async def run_range_pipeline(
                     verbose=verbose,
                     item_index=i + 1,
                     total_items=len(products),
+                    digi_context=digi_context,
                 )
             tasks.append(asyncio.create_task(coro))
             if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:

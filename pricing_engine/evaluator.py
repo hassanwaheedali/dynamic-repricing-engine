@@ -45,7 +45,11 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
     Sold-out offers are ignored. A failed ScrapeResult yields ``is_down=True`` so callers
     never confuse an unreachable server with an empty market.
     """
+    coverage_status = ""
+    coverage_detail = ""
     if isinstance(offers, ScrapeResult):
+        coverage_status = offers.coverage_status
+        coverage_detail = offers.coverage_detail
         if not offers.is_success:
             return MarketRange(
                 min_price=None,
@@ -53,6 +57,8 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
                 offer_count=0,
                 is_down=True,
                 error_detail=offers.error_detail or "HTTP Server/Network Error",
+                coverage_status=coverage_status,
+                coverage_detail=coverage_detail,
             )
         offer_list = offers.offers
     else:
@@ -64,8 +70,20 @@ def evaluate_market_range(offers: list[ScrapedOffer] | ScrapeResult) -> MarketRa
         if not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
     ]
     if not prices:
-        return MarketRange(min_price=None, max_price=None, offer_count=0)
-    return MarketRange(min_price=min(prices), max_price=max(prices), offer_count=len(prices))
+        return MarketRange(
+            min_price=None,
+            max_price=None,
+            offer_count=0,
+            coverage_status=coverage_status,
+            coverage_detail=coverage_detail,
+        )
+    return MarketRange(
+        min_price=min(prices),
+        max_price=max(prices),
+        offer_count=len(prices),
+        coverage_status=coverage_status,
+        coverage_detail=coverage_detail,
+    )
 
 
 def format_fallback_descriptions(mod: str, source: str = "target") -> tuple[str, str, str]:
@@ -631,6 +649,17 @@ def evaluate_digi_pricing(
     max_profit_cap: float | None = None,
 ) -> PlatformPricingResult:
     """Evaluate pricing on DigiMall with automatic fallback and own-store reason annotations."""
+    from pricing_engine.models import PROVISIONAL_COVERAGES
+
+    if isinstance(offers, ScrapeResult):
+        successful_scan = offers.is_success and offers.coverage_status in {"COMPLETE", "CAPPED"}
+        eligible = any(not o.is_sold_out and not is_non_competitor_vendor(o.vendor_name)
+                       for o in offers.offers)
+        if successful_scan and not eligible:
+            # Rejected listings are not competitors under the selected Digi policy.
+            offers = replace(offers, discovery_status=DISCOVERY_COMPLETE_NO_COMPETITORS)
+        elif offers.coverage_status in PROVISIONAL_COVERAGES:
+            offers = replace(offers, discovery_status=DISCOVERY_PAGINATION_INCOMPLETE)
     own_offers = offers.own_offers if isinstance(offers, ScrapeResult) else []
     res, ref_offer = _evaluate_digi_core(
         cost_floors=cost_floors,
@@ -640,7 +669,35 @@ def evaluate_digi_pricing(
     )
     res = replace(res, own_offers=own_offers)
     res = _apply_compatibility_and_fallback_annotations(res, offers, ref_offer)
-    return _annotate_non_competitor_reason(res, own_offers)
+    res = _annotate_non_competitor_reason(res, own_offers)
+    if isinstance(offers, ScrapeResult) and offers.coverage_status:
+        res = replace(
+            res, coverage_status=offers.coverage_status, coverage_detail=offers.coverage_detail
+        )
+        capped_monopoly = offers.coverage_status == "CAPPED" and res.status == "Monopoly Win"
+        candidate_review = res.status == STATUS_CANDIDATES_REJECTED
+        if offers.coverage_status in PROVISIONAL_COVERAGES and not capped_monopoly and not candidate_review:
+            res = replace(
+                res,
+                status=(
+                    "Provisional Price"
+                    if res.final_price is not None
+                    else STATUS_INCOMPLETE_DISCOVERY
+                ),
+                reason=f"Provisional observed pricing ({offers.coverage_status}). {res.reason}",
+            )
+        if offers.coverage_status == "CAPPED":
+            if capped_monopoly:
+                res = replace(res, status="Monopoly — Observed (3-page scan)",
+                              reason="Not found: no compatible in-stock competitors in inspected results. Applied existing monopoly pricing (3-page scan).")
+            elif res.final_price is not None:
+                res = replace(res, status="Observed Price (3-page scan)",
+                              reason=res.reason.replace("Provisional observed pricing (CAPPED).", "Observed pricing within successful 3-page scan (CAPPED)."))
+            elif not candidate_review:
+                res = replace(res, reason="No compatible in-stock competitor found in inspected results. Scan limit reached; no monopoly price applied.")
+        elif offers.coverage_status == "UNKNOWN" and res.final_price is None:
+            res = replace(res, reason="Search count unavailable. No compatible in-stock competitor found; no monopoly price applied.")
+    return res
 
 
 def _evaluate_digi_core(

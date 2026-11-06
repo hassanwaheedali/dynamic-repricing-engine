@@ -305,6 +305,7 @@ def test_pipeline_csv_index_preservation_when_completion_is_unordered(tmp_path: 
         semaphore: Any,
         render_lock: Any = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         await asyncio.sleep(delays.get(product.sno, 0.01))
         return {
@@ -428,6 +429,7 @@ def test_pipeline_csv_export_pure_integers_without_float_drift(tmp_path: Path) -
         semaphore: Any,
         render_lock: Any = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         if product.sno == 1:
             return {
@@ -743,6 +745,7 @@ def test_pipeline_csv_export_includes_risk_alerts_without_ansi_leakage(tmp_path:
         semaphore: Any,
         render_lock: Any = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         if product.sno == 1:
             return {

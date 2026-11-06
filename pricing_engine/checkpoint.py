@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 import config
+from pricing_engine.digi_discovery import DIGI_DISCOVERY_POLICY_VERSION
 from pricing_engine.models import CheckpointState
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ def compute_row_fingerprint(
         f"{brand}|{name}|{net_price:.2f}|{profit:.2f}|{length:.2f}|{width:.2f}|{height:.2f}"
         f"|{ship_override:.2f}|{norm_plat}|{norm_comm:.4f}"
     )
+    if norm_plat in {"digi", "all"}:
+        raw_signature += f"|{DIGI_DISCOVERY_POLICY_VERSION}"
     return hashlib.sha256(raw_signature.encode("utf-8")).hexdigest()[:16]
 
 

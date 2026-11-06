@@ -209,6 +209,7 @@ def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
         resp_tier1 = MagicMock()
         resp_tier1.status_code = 200
         resp_tier1.json.return_value = {
+            "count": 1,
             "results": [
                 {
                     "title": "HAIER 120-826S6 GC",
@@ -216,13 +217,14 @@ def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
                     "variant_detail": {"discounted_price": "95,000"},
                     "vendor": {"name": "Vendor A"},
                 }
-            ]
+            ],
         }
 
         # Second call (Tier 2) returns 1 additional offer
         resp_tier2 = MagicMock()
         resp_tier2.status_code = 200
         resp_tier2.json.return_value = {
+            "count": 1,
             "results": [
                 {
                     "title": "HAIER 120-826S6 AUTOMATIC",
@@ -230,13 +232,13 @@ def test_waterfall_cascades_to_tier_2_when_tier_1_has_few_offers() -> None:
                     "variant_detail": {"discounted_price": "96,000"},
                     "vendor": {"name": "Vendor B"},
                 }
-            ]
+            ],
         }
 
         # Third call (Tier 3) returns 0 offers
         resp_tier3 = MagicMock()
         resp_tier3.status_code = 200
-        resp_tier3.json.return_value = {"results": []}
+        resp_tier3.json.return_value = {"count": 1, "results": []}
 
         mock_session = AsyncMock()
         mock_session.get.side_effect = [resp_tier1, resp_tier2, resp_tier3]
@@ -464,7 +466,7 @@ def test_scraper_uses_limit_100_for_single_call_market_depth() -> None:
     async def _test() -> None:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {"results": []}
+        mock_resp.json.return_value = {"count": 0, "results": []}
 
         mock_session = AsyncMock()
         mock_session.get.return_value = mock_resp
@@ -624,7 +626,7 @@ def test_subfloor_probe_skips_when_count_less_than_or_equal_to_page_items() -> N
 
 def test_digimall_subfloor_probe_fetches_page_2_when_needed() -> None:
     async def _test() -> None:
-        # DigiMall page 1 has 50 sub-floor items, total count = 80
+        # DigiMall page 1 has 100 sub-floor items, total count = 101
         resp_p1 = MagicMock()
         resp_p1.status_code = 200
         resp_p1.json.return_value = {
@@ -635,9 +637,9 @@ def test_digimall_subfloor_probe_fetches_page_2_when_needed() -> None:
                     "variant_detail": {"discounted_price": "80,000"},
                     "vendor": {"name": f"Digi SubFloor {i}"},
                 }
-                for i in range(50)
+                for i in range(100)
             ],
-            "count": 80,
+            "count": 101,
         }
 
         # Page 2 has the viable competitor
@@ -652,7 +654,7 @@ def test_digimall_subfloor_probe_fetches_page_2_when_needed() -> None:
                     "vendor": {"name": "Electronics World"},
                 }
             ],
-            "count": 80,
+            "count": 101,
         }
 
         mock_session = AsyncMock()
