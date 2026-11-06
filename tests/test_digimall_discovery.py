@@ -629,3 +629,21 @@ def test_bracketed_suffix_plan_includes_bare_anchor_and_matches_unbracketed():
     assert a.branches[0].queries == b.branches[0].queries
     assert '150-826S6' in a.branches[0].queries
 
+
+
+def test_inverter_omission_is_same_product_but_explicit_non_inverter_collides():
+    from pricing_engine.matcher import referee_match
+
+    target = 'Haier HW90-BP14959S8 9KG Inverter Front Load Fully Automatic Washing Machine'
+    for title in (
+        'Haier Front Load Fully Automatic Washing Machine 9KG HWM-90-BP14959S8',
+        'Haier Front Load Fully Automatic Washing Machine 9kg (HWM-90-BP14959S8)',
+        'Haier - Washing Machine Automatic Front Load Inverter 9KG - HWM 90-BP14959S8',
+    ):
+        d = referee_match(target, title, brand='Haier')
+        assert d.is_match and d.match_tier == 1, (title, d.reason)
+    bad = referee_match(target, 'Haier Non-Inverter Front Load 9KG HWM-90-BP14959S8', brand='Haier')
+    assert not bad.is_match and 'Inverter mode collision' in bad.reason
+    other = referee_match(target, 'Haier Front Load 9KG HWM-90-BP14959S9', brand='Haier')
+    assert not other.is_match
+

@@ -753,7 +753,8 @@ def test_aud_med_03_iot_crosscheck_and_multimodifier_join() -> None:
     assert dec_multi.is_base_match is True
     assert dec_multi.missing_modifier is not None
     assert "GD" in dec_multi.missing_modifier
-    assert "INVERTER" in dec_multi.missing_modifier
+    # Inverter is a descriptor: omitting it is never reported as a missing modifier
+    assert "INVERTER" not in dec_multi.missing_modifier
 
 
 def test_aud_med_04_supabase_param_encoding_and_session_close() -> None:

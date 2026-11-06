@@ -98,13 +98,6 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
         if not re.search(r"\d", model):
             raise ValueError("No usable numeric model found for DigiMall discovery")
         queries = [model]
-        # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
-        # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
-        # Always schedule the bare anchor stem so the suffix is verified by the matcher
-        # (as a compatibility notice) instead of being required by the search engine.
-        anchor = extract_product_slots(branch, brand=brand).anchor
-        if anchor and re.search(r"\d", anchor) and normalize_query(anchor) != normalize_query(model):
-            queries.append(anchor)
         alternate = model.replace("-", " ") if "-" in model else model.replace(" ", "")
         if normalize_query(alternate) != normalize_query(model):
             queries.append(" ".join(alternate.split()))

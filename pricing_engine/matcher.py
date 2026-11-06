@@ -4875,19 +4875,9 @@ def referee_match(
             candidate_slots=cand_slots,
         )
 
-    # Category 2 Rule for Inverter:
-    # If target explicitly specifies INVERTER, but candidate omitted it (deferred until Anchor & all hard guards pass):
-    if (
-        target_slots.guarded_facets.is_inverter is True
-        and cand_slots.guarded_facets.is_inverter is None
-    ):
-        omitted_fallbacks.append(
-            (
-                "INVERTER",
-                "Hardware capability omitted (INVERTER mismatch): Target specifies INVERTER but candidate does not",
-                "target",
-            )
-        )
+    # Inverter is a descriptor, not an identity: once the anchor model matches, a listing that
+    # merely omits the word "Inverter" is the same product. Only an explicit opposite
+    # (Inverter vs Non-Inverter, guarded above) is a collision.
 
     # 1c. Zero-Tolerance Operating Mode Guard (Cool Only vs Heat & Cool)
     if target_slots.guarded_facets.cool_only and cand_slots.guarded_facets.heat_and_cool:

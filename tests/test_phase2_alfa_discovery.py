@@ -570,13 +570,11 @@ def test_dawlance_sprinter_strict_capacity_rejection() -> None:
 
 
 def test_dawlance_sprinter_inverter_evidence_preservation() -> None:
-    """Ensure listings omitting Inverter prose are kept as base offers and NOT promoted to exact match."""
+    """Listings omitting Inverter prose are the same product; only explicit Non-Inverter collides."""
     target = "Dawlance 1 Ton Inverter Sprinter X 15 Split Air Conditioner"
     cand_no_inv = "Dawlance 1 Ton Split Air Conditioner SPRINTER X 15 ON INSTALLMENTS"
     res = referee_match(target, cand_no_inv, brand="Dawlance")
-    assert res.is_match is False
-    assert res.is_base_match is True
-    assert res.missing_modifier == "INVERTER"
+    assert res.is_match is True and res.match_tier == 1
 
 
 def test_dawlance_sprinter_cross_brand_x_isolation() -> None:

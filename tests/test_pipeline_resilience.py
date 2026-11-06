@@ -572,11 +572,9 @@ def test_category2_inverter_and_es_generic_fallback() -> None:
     assert dec_col.is_match is False
     assert "Inverter mode collision" in dec_col.reason
 
-    # Inverter vs Omitted Inverter (Base Match)
+    # Inverter vs Omitted Inverter (same product, exact match)
     dec_base = referee_match("9170 Inverter GD", "Dawlance 9170 GD Refrigerator", brand="Dawlance")
-    assert dec_base.is_match is False
-    assert dec_base.is_base_match is True
-    assert dec_base.missing_modifier == "INVERTER"
+    assert dec_base.is_match is True and dec_base.match_tier == 1
 
     # ES8 vs Omitted ES8 (Base Match)
     dec_es = referee_match("18PITH11G ES8", "Gree GS-18PITH11G Inverter AC", brand="Gree")

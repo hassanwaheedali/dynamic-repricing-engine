@@ -1635,7 +1635,7 @@ def test_dynamic_brand_collision_rejects_foreign_brands_and_categories() -> None
     dec_dawlance = referee_match(target, c_dawlance, brand="Dawlance")
     assert dec_dawlance.is_match is False
     assert dec_dawlance.is_base_match is True
-    assert dec_dawlance.missing_modifier == "INVERTER"
+    assert dec_dawlance.missing_modifier == "DDM"
 
 
 def test_dynamic_multi_block_segmented_search_patterns() -> None:

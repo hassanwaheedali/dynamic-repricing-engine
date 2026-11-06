@@ -1220,14 +1220,14 @@ def test_adv_04_tier_3_sibling_enforces_guarded_facet_invariance_and_tier_2_repo
     assert dec_sib_no_t3.is_match is False
     assert dec_sib_no_t3.match_tier is None
 
-    # Sibling missing required Inverter -> rejected
+    # Sibling omitting the Inverter word is still a plain sibling (Inverter omission is not a mismatch)
     dec_sib_no_inv = referee_match(
         "Haier 18HFPCA 1.5 Ton Inverter AC",
         "Haier HSU-18HFPE 1.5 Ton Split AC",
         brand="Haier",
     )
     assert dec_sib_no_inv.is_match is False
-    assert dec_sib_no_inv.match_tier is None
+    assert dec_sib_no_inv.match_tier == 3
 
     # Sibling satisfying T3 + Inverter -> Tier 3 match
     dec_sib_ok = referee_match(
