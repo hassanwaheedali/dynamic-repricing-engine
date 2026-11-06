@@ -12,6 +12,7 @@ from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
     MatchDecision,
     expand_cartesian_branches,
+    extract_product_slots,
     extract_search_query_and_model,
     generate_search_patterns,
 )
@@ -97,12 +98,26 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
         if not re.search(r"\d", model):
             raise ValueError("No usable numeric model found for DigiMall discovery")
         queries = [model]
+        # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
+        # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
+        # Always schedule the bare anchor stem so the suffix is verified by the matcher
+        # (as a compatibility notice) instead of being required by the search engine.
+        anchor = extract_product_slots(branch, brand=brand).anchor
+        if anchor and re.search(r"\d", anchor) and normalize_query(anchor) != normalize_query(model):
+            queries.append(anchor)
         alternate = model.replace("-", " ") if "-" in model else model.replace(" ", "")
         if normalize_query(alternate) != normalize_query(model):
             queries.append(" ".join(alternate.split()))
+        # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
+        # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
+        # Always schedule the bare anchor stem so the suffix is verified by the matcher
+        # (as a compatibility notice) instead of being required by the search engine.
+        anchor = extract_product_slots(branch, brand=brand).anchor
+        if anchor and re.search(r"\d", anchor) and normalize_query(anchor) != normalize_query(model):
+            queries.append(anchor)
         for candidate in generate_search_patterns(branch, brand=brand).get("tier_2", []):
             clean = " ".join(brand_pattern.sub(" ", candidate).split())
-            if re.search(r"\d", clean) and normalize_query(clean) not in {
+            if len(queries) < 3 and re.search(r"\d", clean) and normalize_query(clean) not in {
                 normalize_query(q) for q in queries
             }:
                 queries.append(clean)

@@ -619,3 +619,13 @@ def test_timeouts_show_all_retry_attempts_before_exhaustion(
         assert result.coverage_status == "FAILED"
 
     asyncio.run(run())
+
+
+def test_bracketed_suffix_plan_includes_bare_anchor_and_matches_unbracketed():
+    from pricing_engine.digi_discovery import generate_digimall_plan
+
+    a = generate_digimall_plan('Haier HWM 150-826S6 (GC) 15KG Top Load Washing Machine', 'Haier')
+    b = generate_digimall_plan('Haier HWM 150-826S6 GC 15KG Top Load Washing Machine', 'Haier')
+    assert a.branches[0].queries == b.branches[0].queries
+    assert '150-826S6' in a.branches[0].queries
+
