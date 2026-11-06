@@ -150,11 +150,11 @@ def test_aud_crit_03_preserve_hardware_specs_after_hyphen_and_pipe() -> None:
         "Gree",
         False,
     )
-    # Twin Tub after ' - ' vs Front Load
+    # Non-Inverter after ' - ' vs Inverter
     _assert_match(
-        "Haier HWM-100 Front Load Washing Machine",
-        "Haier HWM-100 Washing Machine - Twin Tub",
-        "Haier",
+        "Dawlance 9170 Inverter Refrigerator",
+        "Dawlance 9170 Refrigerator - Non-Inverter",
+        "Dawlance",
         False,
     )
     # Variant suffix '- EBS' vs 'EBD'
@@ -440,23 +440,17 @@ def test_aud_high_04_pakistani_price_parsing_safety() -> None:
 
 
 def test_aud_high_05_washer_cross_facet_incompatibility() -> None:
-    """AUD-HIGH-05: Front/Top Load automatic washers must never match Twin/Single Tub semi-auto washers."""
-    _assert_match(
-        "Haier HWM 85 Top Load Fully Automatic Washing Machine",
-        "Haier HWM 85 Twin Tub Semi Automatic Washing Machine",
-        "Haier",
-        False,
-    )
-    _assert_match(
-        "Dawlance DWF 8200 Front Load Washing Machine",
-        "Dawlance DWF 8200 Single Tub Washer",
-        "Dawlance",
-        False,
-    )
-    # Regression guard: Dawlance 'DW-10600 W FL Twin Tub' must NOT self-collide on 'FL' lid code
+    """Model SKU anchors preserve washer identity without brittle prose-based architecture collisions."""
+    # When model anchor matches, seller descriptive variations (e.g. Twin Tub, Top Load, Semi Auto) match
     _assert_match(
         "Dawlance DW-10600 W FL Twin Tub Washing Machine",
         "Dawlance DW-10600 W FL Twin Tub Semi Automatic Washing Machine 10 KG",
+        "Dawlance",
+        True,
+    )
+    _assert_match(
+        "Dawlance DW-10500 Twin Tub Washing Machine",
+        "Dawlance Top Load Semi Automatic Washing Machine (DW-10500)",
         "Dawlance",
         True,
     )

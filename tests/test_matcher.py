@@ -1677,3 +1677,18 @@ def test_trailing_plus_capability_inside_parenthesized_sku_is_not_stripped_as_fe
     s = extract_product_slots('Haier HRF-458 Refrigerator (Smart DC Inverter + Self Cleaning)', brand='Haier')
     assert s.anchor == 'HRF-458'
 
+
+def test_twin_tub_with_spaced_variant_matches_top_load_semi_auto_as_base_model():
+    tgt = "Dawlance DW-10500 C Twin Tub Washing Machine"
+    cands = [
+        "Dawlance - Washing Machine Semi Auto Twin Tub Top Load 12KG - DW 10500",
+        "Dawlance Top Load Semi Automatic Washing Machine (DW-10500)",
+        "Dawlance Top Load Semi Automatic Washing Machine DW-10500",
+    ]
+    for c in cands:
+        d = referee_match(tgt, c, brand="Dawlance")
+        assert d.is_match is False
+        assert d.is_base_match is True
+        assert d.match_tier == 2
+        assert "Single-letter variant 'C' omitted" in d.reason
+        assert "FALLBACK MODEL" in d.compatibility_notice

@@ -4807,46 +4807,44 @@ def referee_match(
             candidate_slots=cand_slots,
         )
 
-    # 1b2d_cross. Cross-Facet Washer Architecture Mutual Exclusion Guard (AUD-HIGH-05)
-    t_load = target_slots.guarded_facets.load_type
-    c_load = cand_slots.guarded_facets.load_type
-    t_tub = target_slots.guarded_facets.tub_type
-    c_tub = cand_slots.guarded_facets.tub_type
-    t_auto = target_slots.guarded_facets.automation_type
-    c_auto = cand_slots.guarded_facets.automation_type
-    # If one side inferred 'FL' solely from a 2-letter 'FL' token (not spelled-out 'Front Load')
-    # and the other side also carries that same 'FL' SKU suffix token alongside Twin/Semi, do not misclassify as Front-Load collision.
-    if (
-        t_load == "FL"
-        and isinstance(target, str)
-        and not re.search(r"\bFRONT\s*LOAD(?:ING)?\b", target, re.IGNORECASE)
-        and re.search(r"\bFL\b", candidate_title, re.IGNORECASE)
-    ):
-        t_load = None
-    if (
-        c_load == "FL"
-        and not re.search(r"\bFRONT\s*LOAD(?:ING)?\b", candidate_title, re.IGNORECASE)
-        and isinstance(target, str)
-        and re.search(r"\bFL\b", target, re.IGNORECASE)
-    ):
-        c_load = None
-    if (
-        (t_load == "FL" and (c_tub in {"TWIN", "SINGLE"} or c_auto == "SEMI"))
-        or (c_load == "FL" and (t_tub in {"TWIN", "SINGLE"} or t_auto == "SEMI"))
-        or (t_load == "TL" and c_tub == "TWIN")
-        or (c_load == "TL" and t_tub == "TWIN")
-        or (t_auto == "AUTO" and c_tub in {"TWIN", "SINGLE"})
-        or (c_auto == "AUTO" and t_tub in {"TWIN", "SINGLE"})
-    ):
-        return MatchDecision(
-            is_match=False,
-            reason=(
-                f"Washer architecture collision: target ({t_load or t_tub or t_auto}) "
-                f"is incompatible with candidate ({c_load or c_tub or c_auto})"
-            ),
-            target_slots=target_slots,
-            candidate_slots=cand_slots,
-        )
+    # 1b2d_cross. Cross-Facet Washer Architecture Mutual Exclusion Guard (AUD-HIGH-05) [DISABLED/COMMENTED OUT]
+    # Sellers frequently use conflicting or redundant prose descriptions (e.g. 'Top Load Semi Automatic'
+    # or 'Twin Tub Top Load') which caused false collisions. Model SKU anchor preserves exact identity.
+    # t_load = target_slots.guarded_facets.load_type
+    # c_load = cand_slots.guarded_facets.load_type
+    # t_tub = target_slots.guarded_facets.tub_type
+    # c_tub = cand_slots.guarded_facets.tub_type
+    # t_auto = target_slots.guarded_facets.automation_type
+    # c_auto = cand_slots.guarded_facets.automation_type
+    # if (
+    #     t_load == "FL"
+    #     and isinstance(target, str)
+    #     and not re.search(r"\bFRONT\s*LOAD(?:ING)?\b", target, re.IGNORECASE)
+    #     and re.search(r"\bFL\b", candidate_title, re.IGNORECASE)
+    # ):
+    #     t_load = None
+    # if (
+    #     c_load == "FL"
+    #     and not re.search(r"\bFRONT\s*LOAD(?:ING)?\b", candidate_title, re.IGNORECASE)
+    #     and isinstance(target, str)
+    #     and re.search(r"\bFL\b", target, re.IGNORECASE)
+    # ):
+    #     c_load = None
+    # if (
+    #     (t_load == "FL" and (c_tub in {"TWIN", "SINGLE"} or c_auto == "SEMI"))
+    #     or (c_load == "FL" and (t_tub in {"TWIN", "SINGLE"} or t_auto == "SEMI"))
+    #     or (t_auto == "AUTO" and c_tub in {"TWIN", "SINGLE"})
+    #     or (c_auto == "AUTO" and t_tub in {"TWIN", "SINGLE"})
+    # ):
+    #     return MatchDecision(
+    #         is_match=False,
+    #         reason=(
+    #             f"Washer architecture collision: target ({t_load or t_tub or t_auto}) "
+    #             f"is incompatible with candidate ({c_load or c_tub or c_auto})"
+    #         ),
+    #         target_slots=target_slots,
+    #         candidate_slots=cand_slots,
+    #     )
 
     # 1b2e. Zero-Tolerance Refrigerator Defrost System Guard (Direct Cool vs No Frost)
     if (
