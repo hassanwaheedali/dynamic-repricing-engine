@@ -1661,3 +1661,19 @@ def test_dw6570_twin_tub_double_washing_machine_and_onestop_seller_cleanup() -> 
     dec = referee_match(target, cand_onestop, brand="Dawlance")
     assert dec.is_match is True
     assert "Accepted" in dec.reason
+
+
+def test_trailing_plus_capability_inside_parenthesized_sku_is_not_stripped_as_feature_list():
+    target = 'Dawlance DWT 1166 ADS+ Automatic Top Load Washing Machine'
+    for title in (
+        'Dawlance Top Load Fully Automatic Washing Machine (AWM-DWT-1166-ADS+)',
+        'Dawlance Top Load Fully Automatic Washing Machine (DWT-1166-X-ADS+)',
+    ):
+        d = referee_match(target, title, brand='Dawlance')
+        assert d.is_match and d.match_tier == 1, (title, d.reason)
+        assert extract_product_slots(title, brand='Dawlance').guarded_facets.capabilities == {'ADS+'}
+    assert referee_match(target, 'Dawlance Top Load (AWM-DWT-1166-ADS)', brand='Dawlance').match_tier != 1
+    # genuine marketing feature lists in parentheses are still stripped
+    s = extract_product_slots('Haier HRF-458 Refrigerator (Smart DC Inverter + Self Cleaning)', brand='Haier')
+    assert s.anchor == 'HRF-458'
+

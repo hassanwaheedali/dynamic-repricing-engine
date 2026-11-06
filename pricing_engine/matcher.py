@@ -293,6 +293,10 @@ def get_all_color_families(text: str) -> set[str]:
 
 
 # Strictly AC-anchored subordinate chassis/outdoor slash codes (e.g. HPU-48HE/012DC(GE)-T3, HSU-18HFP/023DC, 18HE/DC)
+# A '+' inside parentheses separates marketing features ('( A + B )') only when something follows
+# it. A '+' closing the parenthetical ('(AWM-DWT-1166-ADS+)') is a capability suffix on the model code.
+PAREN_FEATURE_PLUS = r"\+(?!\s*\))"
+
 SUBORDINATE_AC_SLASH_RE = re.compile(
     r"\b([A-Za-z]{2,4}[-_]\d{2}[A-Za-z]{1,5}|\d{2}[A-Za-z]{2,5})"
     r"\s*/\s*"
@@ -1467,7 +1471,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     )
     # Strip multi-item marketing feature parentheticals like '( Smart DC Inverter + Self Cleaning + UPS ... )'
     clean = re.sub(
-        r"\([^)]*(?:\+|\bself\s+cleaning\b|\bups\b|\bturbo\b|\bampere\b|\bwarranty\b)[^)]*\)",
+        rf"\([^)]*(?:{PAREN_FEATURE_PLUS}|\bself\s+cleaning\b|\bups\b|\bturbo\b|\bampere\b|\bwarranty\b)[^)]*\)",
         " ",
         clean,
         flags=re.IGNORECASE,
@@ -3176,7 +3180,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
     # Strip multi-item marketing feature parentheticals like '( Smart DC Inverter + Self Cleaning + UPS ... )'
     raw_clean = re.sub(
-        r"\([^)]*(?:\+|\bself\s+cleaning\b|\bups\b|\bturbo\b|\bampere\b)[^)]*\)",
+        rf"\([^)]*(?:{PAREN_FEATURE_PLUS}|\bself\s+cleaning\b|\bups\b|\bturbo\b|\bampere\b)[^)]*\)",
         " ",
         raw_clean,
         flags=re.IGNORECASE,
