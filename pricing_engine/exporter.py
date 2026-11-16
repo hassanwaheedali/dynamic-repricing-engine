@@ -29,8 +29,8 @@ from pricing_engine.models import (
 console = Console()
 
 PRICE_INT_COLUMNS: list[str] = [
-    "Total Without Profit",
-    "Calculation",
+    "Total Without Profit (Alfa)",
+    "Total Without Profit (Digi)",
     "Minimum Price Alfa",
     "Maximum Price Alfa",
     "Minimum Price Digi",
@@ -83,11 +83,12 @@ def is_price_int_column(col_name: Any) -> bool:
 def _excel_payout_expr(cell_ref: str, default_payout: float) -> str:
     """Generate Excel formula expression computing (1 - commission) dynamically.
 
-    Handles numeric percentage cells (e.g. 0.08 or 0.10), percentage text strings (e.g. '8.00%'),
-    and blank cells with zero reliance on substring searching ('FIND') or static percentage assumptions.
+    Handles numeric percentage cells (e.g. 0.08 or 0.10), fractional values (e.g. 0.075),
+    percentage text strings (e.g. '7.50%'), and blank cells without precision truncation.
     """
+    default_payout_str = f"{round(default_payout, 6):g}"
     return (
-        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_payout:.2f}, '
+        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_payout_str}, '
         f"IF(ISNUMBER({cell_ref}), 1-{cell_ref}, "
         f'1-SUBSTITUTE({cell_ref}, "%", "")/100))'
     )
@@ -95,8 +96,9 @@ def _excel_payout_expr(cell_ref: str, default_payout: float) -> str:
 
 def _excel_comm_expr(cell_ref: str, default_comm: float) -> str:
     """Generate Excel formula expression extracting commission decimal dynamically from cell."""
+    default_comm_str = f"{round(default_comm, 6):g}"
     return (
-        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_comm:.2f}, '
+        f'IF(OR(ISBLANK({cell_ref}), {cell_ref}=""), {default_comm_str}, '
         f"IF(ISNUMBER({cell_ref}), {cell_ref}, "
         f'SUBSTITUTE({cell_ref}, "%", "")/100))'
     )
@@ -171,11 +173,11 @@ def export_excel_workbook(
     """Export DataFrame to a styled Excel workbook with live dynamic formulas.
 
     Dynamically binds Excel formulas for:
-      - Shipping Estimate: =ROUNDUP(((Length*Width*Height)/5000)*70, 0)
-      - Total Without Profit: =ROUND((Net Price + Shipping) / (1 - Effective Comm), 0)
-      - Calculation: =ROUND((Net Price + Shipping + Profit) / 0.90, 0)
-      - Alfa Real Profit: =IF(ISBLANK(Final Price Alfa), "", ROUND((Final Price Alfa * 0.90) - (Net Price + Shipping), 0))
-      - Digi Real Profit: =IF(ISBLANK(Final Price Digi), "", ROUND((Final Price Digi * (1 - Effective Comm)) - (Net Price + Shipping), 0))
+      - Shipping Estimate: =ROUNDUP(((Length*Width*Height)/5000)*70, 2)
+      - Total Without Profit (Alfa): =ROUND((Net Price + Shipping)[*(1+Ins)] / (1 - Alfa Commission), 0)
+      - Total Without Profit (Digi): =ROUND((Net Price + Shipping)[*(1+Ins)] / (1 - Digi Commission), 0)
+      - Alfa Real Profit: =IF(ISBLANK(Final Price Alfa), "", ROUND((Final Price Alfa * (1 - Alfa Comm)) - (Net Price + Shipping)[*(1+Ins)], 0))
+      - Digi Real Profit: =IF(ISBLANK(Final Price Digi), "", ROUND((Final Price Digi * (1 - Digi Comm)) - (Net Price + Shipping)[*(1+Ins)], 0))
     """
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -214,27 +216,68 @@ def export_excel_workbook(
         cell.alignment = header_align
 
     currency_format = "#,##0"
-    price_cols_set = {
-        "Net Price",
-        "Profit",
-        "Shipping Estimate",
-        "Total Without Profit",
-        "Calculation",
-        "Minimum Price Alfa",
-        "Maximum Price Alfa",
-        "Minimum Price Digi",
-        "Maximum Price Digi",
-        "Final Price Alfa",
-        "Final Price Digi",
-        "Alfa Real Profit",
-        "Digi Real Profit",
-        "My 5% Commission",
-        "Min Profit Target (5% + 500)",
-        "Alfa Active Sellers",
-        "Digi Active Sellers",
-        "Alfa Company Profit",
-        "Digi Company Profit",
-    }
+    price_cols_set = set(PRICE_INT_COLUMNS) | {"Net Price", "Profit", "Shipping Estimate"}
+
+    # Hoist row-invariant column mappings and validated configuration outside the row loop
+    net = col_map.get("Net Price")
+    l_col = col_map.get("Length")
+    w_col = col_map.get("Width")
+    h_col = col_map.get("Height")
+    ship = col_map.get("Shipping Estimate")
+    alfa_comm_col = col_map.get("Alfa Commission")
+    digi_comm_col = col_map.get("Digi Commission")
+    twop_alfa = col_map.get("Total Without Profit (Alfa)")
+    twop_digi = col_map.get("Total Without Profit (Digi)")
+    final_alfa = col_map.get("Final Price Alfa")
+    final_digi = col_map.get("Final Price Digi")
+    prof_alfa = col_map.get("Alfa Real Profit")
+    prof_digi = col_map.get("Digi Real Profit")
+    ins_col = col_map.get("Insurance")
+
+    vol_divisor = (
+        int(config.VOLUMETRIC_DIVISOR)
+        if config.VOLUMETRIC_DIVISOR.is_integer()
+        else config.VOLUMETRIC_DIVISOR
+    )
+    courier_rate = (
+        int(config.COURIER_RATE_PER_KG)
+        if config.COURIER_RATE_PER_KG.is_integer()
+        else config.COURIER_RATE_PER_KG
+    )
+    # Resolve only active platform payout rates cleanly to preserve vendor isolation
+    alfa_payout = (
+        config.get_alfa_payout_rate()
+        if (twop_alfa or prof_alfa or alfa_comm_col)
+        else None
+    )
+    digi_payout = (
+        config.get_digi_payout_rate()
+        if (twop_digi or prof_digi or digi_comm_col)
+        else None
+    )
+    min_profit_val = (
+        int(config.COMPANY_MIN_PROFIT_PKR)
+        if config.COMPANY_MIN_PROFIT_PKR.is_integer()
+        else config.COMPANY_MIN_PROFIT_PKR
+    )
+    lbl = format_comm_pct_label(personal_comm_pct)
+    my_comm_col = col_map.get(f"My {lbl}% Commission") or next(
+        (col_map[h] for h in headers if _DYNAMIC_COMM_COL_RE.match(str(h))), None
+    )
+    min_target_col = col_map.get(f"Min Profit Target ({lbl}% + {min_profit_val})") or next(
+        (col_map[h] for h in headers if _DYNAMIC_MIN_TARGET_COL_RE.match(str(h))), None
+    )
+    co_alfa_col = col_map.get("Alfa Company Profit")
+    co_digi_col = col_map.get("Digi Company Profit")
+    comm_mult = (
+        (personal_comm_pct / 100.0)
+        if personal_comm_pct > 0
+        else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
+    )
+    vendor_specs = (
+        (twop_alfa, prof_alfa, final_alfa, alfa_comm_col, alfa_payout),
+        (twop_digi, prof_digi, final_digi, digi_comm_col, digi_payout),
+    )
 
     # Populate data rows
     for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
@@ -252,10 +295,10 @@ def export_excel_workbook(
                     row_vals.append(val)
             elif col_name == "S.NO":
                 row_vals.append(format_export_sno(val))
-            elif col_name in ("Commision", "Digi Effective Commision", "Insurance"):
+            elif col_name in ("Alfa Commission", "Digi Commission", "Insurance"):
                 try:
                     clean = str(val).replace("%", "").strip()
-                    row_vals.append(float(clean) / 100.0 if clean else None)
+                    row_vals.append(round(float(clean) / 100.0, 6) if clean else None)
                 except (ValueError, TypeError):
                     row_vals.append(val)
             else:
@@ -263,45 +306,10 @@ def export_excel_workbook(
 
         ws.append(row_vals)
 
-        # Inject dynamic formulas for row_idx
         r = row_idx
-        net = col_map.get("Net Price")
-        l_col = col_map.get("Length")
-        w_col = col_map.get("Width")
-        h_col = col_map.get("Height")
-        p_col = col_map.get("Profit")
-        ship = col_map.get("Shipping Estimate")
-        comm = col_map.get("Digi Effective Commision")
-        comm_col = col_map.get("Commision")
-        twop = col_map.get("Total Without Profit")
-        calc = col_map.get("Calculation")
-        final_alfa = col_map.get("Final Price Alfa")
-        final_digi = col_map.get("Final Price Digi")
-        prof_alfa = col_map.get("Alfa Real Profit")
-        prof_digi = col_map.get("Digi Real Profit")
-        ins_col = col_map.get("Insurance")
-        # Insurance % is added on the cost: (Net + Shipping) x (1 + ins), BEFORE commission/profit
+        # Insurance % is added on cost: (Net + Shipping) x (1 + ins), BEFORE commission/profit
         ins_factor = f"(1+{_excel_comm_expr(f'{ins_col}{r}', 0.0)})" if ins_col else ""
         ins_mul = f"*{ins_factor}" if ins_col else ""
-
-        vol_divisor = (
-            int(config.VOLUMETRIC_DIVISOR)
-            if config.VOLUMETRIC_DIVISOR.is_integer()
-            else config.VOLUMETRIC_DIVISOR
-        )
-        courier_rate = (
-            int(config.COURIER_RATE_PER_KG)
-            if config.COURIER_RATE_PER_KG.is_integer()
-            else config.COURIER_RATE_PER_KG
-        )
-        alfa_payout = config.get_alfa_payout_rate()
-        digi_lev_payout = config.get_digi_leverage_payout_rate()
-        min_profit_val = (
-            int(config.COMPANY_MIN_PROFIT_PKR)
-            if config.COMPANY_MIN_PROFIT_PKR.is_integer()
-            else config.COMPANY_MIN_PROFIT_PKR
-        )
-        alfa_comm_dec = round(config.ALFA_COMMISSION_PCT / 100.0, 4)
 
         # 1. Shipping Estimate
         if ship and l_col and w_col and h_col:
@@ -309,84 +317,46 @@ def export_excel_workbook(
             w_val = _safe_float(row.get("Width"), 0.0)
             h_val = _safe_float(row.get("Height"), 0.0)
             if l_val > 0 and w_val > 0 and h_val > 0:
-                ws[f"{ship}{r}"] = f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/{vol_divisor})*{courier_rate}, 2)"
-
-        # 2. Total Without Profit
-        eff_comm = comm or comm_col
-        if twop and net and ship:
-            if eff_comm:
-                payout_expr = _excel_payout_expr(f"{eff_comm}{r}", alfa_payout)
-                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r}){ins_mul}/{payout_expr}, 0)"
-            else:
-                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r}){ins_mul}/{alfa_payout:.2f}, 0)"
-
-        # 3. Dynamic Calculation (Referencing Commission Cell)
-        if calc and net and ship:
-            p_expr = f"IF(ISBLANK({p_col}{r}), {min_profit_val}, {p_col}{r})" if p_col else str(min_profit_val)
-            if comm_col:
-                comm_expr = _excel_comm_expr(f"{comm_col}{r}", alfa_comm_dec)
-                ws[f"{calc}{r}"] = f"=ROUND((({net}{r}+{ship}{r}){ins_mul}+{p_expr})/(1-{comm_expr}), 0)"
-            else:
-                ws[f"{calc}{r}"] = f"=ROUND((({net}{r}+{ship}{r}){ins_mul}+{p_expr})/{alfa_payout:.2f}, 0)"
-
-        # 4. Alfa Real Profit
-        if prof_alfa and final_alfa and net and ship:
-            if comm_col:
-                alfa_payout_expr = _excel_payout_expr(f"{comm_col}{r}", alfa_payout)
-                ws[f"{prof_alfa}{r}"] = (
-                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout_expr})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
-                )
-            else:
-                ws[f"{prof_alfa}{r}"] = (
-                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout:.2f})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
+                ws[f"{ship}{r}"] = (
+                    f"=ROUNDUP((({l_col}{r}*{w_col}{r}*{h_col}{r})/{vol_divisor})*{courier_rate}, 2)"
                 )
 
-        # 7. Digi Real Profit
-        if prof_digi and final_digi and net and ship:
-            digi_comm_col = comm or comm_col
-            if digi_comm_col:
-                digi_payout_expr = _excel_payout_expr(f"{digi_comm_col}{r}", digi_lev_payout)
-                ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_payout_expr})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
+        # 2-5. Per-vendor Total Without Profit & Real Profit formulas
+        for twop_col, prof_col, final_col, comm_col, payout in vendor_specs:
+            if payout is None:
+                continue
+            payout_expr = (
+                _excel_payout_expr(f"{comm_col}{r}", payout)
+                if comm_col
+                else f"{round(payout, 6):g}"
+            )
+            if twop_col and net and ship:
+                ws[f"{twop_col}{r}"] = (
+                    f"=ROUND(({net}{r}+{ship}{r}){ins_mul}/{payout_expr}, 0)"
                 )
-            else:
-                ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_lev_payout:.2f})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
+            if prof_col and final_col and net and ship:
+                ws[f"{prof_col}{r}"] = (
+                    f'=IF(ISBLANK({final_col}{r}), "", ROUND(({final_col}{r}*{payout_expr})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
                 )
 
-        # 8. Personal Commission & Company Profit Breakdown
-        lbl = format_comm_pct_label(personal_comm_pct)
-        my_comm_col = col_map.get(f"My {lbl}% Commission") or next(
-            (col_map[h] for h in headers if _DYNAMIC_COMM_COL_RE.match(str(h))), None
-        )
-        min_target_col = col_map.get(f"Min Profit Target ({lbl}% + {min_profit_val})") or next(
-            (col_map[h] for h in headers if _DYNAMIC_MIN_TARGET_COL_RE.match(str(h))), None
-        )
-        co_alfa_col = col_map.get("Alfa Company Profit")
-        co_digi_col = col_map.get("Digi Company Profit")
-
+        # 6. Personal Commission & Company Profit Breakdown
         if my_comm_col:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             if prof_alfa and prof_digi:
-                ws[f"{my_comm_col}{r}"] = (
-                    f"=ROUND(MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))*{comm_mult:g}, 0)"
-                )
+                profit_basis = f"MAX(0, MAX({prof_alfa}{r}, {prof_digi}{r}))"
             elif prof_alfa:
-                ws[f"{my_comm_col}{r}"] = f"=ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0)"
+                profit_basis = f"MAX(0, {prof_alfa}{r})"
             elif prof_digi:
-                ws[f"{my_comm_col}{r}"] = f"=ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0)"
+                profit_basis = f"MAX(0, {prof_digi}{r})"
             else:
-                ws[f"{my_comm_col}{r}"] = f"=ROUND(0*{comm_mult:g}, 0)"
+                profit_basis = "0"
+            ws[f"{my_comm_col}{r}"] = f"=ROUND({profit_basis}*{comm_mult:g}, 0)"
         if min_target_col:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             ws[f"{min_target_col}{r}"] = f"=ROUNDUP({min_profit_val}/(1-{comm_mult:g}), 0)"
         if co_alfa_col and prof_alfa:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             ws[f"{co_alfa_col}{r}"] = (
                 f'=IF(ISBLANK({prof_alfa}{r}), "", {prof_alfa}{r}-ROUND(MAX(0, {prof_alfa}{r})*{comm_mult:g}, 0))'
             )
         if co_digi_col and prof_digi:
-            comm_mult = (personal_comm_pct / 100.0) if personal_comm_pct > 0 else (config.DEFAULT_PERSONAL_COMM_PCT / 100.0)
             ws[f"{co_digi_col}{r}"] = (
                 f'=IF(ISBLANK({prof_digi}{r}), "", {prof_digi}{r}-ROUND(MAX(0, {prof_digi}{r})*{comm_mult:g}, 0))'
             )
@@ -403,7 +373,7 @@ def export_excel_workbook(
             if col_name in price_cols_set or is_price_int_column(col_name):
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")
-            elif col_name in ("Commision", "Digi Effective Commision", "Insurance"):
+            elif col_name in ("Alfa Commission", "Digi Commission", "Insurance"):
                 cell.number_format = "0.00%"
                 cell.alignment = Alignment(horizontal="center")
             elif (
@@ -517,33 +487,65 @@ def filter_alfa_only_columns(df: pd.DataFrame) -> pd.DataFrame:
     Preserves input columns, general cost/shipping columns, and Alfa columns,
     while excluding any column containing 'digi' (case-insensitive).
     """
-    retained_cols = [col for col in df.columns if "digi" not in col.lower()]
+    retained_cols = [col for col in df.columns if "digi" not in str(col).lower()]
     return df[retained_cols]
 
 
 def filter_digi_only_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter DataFrame to exclude alfa-key columns and redundant digi commission column when Digi-only export is requested.
+    """Filter DataFrame to exclude alfa-key columns when Digi-only export is requested.
 
     Preserves input columns, general cost/shipping columns, and Digi columns,
-    while excluding any column containing 'alfa' (case-insensitive) and redundant 'Digi Effective Commision'.
-    If 'Digi Effective Commision' exists, its value is assigned to 'Commision'.
+    while excluding any column containing 'alfa' (case-insensitive).
     """
-    clean_df = df.copy()
-    if "Digi Effective Commision" in clean_df.columns:
-        has_digi_comm = clean_df["Digi Effective Commision"].notna() & (
-            clean_df["Digi Effective Commision"].astype(str).str.strip() != ""
-        )
-        if "Commision" in clean_df.columns:
-            clean_df.loc[has_digi_comm, "Commision"] = clean_df.loc[
-                has_digi_comm, "Digi Effective Commision"
-            ]
+    retained_cols = [col for col in df.columns if "alfa" not in str(col).lower()]
+    return df[retained_cols]
 
-    retained_cols = [
-        col
-        for col in clean_df.columns
-        if "alfa" not in str(col).lower() and str(col).strip() != "Digi Effective Commision"
+
+def normalize_export_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Strip unnamed/blank columns, anchor Insurance after commissions, and place Risk Alerts last."""
+    clean_df = df.copy()
+    unnamed_cols = [
+        c for c in clean_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
     ]
-    return clean_df[retained_cols]
+    if unnamed_cols:
+        clean_df = clean_df.drop(columns=unnamed_cols)
+    risk_cols = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in clean_df.columns]
+    if risk_cols:
+        clean_df = clean_df[[c for c in clean_df.columns if c not in risk_cols] + risk_cols]
+    if "Insurance" in clean_df.columns:
+        cols_wo_ins = [c for c in clean_df.columns if c != "Insurance"]
+        anchor = next(
+            (c for c in ("Digi Commission", "Alfa Commission") if c in cols_wo_ins), None
+        )
+        if anchor is not None:
+            pos = cols_wo_ins.index(anchor) + 1
+            clean_df = clean_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
+    return clean_df
+
+
+def _format_csv_export_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply pure-integer formatting to CSV output columns without mutating caller DataFrame."""
+    csv_df = df.copy()
+    if "Shipping Estimate" in csv_df.columns:
+        csv_df["Shipping Estimate"] = csv_df["Shipping Estimate"].apply(format_export_shipping)
+    for col in csv_df.columns:
+        if is_price_int_column(col):
+            csv_df[col] = csv_df[col].apply(format_export_price)
+    return csv_df
+
+
+def _write_dedicated_platform_files(
+    df: pd.DataFrame,
+    csv_path: Path,
+    xlsx_path: Path,
+    personal_comm_pct: float,
+) -> None:
+    """Write a dedicated single-vendor CSV and XLSX pair safely."""
+    plat_df = df.copy()
+    if "S.NO" in plat_df.columns:
+        plat_df["S.NO"] = plat_df["S.NO"].apply(format_export_sno)
+    export_excel_workbook(plat_df, xlsx_path, personal_comm_pct=personal_comm_pct)
+    _format_csv_export_frame(plat_df).to_csv(csv_path, index=False)
 
 
 def export_results(
@@ -570,6 +572,7 @@ def export_results(
     Returns:
         ExportManifest with paths to generated files.
     """
+    plat_key = config.normalize_platform(platform, allow_all=True)
     if output_dir is None:
         out_dir = resolve_option_output_dir(source_filename, option=1)
     else:
@@ -597,24 +600,8 @@ def export_results(
     timestamped_xlsx_path = xlsx_dir / timestamped_xlsx_filename
     latest_xlsx_path = xlsx_dir / latest_xlsx_filename
 
-    export_df = df.copy()
-    unnamed_cols = [
-        c for c in export_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
-    ]
-    if unnamed_cols:
-        export_df = export_df.drop(columns=unnamed_cols)
-    risk_cols = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in export_df.columns]
-    if risk_cols:
-        export_df = export_df[[c for c in export_df.columns if c not in risk_cols] + risk_cols]
-    if "Insurance" in export_df.columns:
-        cols_wo_ins = [c for c in export_df.columns if c != "Insurance"]
-        anchor = next(
-            (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
-        )
-        if anchor is not None:
-            pos = cols_wo_ins.index(anchor) + 1
-            export_df = export_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
-    plat_key = platform.lower().strip()
+    clean_base_df = normalize_export_dataframe(df)
+    export_df = clean_base_df.copy()
     if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)
     elif plat_key == "digi":
@@ -638,51 +625,25 @@ def export_results(
         latest_xlsx_path = None  # type: ignore[assignment]
 
     # 2. Format pure integer strings for portal upload CSV (eliminating float drift .0)
-    if "Shipping Estimate" in export_df.columns:
-        export_df["Shipping Estimate"] = export_df["Shipping Estimate"].apply(
-            format_export_shipping
-        )
-    for col in export_df.columns:
-        if is_price_int_column(col):
-            export_df[col] = export_df[col].apply(format_export_price)
-
+    export_df = _format_csv_export_frame(export_df)
     export_df.to_csv(timestamped_csv_path, index=False)
     shutil.copyfile(timestamped_csv_path, latest_csv_path)
 
-    # 3. Generate dedicated platform files when running unified dual mode (all)
+    # 3. Generate dedicated platform files independently when running unified dual mode (all)
     if plat_key == "all":
-        try:
-            # Dedicated Alfa files
-            alfa_df = filter_alfa_only_columns(df.copy())
-            if "S.NO" in alfa_df.columns:
-                alfa_df["S.NO"] = alfa_df["S.NO"].apply(format_export_sno)
-            alfa_xlsx = xlsx_dir / f"{stem}_repriced_alfa_latest.xlsx"
-            export_excel_workbook(alfa_df, alfa_xlsx, personal_comm_pct=personal_comm_pct)
-            if "Shipping Estimate" in alfa_df.columns:
-                alfa_df["Shipping Estimate"] = alfa_df["Shipping Estimate"].apply(
-                    format_export_shipping
+        for suffix, filter_fn in (
+            ("alfa", filter_alfa_only_columns),
+            ("digi", filter_digi_only_columns),
+        ):
+            try:
+                _write_dedicated_platform_files(
+                    df=filter_fn(clean_base_df),
+                    csv_path=csv_dir / f"{stem}_repriced_{suffix}_latest.csv",
+                    xlsx_path=xlsx_dir / f"{stem}_repriced_{suffix}_latest.xlsx",
+                    personal_comm_pct=personal_comm_pct,
                 )
-            for col in alfa_df.columns:
-                if is_price_int_column(col):
-                    alfa_df[col] = alfa_df[col].apply(format_export_price)
-            alfa_df.to_csv(csv_dir / f"{stem}_repriced_alfa_latest.csv", index=False)
-
-            # Dedicated Digi files
-            digi_df = filter_digi_only_columns(df.copy())
-            if "S.NO" in digi_df.columns:
-                digi_df["S.NO"] = digi_df["S.NO"].apply(format_export_sno)
-            digi_xlsx = xlsx_dir / f"{stem}_repriced_digi_latest.xlsx"
-            export_excel_workbook(digi_df, digi_xlsx, personal_comm_pct=personal_comm_pct)
-            if "Shipping Estimate" in digi_df.columns:
-                digi_df["Shipping Estimate"] = digi_df["Shipping Estimate"].apply(
-                    format_export_shipping
-                )
-            for col in digi_df.columns:
-                if is_price_int_column(col):
-                    digi_df[col] = digi_df[col].apply(format_export_price)
-            digi_df.to_csv(csv_dir / f"{stem}_repriced_digi_latest.csv", index=False)
-        except Exception as exc:
-            console.print(f"[bold yellow]⚠️  Dual platform export notice:[/] {exc}")
+            except Exception as exc:
+                console.print(f"[bold yellow]⚠️  Dedicated {suffix} export notice:[/] {exc}")
 
     manifest = ExportManifest(
         timestamped_path=timestamped_csv_path,
@@ -717,6 +678,7 @@ def export_winning_5pct_results(
 
     Rows are sorted by total active sellers (highest market demand first) and 5% commission descending.
     """
+    plat_key = config.normalize_platform(platform, allow_all=True)
     lbl = format_comm_pct_label(personal_comm_pct)
     alfa_goal_col = (
         f"Alfa {lbl}% Goal"
@@ -794,24 +756,7 @@ def export_winning_5pct_results(
     ts_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_{ts_str}.xlsx"
     latest_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_latest.xlsx"
 
-    export_df = winners_df.copy()
-    unnamed_cols = [
-        c for c in export_df.columns if str(c).lower().startswith("unnamed:") or not str(c).strip()
-    ]
-    if unnamed_cols:
-        export_df = export_df.drop(columns=unnamed_cols)
-    risk_cols = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in export_df.columns]
-    if risk_cols:
-        export_df = export_df[[c for c in export_df.columns if c not in risk_cols] + risk_cols]
-    if "Insurance" in export_df.columns:
-        cols_wo_ins = [c for c in export_df.columns if c != "Insurance"]
-        anchor = next(
-            (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
-        )
-        if anchor is not None:
-            pos = cols_wo_ins.index(anchor) + 1
-            export_df = export_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
-    plat_key = platform.lower().strip()
+    export_df = normalize_export_dataframe(winners_df)
     if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)
     elif plat_key == "digi":
@@ -922,6 +867,7 @@ def export_range_results(
     XLSX problems (openpyxl missing, file locked by Excel) never abort the run: the CSV
     is always written first and issues are reported in ``manifest.warnings``.
     """
+    plat_key = config.normalize_platform(platform, allow_all=True)
     if output_dir is None:
         root = resolve_option_output_dir(source_filename, option=2)
     else:
@@ -939,7 +885,6 @@ def export_range_results(
     ]
     if unnamed_cols:
         working_df = working_df.drop(columns=unnamed_cols)
-    plat_key = platform.lower().strip()
     if plat_key == "alfa":
         working_df = filter_alfa_only_columns(working_df)
     elif plat_key == "digi":

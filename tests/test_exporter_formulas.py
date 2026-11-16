@@ -29,10 +29,22 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
             "Height": [85.0, 90.0],
             "Profit": [1000, 1500],
             "Shipping Estimate": [4284, 5040],
-            "Commision": ["10.00%", "10.00%"],
-            "Digi Effective Commision": ["8.00%", "10.00%"],
-            "Total Without Profit": [113352, 161156],
-            "Calculation": [117000, 162800],
+            "Alfa Commission": [
+                f"{config.get_alfa_commission_pct():.2f}%",
+                f"{config.get_alfa_commission_pct():.2f}%",
+            ],
+            "Digi Commission": [
+                f"{config.get_digi_commission_pct():.2f}%",
+                f"{config.get_digi_commission_pct():.2f}%",
+            ],
+            "Total Without Profit (Alfa)": [
+                round(104284 / config.get_alfa_payout_rate()),
+                round(145040 / config.get_alfa_payout_rate()),
+            ],
+            "Total Without Profit (Digi)": [
+                round(104284 / config.get_digi_payout_rate()),
+                round(145040 / config.get_digi_payout_rate()),
+            ],
             "Minimum Price Alfa": [116427, 161711],
             "Maximum Price Alfa": [140000, 190000],
             "Minimum Price Digi": [113896, 161711],
@@ -95,22 +107,23 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     assert f"{col_map['Width']}2" in ship_val
     assert f"{col_map['Height']}2" in ship_val
 
-    # Total Without Profit formula check
-    twop_val = ws[f"{col_map['Total Without Profit']}2"].value
-    assert isinstance(twop_val, str) and twop_val.startswith("=ROUND")
-    assert f"{col_map['Net Price']}2" in twop_val
-    assert f"{col_map['Shipping Estimate']}2" in twop_val
+    # Total Without Profit (Alfa) & (Digi) formula checks
+    twop_alfa_val = ws[f"{col_map['Total Without Profit (Alfa)']}2"].value
+    twop_digi_val = ws[f"{col_map['Total Without Profit (Digi)']}2"].value
+    assert isinstance(twop_alfa_val, str) and twop_alfa_val.startswith("=ROUND")
+    assert f"{col_map['Net Price']}2" in twop_alfa_val
+    assert f"{col_map['Shipping Estimate']}2" in twop_alfa_val
+    assert f"{col_map['Alfa Commission']}2" in twop_alfa_val
+    assert isinstance(twop_digi_val, str) and twop_digi_val.startswith("=ROUND")
+    assert f"{col_map['Digi Commission']}2" in twop_digi_val
 
-    # Calculation formula check (dynamic cell reference to Commision)
-    calc_val = ws[f"{col_map['Calculation']}2"].value
-    assert isinstance(calc_val, str) and calc_val.startswith("=ROUND")
-    assert f"{col_map['Profit']}2" in calc_val
-    assert f"{col_map['Commision']}2" in calc_val
-
-    # Commission cell numeric percentage check
-    comm_cell = ws[f"{col_map['Commision']}2"]
-    assert comm_cell.value == round(config.ALFA_COMMISSION_PCT / 100.0, 4)
-    assert comm_cell.number_format == "0.00%"
+    # Commission cells numeric percentage check
+    alfa_comm_cell = ws[f"{col_map['Alfa Commission']}2"]
+    digi_comm_cell = ws[f"{col_map['Digi Commission']}2"]
+    assert alfa_comm_cell.value == round(config.get_alfa_commission_pct() / 100.0, 4)
+    assert alfa_comm_cell.number_format == "0.00%"
+    assert digi_comm_cell.value == round(config.get_digi_commission_pct() / 100.0, 4)
+    assert digi_comm_cell.number_format == "0.00%"
 
     # Minimum Price Alfa & Digi check (real scraped market numbers, NOT formulas)
     min_alfa_val = ws[f"{col_map['Minimum Price Alfa']}2"].value
@@ -118,21 +131,34 @@ def test_export_results_dual_artifacts_with_formulas(tmp_path: Path) -> None:
     assert min_alfa_val == 116427
     assert min_digi_val == 113896
 
-    # Real Profit formulas check
+    # Real Profit formulas check (strictly isolated vendor commission columns + configured payouts)
     prof_alfa_val = ws[f"{col_map['Alfa Real Profit']}2"].value
     prof_digi_val = ws[f"{col_map['Digi Real Profit']}2"].value
-    assert isinstance(prof_alfa_val, str) and f"{config.get_alfa_payout_rate():.2f}" in prof_alfa_val
+    assert (
+        isinstance(prof_alfa_val, str)
+        and f"{col_map['Alfa Commission']}2" in prof_alfa_val
+        and f"{round(config.get_alfa_payout_rate(), 6):g}" in prof_alfa_val
+    )
     assert (
         isinstance(prof_digi_val, str)
-        and f"{col_map['Digi Effective Commision']}2" in prof_digi_val
+        and f"{col_map['Digi Commission']}2" in prof_digi_val
+        and f"{round(config.get_digi_payout_rate(), 6):g}" in prof_digi_val
     )
 
     # 4. Verify CSV content remains clean integer format for portal upload
     csv_df = pd.read_csv(manifest.latest_path, dtype=str)
     assert csv_df["Final Price Alfa"].iloc[0] == "122899"
-    assert csv_df["Total Without Profit"].iloc[0] == "113352"
-    assert csv_df["Calculation"].iloc[0] == "117000"
-    assert not csv_df["Total Without Profit"].iloc[0].startswith("=")
+    assert csv_df["Total Without Profit (Alfa)"].iloc[0] == str(
+        round(104284 / config.get_alfa_payout_rate())
+    )
+    assert csv_df["Total Without Profit (Digi)"].iloc[0] == str(
+        round(104284 / config.get_digi_payout_rate())
+    )
+    assert not csv_df["Total Without Profit (Alfa)"].iloc[0].startswith("=")
+    assert not csv_df["Total Without Profit (Digi)"].iloc[0].startswith("=")
+    assert "Calculation" not in csv_df.columns
+    assert "Commision" not in csv_df.columns
+    assert "Digi Effective Commision" not in csv_df.columns
 
 
 def test_excel_formulas_with_mutated_commissions_and_no_find_hacks(tmp_path: Path) -> None:
@@ -149,10 +175,10 @@ def test_excel_formulas_with_mutated_commissions_and_no_find_hacks(tmp_path: Pat
             "Height": [80.0],
             "Profit": [750],
             "Shipping Estimate": [4000],
-            "Commision": ["12.00%"],
-            "Digi Effective Commision": ["7.00%"],
-            "Total Without Profit": [111828],
-            "Calculation": [114489],
+            "Alfa Commission": ["12.00%"],
+            "Digi Commission": ["7.50%"],
+            "Total Without Profit (Alfa)": [118182],
+            "Total Without Profit (Digi)": [112432],
             "Minimum Price Alfa": [115000],
             "Maximum Price Alfa": [120000],
             "Minimum Price Digi": [114000],
@@ -172,8 +198,7 @@ def test_excel_formulas_with_mutated_commissions_and_no_find_hacks(tmp_path: Pat
 
     with (
         patch.object(config, "ALFA_COMMISSION_PCT", 12.0),
-        patch.object(config, "DIGI_STANDARD_COMMISSION_PCT", 12.0),
-        patch.object(config, "DIGI_LEVERAGE_COMMISSION_PCT", 7.0),
+        patch.object(config, "DIGI_COMMISSION_PCT", 7.5),
         patch.object(config, "COMPANY_MIN_PROFIT_PKR", 750.0),
         patch.object(config, "COURIER_RATE_PER_KG", 85.0),
         patch.object(config, "VOLUMETRIC_DIVISOR", 4500.0),
@@ -189,27 +214,28 @@ def test_excel_formulas_with_mutated_commissions_and_no_find_hacks(tmp_path: Pat
         headers = [c.value for c in ws[1]]
         col_map = {h: openpyxl.utils.get_column_letter(i + 1) for i, h in enumerate(headers)}
 
-        twop_formula = ws[f"{col_map['Total Without Profit']}2"].value
-        calc_formula = ws[f"{col_map['Calculation']}2"].value
+        twop_alfa_formula = ws[f"{col_map['Total Without Profit (Alfa)']}2"].value
+        twop_digi_formula = ws[f"{col_map['Total Without Profit (Digi)']}2"].value
         alfa_profit_formula = ws[f"{col_map['Alfa Real Profit']}2"].value
         digi_profit_formula = ws[f"{col_map['Digi Real Profit']}2"].value
 
         # 1. Zero 'FIND' substring hacks in any formula
         for f_name, f_val in [
-            ("Total Without Profit", twop_formula),
-            ("Calculation", calc_formula),
+            ("Total Without Profit (Alfa)", twop_alfa_formula),
+            ("Total Without Profit (Digi)", twop_digi_formula),
             ("Alfa Real Profit", alfa_profit_formula),
             ("Digi Real Profit", digi_profit_formula),
         ]:
             assert "FIND(" not in str(f_val), f"Fragile FIND() hack detected in {f_name}: {f_val}"
 
-        # 2. Total Without Profit dynamically references commission column
-        assert f"{col_map['Digi Effective Commision']}2" in twop_formula
+        # 2. Vendor TWOP formulas reference only their own commission column & exact fractional payout
+        assert f"{col_map['Alfa Commission']}2" in str(twop_alfa_formula)
+        assert "0.88" in str(twop_alfa_formula)
+        assert f"{col_map['Digi Commission']}2" in str(twop_digi_formula)
+        assert "0.925" in str(twop_digi_formula)
 
-        # 3. Calculation dynamically references Commision column and configured profit target 750
-        assert f"{col_map['Commision']}2" in calc_formula
-        assert "750" in calc_formula
-
-        # 4. Profit formulas dynamically reference commission cell
-        assert f"{col_map['Commision']}2" in alfa_profit_formula
-        assert f"{col_map['Digi Effective Commision']}2" in digi_profit_formula
+        # 3. Profit formulas reference only their own commission column & exact fractional payout
+        assert f"{col_map['Alfa Commission']}2" in str(alfa_profit_formula)
+        assert "0.88" in str(alfa_profit_formula)
+        assert f"{col_map['Digi Commission']}2" in str(digi_profit_formula)
+        assert "0.925" in str(digi_profit_formula)

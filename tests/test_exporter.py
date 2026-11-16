@@ -360,10 +360,10 @@ def test_filter_alfa_only_columns_unit() -> None:
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
-                "Total Without Profit": 112500,
-                "Calculation": 115000,
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                "Total Without Profit (Alfa)": 115000,
+                "Total Without Profit (Digi)": 112500,
                 "Minimum Price Alfa": 120000,
                 "Maximum Price Alfa": 130000,
                 "Minimum Price Digi": 119000,
@@ -392,7 +392,8 @@ def test_filter_alfa_only_columns_unit() -> None:
 
 
 def test_filter_digi_only_columns_unit() -> None:
-    """Verify filter_digi_only_columns excludes every alfa-key column and redundant Digi Effective Commision."""
+    """Verify filter_digi_only_columns excludes every alfa-key column while keeping Digi columns."""
+    digi_comm_str = f"{config.get_digi_commission_pct():.2f}%"
     df = pd.DataFrame(
         [
             {
@@ -400,8 +401,10 @@ def test_filter_digi_only_columns_unit() -> None:
                 "Brand": "Gree",
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
-                "Commision": "10.00%",
-                "Digi Effective Commision": "8.00%",
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": digi_comm_str,
+                "Total Without Profit (Alfa)": 115000,
+                "Total Without Profit (Digi)": 112500,
                 "Minimum Price Alfa": 120000,
                 "Maximum Price Alfa": 130000,
                 "Minimum Price Digi": 119000,
@@ -411,7 +414,7 @@ def test_filter_digi_only_columns_unit() -> None:
                 "Alfa Real Profit": 8909,
                 "Digi Real Profit": 10487,
                 "Alfa Reason": "Undercut competitor",
-                "Digi Reason": "Undercut at 8%",
+                "Digi Reason": "Undercut at configured rate",
                 "Alfa Risk Alert": "NONE",
                 "Digi Risk Alert": "NONE",
             }
@@ -420,8 +423,10 @@ def test_filter_digi_only_columns_unit() -> None:
     filtered = filter_digi_only_columns(df)
     for col in filtered.columns:
         assert "alfa" not in col.lower(), f"Unexpected alfa column in filtered output: {col}"
-    assert "Digi Effective Commision" not in filtered.columns
-    assert filtered["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert "Alfa Commission" not in filtered.columns
+    assert "Total Without Profit (Alfa)" not in filtered.columns
+    assert filtered["Digi Commission"].iloc[0] == digi_comm_str
+    assert "Total Without Profit (Digi)" in filtered.columns
     assert "Minimum Price Digi" in filtered.columns
     assert "Final Price Digi" in filtered.columns
     assert "Digi Real Profit" in filtered.columns
@@ -444,10 +449,10 @@ def test_export_results_with_alfa_flag_excludes_digi_in_csv_and_xlsx(tmp_path: P
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
-                "Total Without Profit": 112500,
-                "Calculation": 115000,
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                "Total Without Profit (Alfa)": 115000,
+                "Total Without Profit (Digi)": 112500,
                 "Minimum Price Alfa": 120000,
                 "Maximum Price Alfa": 130000,
                 "Minimum Price Digi": 119000,
@@ -506,10 +511,10 @@ def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: P
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
-                "Total Without Profit": 112500,
-                "Calculation": 115000,
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                "Total Without Profit (Alfa)": 115000,
+                "Total Without Profit (Digi)": 112500,
                 "Minimum Price Alfa": 120000,
                 "Maximum Price Alfa": 130000,
                 "Minimum Price Digi": 119000,
@@ -538,8 +543,8 @@ def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: P
     csv_cols = list(csv_df.columns)
     for col in csv_cols:
         assert "alfa" not in col.lower(), f"Alfa column '{col}' found in CSV"
-    assert "Digi Effective Commision" not in csv_cols
-    assert csv_df["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert "Alfa Commission" not in csv_cols
+    assert csv_df["Digi Commission"].iloc[0] == f"{config.get_digi_commission_pct():.2f}%"
     assert "Final Price Digi" in csv_cols
     assert "Digi Real Profit" in csv_cols
 
@@ -550,7 +555,7 @@ def test_export_results_with_digi_flag_excludes_alfa_in_csv_and_xlsx(tmp_path: P
     xlsx_cols = [cell.value for cell in ws[1]]
     for col in xlsx_cols:
         assert "alfa" not in str(col).lower(), f"Alfa column '{col}' found in XLSX"
-    assert "Digi Effective Commision" not in xlsx_cols
+    assert "Alfa Commission" not in xlsx_cols and "Digi Commission" in xlsx_cols
     assert "Final Price Digi" in xlsx_cols
     assert "Digi Real Profit" in xlsx_cols
 
@@ -569,10 +574,10 @@ def test_export_results_dual_platform_files_in_all_mode(tmp_path: Path) -> None:
                 "Name": "GS-18AITH21W",
                 "Net Price": 100000,
                 "Shipping Estimate": 3500,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
-                "Total Without Profit": 112500,
-                "Calculation": 115000,
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                "Total Without Profit (Alfa)": 115000,
+                "Total Without Profit (Digi)": 112500,
                 "Minimum Price Alfa": 120000,
                 "Maximum Price Alfa": 130000,
                 "Minimum Price Digi": 119000,
@@ -617,8 +622,8 @@ def test_export_results_dual_platform_files_in_all_mode(tmp_path: Path) -> None:
     digi_df = pd.read_csv(digi_csv)
     for col in digi_df.columns:
         assert "alfa" not in col.lower()
-    assert "Digi Effective Commision" not in digi_df.columns
-    assert digi_df["Commision"].iloc[0] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert "Alfa Commission" not in digi_df.columns
+    assert digi_df["Digi Commission"].iloc[0] == f"{config.get_digi_commission_pct():.2f}%"
 
 
 def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
@@ -633,7 +638,8 @@ def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
                 "Net Price": 100000,
                 "Final Price Alfa": 124899,
                 "Final Price Digi": 123899,
-                "Digi Effective Commision": f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
+                "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
                 "Alfa Risk Alert": "NONE",
                 "Digi Risk Alert": "NONE",
             }
@@ -648,7 +654,7 @@ def test_export_results_default_keeps_all_columns(tmp_path: Path) -> None:
     csv_df = pd.read_csv(manifest.latest_path)
     assert "Final Price Alfa" in csv_df.columns
     assert "Final Price Digi" in csv_df.columns
-    assert "Digi Effective Commision" in csv_df.columns
+    assert "Alfa Commission" in csv_df.columns and "Digi Commission" in csv_df.columns
     assert "Alfa Risk Alert" in csv_df.columns
     assert "Digi Risk Alert" in csv_df.columns
 

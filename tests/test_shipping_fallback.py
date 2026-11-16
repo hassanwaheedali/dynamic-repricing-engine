@@ -436,11 +436,10 @@ class TestTerminalAuditCardFormatting:
         )
         floors = CostFloors(
             cost_base=48000.0,
-            zero_margin_10=53333.33,
-            zero_margin_8=52173.91,
+            zero_margin_alfa=53333.33,
+            zero_margin_digi=52173.91,
             floor_alfa=53888.89,
-            floor_digi_10=53888.89,
-            floor_digi_8=52717.39,
+            floor_digi=52717.39,
             personal_comm=0,
         )
 
@@ -461,7 +460,7 @@ class TestTerminalAuditCardFormatting:
             real_profit=2599,
             status="SUCCESS",
             reason="COMPETITIVE_WIN",
-            effective_comm=f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
+            effective_comm=f"{config.get_digi_commission_pct():.2f}%",
         )
 
         # Render with is_shipping_fallback = True with console capture
@@ -500,10 +499,10 @@ class TestExcelExportFallbackFormula:
                     "Height": 85,
                     "Profit": 500,
                     "Shipping Estimate": 4284,
-                    "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                    "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
-                    "Total Without Profit": 82538,
-                    "Calculation": 83093,
+                    "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                    "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                    "Total Without Profit (Alfa)": 82538,
+                    "Total Without Profit (Digi)": 80743,
                     "Minimum Price Alfa": 83093,
                     "Maximum Price Alfa": 83093,
                     "Minimum Price Digi": 83093,
@@ -527,10 +526,10 @@ class TestExcelExportFallbackFormula:
                     "Height": 0,
                     "Profit": 500,
                     "Shipping Estimate": get_configured_washer_rate("Automatic", 10.0),
-                    "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                    "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
-                    "Total Without Profit": 81667,
-                    "Calculation": 82222,
+                    "Alfa Commission": f"{config.get_alfa_commission_pct():.2f}%",
+                    "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
+                    "Total Without Profit (Alfa)": 81667,
+                    "Total Without Profit (Digi)": 79891,
                     "Minimum Price Alfa": 82222,
                     "Maximum Price Alfa": 82222,
                     "Minimum Price Digi": 82222,

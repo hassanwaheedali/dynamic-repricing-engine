@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import config
 from pricing_engine.models import ScrapeResult
 from pricing_engine.pipeline import (
     _extract_sno,
@@ -122,14 +123,23 @@ def test_build_output_record_guarantees_sno_present_and_clean() -> None:
     from pricing_engine.models import PlatformPricingResult
 
     floors = calculate_floors(calculate_cost_base(80000, 3500))
-    dummy_res = PlatformPricingResult(
+    dummy_alfa = PlatformPricingResult(
         min_price=90000,
         max_price=95000,
         final_price=92999,
         real_profit=3500,
         reason="Won",
         status="Won",
-        effective_comm="10.00%",
+        effective_comm=f"{config.get_alfa_commission_pct():.2f}%",
+    )
+    dummy_digi = PlatformPricingResult(
+        min_price=90000,
+        max_price=95000,
+        final_price=92999,
+        real_profit=3500,
+        reason="Won",
+        status="Won",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
 
     rec = build_output_record(
@@ -137,8 +147,8 @@ def test_build_output_record_guarantees_sno_present_and_clean() -> None:
         shipping=3500.0,
         floors=floors,
         baseline_calc=95000.0,
-        alfa_res=dummy_res,
-        digi_res=dummy_res,
+        alfa_res=dummy_alfa,
+        digi_res=dummy_digi,
     )
 
     # Must contain "S.NO" with value 3
@@ -166,14 +176,23 @@ def test_build_output_record_normalizes_lowercase_sno_alias() -> None:
     from pricing_engine.models import PlatformPricingResult
 
     floors = calculate_floors(calculate_cost_base(75000, 3000))
-    dummy_res = PlatformPricingResult(
+    dummy_alfa = PlatformPricingResult(
         min_price=85000,
         max_price=90000,
         final_price=87999,
         real_profit=3000,
         reason="Won",
         status="Won",
-        effective_comm="10.00%",
+        effective_comm=f"{config.get_alfa_commission_pct():.2f}%",
+    )
+    dummy_digi = PlatformPricingResult(
+        min_price=85000,
+        max_price=90000,
+        final_price=87999,
+        real_profit=3000,
+        reason="Won",
+        status="Won",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
 
     rec = build_output_record(
@@ -181,8 +200,8 @@ def test_build_output_record_normalizes_lowercase_sno_alias() -> None:
         shipping=3000.0,
         floors=floors,
         baseline_calc=88000.0,
-        alfa_res=dummy_res,
-        digi_res=dummy_res,
+        alfa_res=dummy_alfa,
+        digi_res=dummy_digi,
     )
 
     assert rec["S.NO"] == 999
@@ -503,7 +522,7 @@ def test_category2_hardware_modifier_fallback_and_cross_check_notices() -> None:
         )
 
         digi_eval = evaluate_digi_pricing(floors, res)
-        assert "Safe Win" in digi_eval.status
+        assert digi_eval.status == "Competitive Win"
         assert (
             "[FALLBACK MODEL: Target specified 'T3', but market listings omitted it; repriced against base model]"
             in digi_eval.reason
@@ -941,6 +960,18 @@ def test_led_quote_and_screen_size_handling() -> None:
 
 
 def test_user_scenarios_item3_item4_item7_item10_distinction() -> None:
+    from unittest.mock import patch
+
+    # Pin historical Item #3/#4/#7/#10 benchmark rates cleanly
+    with (
+        patch.object(config, "ALFA_COMMISSION_PCT", 10.0),
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+    ):
+        return _run_user_scenarios_item3_item4_item7_item10_distinction()
+
+
+def _run_user_scenarios_item3_item4_item7_item10_distinction() -> None:
     """Verify exact UI differentiation between Pure Wins (Green) vs Sub-floor Capped Adjustments (Yellow).
 
     Item #4: Fahad @ 23,300 < Floor (23,363) -> Sub-floor dropped -> YELLOW CAPPED on Card & Summary!

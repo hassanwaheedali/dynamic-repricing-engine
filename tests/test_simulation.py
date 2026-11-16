@@ -87,8 +87,10 @@ def test_simulation_haier_washing_machine_pipeline() -> None:
                     "Brand",
                     "Name ",
                     "Shipping Estimate",
-                    "Total Without Profit",
-                    "Calculation",
+                    "Alfa Commission",
+                    "Digi Commission",
+                    "Total Without Profit (Alfa)",
+                    "Total Without Profit (Digi)",
                     "Minimum Price Alfa",
                     "Maximum Price Alfa",
                     "Final Price Alfa",
@@ -109,8 +111,8 @@ def test_simulation_haier_washing_machine_pipeline() -> None:
         asyncio.run(_run())
 
 
-def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
-    """Run E2E pipeline simulation on Gree AC catalog validating two-tier 10% -> 8% switch."""
+def test_simulation_gree_ac_pipeline_fixed_vendor_commissions() -> None:
+    """Run E2E pipeline simulation on Gree AC catalog validating strict fixed vendor commissions."""
     input_csv = _get_fixture("Gree_Uploading_on_DigiMall_and_Price.csv")
     assert input_csv.exists()
 
@@ -122,7 +124,7 @@ def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
         tmp_output = Path(tmp_dir) / "sample_gree_output.csv"
         sample_df.to_csv(tmp_input, index=False)
 
-        # Simulate competitive scenario triggering 8% bank rate switch
+        # Simulate competitive scenario under fixed DigiMall configured commission
         mock_alfa = ScrapeResult(offers=[], is_success=True, status_code=200)
         mock_digi = ScrapeResult(
             offers=[
@@ -150,13 +152,13 @@ def test_simulation_gree_ac_pipeline_two_tier_switch() -> None:
                 )
 
                 assert len(out_df) == 3
-                # Verify that commission rate is explicitly tagged
-                assert "Digi Effective Commision" in out_df.columns
-                for comm in out_df["Digi Effective Commision"].dropna():
-                    assert comm in (
-                        f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
-                        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
-                    )
+                # Verify that vendor commission columns strictly reflect configured rates
+                assert "Alfa Commission" in out_df.columns
+                assert "Digi Commission" in out_df.columns
+                for comm in out_df["Alfa Commission"].dropna():
+                    assert comm == f"{config.get_alfa_commission_pct():.2f}%"
+                for comm in out_df["Digi Commission"].dropna():
+                    assert comm == f"{config.get_digi_commission_pct():.2f}%"
 
         asyncio.run(_run())
 

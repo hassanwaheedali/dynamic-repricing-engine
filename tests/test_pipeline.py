@@ -81,8 +81,8 @@ def test_process_product_with_offers_monopoly() -> None:
 
     assert record["Final Price Alfa"] is not None
     assert record["Final Price Digi"] is not None
-    assert record["Commision"] == f"{config.ALFA_COMMISSION_PCT:.2f}%"
-    assert record["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+    assert record["Alfa Commission"] == f"{config.get_alfa_commission_pct():.2f}%"
+    assert record["Digi Commission"] == f"{config.get_digi_commission_pct():.2f}%"
     assert "Monopoly" in record["Alfa Reason"]
     assert record["Alfa Real Profit"] >= config.MONOPOLY_PROFIT_PKR
     assert record["Digi Real Profit"] >= config.MONOPOLY_PROFIT_PKR
@@ -97,10 +97,10 @@ def test_build_output_record_contains_all_schema_columns() -> None:
 
     expected_cols = [
         "Shipping Estimate",
-        "Commision",
-        "Digi Effective Commision",
-        "Total Without Profit",
-        "Calculation",
+        "Alfa Commission",
+        "Digi Commission",
+        "Total Without Profit (Alfa)",
+        "Total Without Profit (Digi)",
         "Minimum Price Alfa",
         "Maximum Price Alfa",
         "Minimum Price Digi",
@@ -114,12 +114,11 @@ def test_build_output_record_contains_all_schema_columns() -> None:
     ]
     for col in expected_cols:
         assert col in record
+    for legacy in ("Commision", "Digi Effective Commision", "Total Without Profit", "Calculation"):
+        assert legacy not in record
 
 
-def test_total_without_profit_matches_digi_effective_commission() -> None:
-    # Net Price = 415,000, Shipping = 15,291 -> Cost Base = 430,291
-    # 8% breakeven: 430,291 / 0.92 = 467,707.6 -> 467,708
-    # 10% breakeven: 430,291 / 0.90 = 478,101.1 -> 478,101
+def test_total_without_profit_matches_configured_vendor_commissions() -> None:
     product = parse_product_input(
         0,
         pd.Series(
@@ -132,78 +131,56 @@ def test_total_without_profit_matches_digi_effective_commission() -> None:
             }
         ),
     )
-    # Competitor triggers 8% switch (e.g. at 475,000 which is between 8% floor 468,251 and 10% floor 478,657)
-    digi_offer_8 = [
+    cost_base = product.net_price + 15291
+    digi_offer = [
         ScrapedOffer(vendor_name="DigiSeller", price=475000.0, is_sold_out=False, raw_title="AC")
     ]
-    record_8 = process_product_with_offers(product, [], digi_offer_8)
+    record = process_product_with_offers(product, [], digi_offer)
 
-    assert record_8["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-    assert record_8["Total Without Profit"] == round(
-        (product.net_price + 15291) / config.get_digi_leverage_payout_rate()
-    )
-
-    # When competitor on a standard product is above 10% floor and within profit cap -> 10% default tier
-    prod_standard = parse_product_input(
-        1,
-        pd.Series(
-            {
-                "S.NO": 2,
-                "Brand": "Gree",
-                "Name ": "GREE SPLIT AC 18AITH21W",
-                "Shipping Estimate": 5000,
-                "Net Price": "140,000",
-            }
-        ),
-    )
-    # Cost base = 145,000, 10% floor = 161,667. Competitor at 165,000 is viable at 10% tier
-    digi_offer_10 = [
-        ScrapedOffer(
-            vendor_name="DigiSellerHigh", price=165000.0, is_sold_out=False, raw_title="AC"
-        )
-    ]
-    record_10 = process_product_with_offers(prod_standard, [], digi_offer_10)
-
-    assert record_10["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
-    assert record_10["Total Without Profit"] == round((140000 + 5000) / config.get_alfa_payout_rate())
+    assert record["Alfa Commission"] == f"{config.get_alfa_commission_pct():.2f}%"
+    assert record["Digi Commission"] == f"{config.get_digi_commission_pct():.2f}%"
+    assert record["Total Without Profit (Alfa)"] == round(cost_base / config.get_alfa_payout_rate())
+    assert record["Total Without Profit (Digi)"] == round(cost_base / config.get_digi_payout_rate())
 
 
 def test_exact_real_profit_formula_matches_user_bank_payout() -> None:
-    # Net Price = 415,000, Shipping = 15,291 -> Cost Base = 430,291
-    # If Alfa price is 479,299 at 10%:
-    # Profit = (479,299 * alfa_payout) - 430,291
-    cost_base = 415000 + 15291
-    product = parse_product_input(
-        0,
-        pd.Series(
-            {
-                "S.NO": 1,
-                "Brand": "Gree",
-                "Name ": "FS 36TFIH",
-                "Shipping Estimate": 15291,
-                "Net Price": 415000,
-            }
-        ),
-    )
-    alfa_offers = [
-        ScrapedOffer(vendor_name="Nasim", price=479499.0, is_sold_out=False, raw_title="AC")
-    ]
-    digi_offers = [
-        ScrapedOffer(vendor_name="Scroll", price=489999.0, is_sold_out=False, raw_title="AC")
-    ]
+    from unittest.mock import patch
 
-    record = process_product_with_offers(product, alfa_offers, digi_offers)
+    with (
+        patch.object(config, "ALFA_COMMISSION_PCT", 10.0),
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+        patch.object(config, "LARGE_GAP_PROFIT_CAP_PKR", 10000.0),
+    ):
+        cost_base = 415000 + 15291
+        product = parse_product_input(
+            0,
+            pd.Series(
+                {
+                    "S.NO": 1,
+                    "Brand": "Gree",
+                    "Name ": "FS 36TFIH",
+                    "Shipping Estimate": 15291,
+                    "Net Price": 415000,
+                }
+            ),
+        )
+        alfa_offers = [
+            ScrapedOffer(vendor_name="Nasim", price=479499.0, is_sold_out=False, raw_title="AC")
+        ]
+        digi_offers = [
+            ScrapedOffer(vendor_name="Scroll", price=489999.0, is_sold_out=False, raw_title="AC")
+        ]
 
-    # Alfa undercut Nasim (479,499) to 479,299 -> Profit
-    assert record["Final Price Alfa"] == 479299
-    expected_alfa_profit = round((479299 * config.get_alfa_payout_rate()) - cost_base)
-    assert record["Alfa Real Profit"] == expected_alfa_profit
+        record = process_product_with_offers(product, alfa_offers, digi_offers)
 
-    # Digi caps inflated Scroll (489,999) at Default 10% Tier sweet-spot:
-    assert record["Final Price Digi"] == 478999
-    expected_digi_profit = round((478999 * config.get_digi_leverage_payout_rate()) - cost_base)
-    assert record["Digi Real Profit"] == expected_digi_profit
-    assert record["Digi Effective Commision"] == f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
+        assert record["Final Price Alfa"] == 479299
+        assert record["Alfa Commission"] == "10.00%"
+        assert record["Alfa Real Profit"] == round((479299 * 0.90) - cost_base)
+
+        assert record["Final Price Digi"] == 478499
+        assert record["Digi Commission"] == "8.00%"
+        assert record["Digi Real Profit"] == round((478499 * 0.92) - cost_base)
 
 
 def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
@@ -264,7 +241,7 @@ def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
             "Final Price Alfa": 482999,
             "Alfa Real Profit": 4408,
             "Final Price Digi": 482999,
-            "Digi Effective Commision": "10.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Real Profit": 14068,
         },
         {
@@ -275,7 +252,7 @@ def test_ui_rendering_functions_execute_cleanly(tmp_path: Path) -> None:
             "Final Price Alfa": None,
             "Alfa Real Profit": 0,
             "Final Price Digi": 168499,
-            "Digi Effective Commision": "8.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Real Profit": 9727,
         },
     ]
@@ -436,8 +413,8 @@ def test_pipeline_csv_export_pure_integers_without_float_drift(tmp_path: Path) -
                 "S.NO": product.sno,
                 "Final Price Alfa": 55000,
                 "Final Price Digi": 56000,
-                "Total Without Profit": 52000,
-                "Calculation": 55000,
+                "Total Without Profit (Alfa)": 52000,
+                "Total Without Profit (Digi)": 50870,
                 "Minimum Price Alfa": 53000,
                 "Maximum Price Alfa": 58000,
                 "Minimum Price Digi": 54000,
@@ -452,8 +429,8 @@ def test_pipeline_csv_export_pure_integers_without_float_drift(tmp_path: Path) -
                 "S.NO": product.sno,
                 "Final Price Alfa": None,
                 "Final Price Digi": None,
-                "Total Without Profit": 63000,
-                "Calculation": 66000,
+                "Total Without Profit (Alfa)": 63000,
+                "Total Without Profit (Digi)": 61630,
                 "Minimum Price Alfa": None,
                 "Maximum Price Alfa": None,
                 "Minimum Price Digi": None,
@@ -541,7 +518,7 @@ def test_render_audit_card_and_summary_with_server_down() -> None:
             "Final Price Digi": None,
             "Digi Real Profit": 0,
             "Digi Reason": "Server Down / Unreachable (HTTP 502)",
-            "Digi Effective Commision": "10.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
         }
     ]
     render_summary_table(records)
@@ -655,7 +632,7 @@ def test_render_summary_table_risk_visuals() -> None:
             "Final Price Digi": 143899,
             "Digi Real Profit": 578,
             "Digi Reason": "Emergency 8% switch: undercut viable seller",
-            "Digi Effective Commision": "8.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Risk Alert": "THIN_BUFFER",
         },
         {
@@ -670,7 +647,7 @@ def test_render_summary_table_risk_visuals() -> None:
             "Final Price Digi": 234999,
             "Digi Real Profit": 10388,
             "Digi Reason": "Capped at sweet-spot (~Rs. 10,000 profit)",
-            "Digi Effective Commision": "10.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Risk Alert": "NONE",
         },
         {
@@ -685,7 +662,7 @@ def test_render_summary_table_risk_visuals() -> None:
             "Final Price Digi": 450000,
             "Digi Real Profit": -200,
             "Digi Reason": "Corrupt cost base margin loss",
-            "Digi Effective Commision": "10.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Risk Alert": "NEGATIVE_MARGIN",
         },
         {
@@ -700,7 +677,7 @@ def test_render_summary_table_risk_visuals() -> None:
             "Final Price Digi": None,
             "Digi Real Profit": 0,
             "Digi Reason": "Skip: all competitors unviable",
-            "Digi Effective Commision": "10.00%",
+            "Digi Commission": f"{config.get_digi_commission_pct():.2f}%",
             "Digi Risk Alert": "SERVER_DOWN",
         },
     ]
@@ -848,29 +825,24 @@ def test_item_3_slash_expansion_digimall_reprice_win() -> None:
         ),
     ]
 
-    record = process_product_with_offers(product, alfa_offers=[], digi_offers=digi_offers)
+    from unittest.mock import patch
 
-    # 1. Winning price undercuts Musab Mall (193,999) to 193,499 (Adaptive undercut via dynamic glide)
-    assert record["Final Price Digi"] == 193499
+    with (
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+    ):
+        record = process_product_with_offers(product, alfa_offers=[], digi_offers=digi_offers)
 
-    # 2. Commission switched to Emergency Tier
-    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+        assert record["Final Price Digi"] == 193499
+        assert record["Digi Commission"] == "8.00%"
 
-    # 3. Real Profit calculated
-    cost_base = product.net_price + record["Shipping Estimate"]
-    assert record["Digi Real Profit"] == round(
-        (record["Final Price Digi"] * config.get_digi_leverage_payout_rate()) - cost_base
-    )
+        cost_base = product.net_price + record["Shipping Estimate"]
+        assert record["Digi Real Profit"] == round((record["Final Price Digi"] * 0.92) - cost_base)
 
-    # 4. Reason documents the leverage switch undercut
-    assert (
-        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}% bank rate" in record["Digi Reason"].lower()
-        or f"emergency {config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}%" in record["Digi Reason"].lower()
-        or "emergency" in record["Digi Reason"].lower()
-    )
-
-    # 5. Risk Alert is NONE (Healthy margin >= config.THIN_BUFFER_THRESHOLD_PKR)
-    assert record["Digi Risk Alert"] == "NONE"
+        assert "adaptive split" in record["Digi Reason"].lower()
+        assert "193,499" in record["Digi Reason"]
+        assert "emergency" not in record["Digi Reason"].lower()
+        assert record["Digi Risk Alert"] == "NONE"
 
 
 def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
@@ -921,9 +893,16 @@ def test_item_17_zith2_rejects_cheaper_zith1_competitor() -> None:
     assert len(filtered_offers) == 1
     assert filtered_offers[0].vendor_name == "Legit Seller Gen2"
 
-    record = process_product_with_offers(
-        product, alfa_offers=filtered_offers, digi_offers=filtered_offers
-    )
+    from unittest.mock import patch
+
+    with (
+        patch.object(config, "ALFA_COMMISSION_PCT", 10.0),
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+    ):
+        record = process_product_with_offers(
+            product, alfa_offers=filtered_offers, digi_offers=filtered_offers
+        )
 
     # AlfaMall undercuts Gen 2 (153,999 -> Tier 4 adaptive undercut 153,799), completely ignoring Gen 1 (130,000)
     assert record["Final Price Alfa"] == 153799
@@ -981,25 +960,21 @@ def test_item_22_pular_batch_slash_digimall_reprice_win() -> None:
     assert len(filtered) == 2
     assert all(o.vendor_name in ("Tech House", "YZ International") for o in filtered)
 
-    record = process_product_with_offers(product, alfa_offers=[], digi_offers=filtered)
+    from unittest.mock import patch
 
-    # 1. Final Price undercuts Tech House (247,999)
-    assert record["Final Price Digi"] < 247999
-    # 2. Commission switched to leverage tier
-    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-    # 3. Real Profit is healthy
-    cost_base = product.net_price + record["Shipping Estimate"]
-    assert record["Digi Real Profit"] == round(
-        (record["Final Price Digi"] * config.get_digi_leverage_payout_rate()) - cost_base
-    )
-    # 4. Reason documents Tech House undercut and leverage bank rate
-    assert "tech house" in record["Digi Reason"].lower()
-    assert (
-        f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.0f}% faysal bank rate" in record["Digi Reason"].lower()
-        or "faysal bank rate" in record["Digi Reason"].lower()
-    )
-    # 5. Risk Alert is NONE
-    assert record["Digi Risk Alert"] == "NONE"
+    with (
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+    ):
+        record = process_product_with_offers(product, alfa_offers=[], digi_offers=filtered)
+
+        assert record["Final Price Digi"] < 247999
+        assert record["Digi Commission"] == "8.00%"
+        cost_base = product.net_price + record["Shipping Estimate"]
+        assert record["Digi Real Profit"] == round((record["Final Price Digi"] * 0.92) - cost_base)
+        assert "tech house" in record["Digi Reason"].lower()
+        assert "faysal bank rate" not in record["Digi Reason"].lower()
+        assert record["Digi Risk Alert"] == "NONE"
 
 
 def test_pipeline_autonomous_learner_buffering() -> None:
@@ -1064,11 +1039,10 @@ def test_build_scraped_sellers_table_smart_formatting() -> None:
 
     floors = CostFloors(
         floor_alfa=88226.0,
-        floor_digi_10=88226.0,
-        floor_digi_8=86307.0,
+        floor_digi=86307.0,
         cost_base=78903.0,
-        zero_margin_10=87670.0,
-        zero_margin_8=85764.0,
+        zero_margin_alfa=87670.0,
+        zero_margin_digi=85764.0,
     )
 
     # 5 sub-floor sellers and 3 viable sellers (total 8 sellers)
@@ -1138,11 +1112,10 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
 
     floors = CostFloors(
         floor_alfa=88226.0,
-        floor_digi_10=88226.0,
-        floor_digi_8=86307.0,
+        floor_digi=86307.0,
         cost_base=78903.0,
-        zero_margin_10=87670.0,
-        zero_margin_8=85764.0,
+        zero_margin_alfa=87670.0,
+        zero_margin_digi=85764.0,
     )
 
     alfa_offers = [
@@ -1171,7 +1144,7 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
         real_profit=3896,
         reason="All competitors selling at loss",
         status="Safe Fallback",
-        effective_comm="8.00%",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
 
     tbl = build_scraped_sellers_table(floors, alfa_offers, [], alfa_res, digi_res)
@@ -1187,18 +1160,17 @@ def test_build_scraped_sellers_table_all_subfloor_lossmakers() -> None:
     assert "Loss Seller 0" in full_table_text
 
 
-def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
-    """Verify DigiMall correctly renders Target Undercut (8% Viable) on emergency switch."""
+def test_build_scraped_sellers_table_digimall_configured_comm() -> None:
+    """Verify DigiMall correctly renders Target Undercut with configured commission rate."""
     from pricing_engine.models import CostFloors, PlatformPricingResult, ScrapedOffer
     from pricing_engine.pipeline import build_scraped_sellers_table
 
     floors = CostFloors(
         floor_alfa=88226.0,
-        floor_digi_10=88226.0,
-        floor_digi_8=86307.0,
+        floor_digi=86307.0,
         cost_base=78903.0,
-        zero_margin_10=87670.0,
-        zero_margin_8=85764.0,
+        zero_margin_alfa=87670.0,
+        zero_margin_digi=85764.0,
     )
 
     digi_offers = [
@@ -1225,7 +1197,7 @@ def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
         real_profit=677,
         reason="Triggered emergency 8% switch",
         status="Won",
-        effective_comm="8.00%",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
 
     tbl = build_scraped_sellers_table(floors, [], digi_offers, alfa_res, digi_res)
@@ -1235,8 +1207,8 @@ def test_build_scraped_sellers_table_digimall_two_tier_switch() -> None:
             rows_text.append(str(cell))
     full_table_text = " ".join(rows_text)
 
-    # Must display 8% Viable badge
-    assert "Target Undercut (8% Viable)" in full_table_text
+    # Must display configured rate label
+    assert f"Target Undercut ({config.get_digi_commission_pct():g}% Configured)" in full_table_text
     assert "Electronics World" in full_table_text
     assert "86,702" in full_table_text
 
@@ -1248,11 +1220,10 @@ def test_build_scraped_sellers_table_target_predecessor_visibility() -> None:
 
     floors = CostFloors(
         floor_alfa=33964.0,
-        floor_digi_10=33964.0,
-        floor_digi_8=33226.0,
+        floor_digi=33226.0,
         cost_base=30000.0,
-        zero_margin_10=33333.0,
-        zero_margin_8=32608.0,
+        zero_margin_alfa=33333.0,
+        zero_margin_digi=32608.0,
     )
 
     # 9 dropped sellers (Allure Beauty, Tech House, etc.) + MZ Electronics as target undercut
@@ -1452,11 +1423,10 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
 
     floors = CostFloors(
         floor_alfa=80555.0,
-        floor_digi_10=80555.0,
-        floor_digi_8=78804.0,
+        floor_digi=78804.0,
         cost_base=72000.0,
-        zero_margin_10=80000.0,
-        zero_margin_8=78260.0,
+        zero_margin_alfa=80000.0,
+        zero_margin_digi=78260.0,
     )
 
     alfa_scrape = ScrapeResult(
@@ -1494,7 +1464,7 @@ def test_build_scraped_sellers_table_renders_own_store_badges() -> None:
         real_profit=4267,
         reason="[OFFICIAL STORE: Haier Official Store @ Rs. 92,000] Undercut competitor.",
         status="Competitive Win",
-        effective_comm="8.00%",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
         own_offers=digi_scrape.own_offers,
     )
 
@@ -1530,25 +1500,26 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
         reason="Undercut viable competitor Afzal Corporation to winning price Rs. 36,499.",
         status="Undercut Win",
     )
-    digi_undercut_8pct = PlatformPricingResult(
+    digi_undercut = PlatformPricingResult(
         final_price=36299,
         min_price=36599.0,
         max_price=40000.0,
         real_profit=2100,
-        reason="Triggered emergency 8% rate to undercut competitor to winning price Rs. 36,299.",
-        status="Undercut Win (8% Tier)",
-        effective_comm="8.00%",
+        reason="Undercut lowest competitor to winning price Rs. 36,299.",
+        status="Competitive Win",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
     tbl1 = build_platform_decision_table(
         alfa_res=alfa_undercut,
-        digi_res=digi_undercut_8pct,
+        digi_res=digi_undercut,
         alfa_offers=[],
         digi_offers=[],
         personal_comm_pct=5.0,
     )
     rendered_text1 = " ".join(str(cell) for col in tbl1.columns for cell in col._cells)
     assert "(WINNING UNDERCUT)" in rendered_text1
-    assert "(WINNING UNDERCUT (8% RATE))" in rendered_text1
+    assert "(8% RATE)" not in rendered_text1
+    assert "Emergency Switch" not in rendered_text1
 
     # Case 2: Capped Sweet-Spot Win
     alfa_capped = PlatformPricingResult(
@@ -1592,8 +1563,8 @@ def test_final_price_card_badges_undercut_capped_monopoly_fallback() -> None:
         min_price=50000.0,
         max_price=50000.0,
         real_profit=3699,
-        reason="Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 3,699 profit on 8% Faysal Bank rate) for maximum conversion.",
-        status="Safe Win (10% Tier)",
+        reason="Large price gap (Rs. 5,000) above floor. Applied 50% split midpoint to capped winning psychological price Rs. 47,499 (+Rs. 3,699 profit) for maximum conversion.",
+        status="Competitive Win",
     )
     tbl3 = build_platform_decision_table(
         alfa_res=alfa_fallback,

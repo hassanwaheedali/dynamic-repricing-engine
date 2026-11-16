@@ -18,7 +18,6 @@ from rich.table import Table
 
 import config
 from pricing_engine.calculator import (
-    calculate_baseline,
     calculate_cost_base,
     calculate_effective_target_profit,
     calculate_floors,
@@ -51,6 +50,7 @@ from pricing_engine.exporter import (
     filter_digi_only_columns,
     format_export_shipping,
     is_price_int_column,
+    normalize_export_dataframe,
     resolve_option_output_dir,
 )
 from pricing_engine.ingestion import (
@@ -67,7 +67,10 @@ from pricing_engine.matcher import (
     referee_match,
 )
 from pricing_engine.models import (
+    GENERATED_RAW_EXCLUSIONS_LOWER,
     PROVISIONAL_COVERAGES,
+    SNO_ALIASES,
+    SNO_ALIASES_LOWER,
     STATUS_CANDIDATES_REJECTED,
     STATUS_INCOMPLETE_DISCOVERY,
     STATUS_SERVER_DOWN,
@@ -467,22 +470,17 @@ def build_output_record(
     # Guarantee S.NO is the first column in output
     out_record: dict[str, Any] = {"S.NO": product.sno}
 
-    # Copy remaining raw_row fields, excluding any S.NO aliases and unnamed/empty columns
-    sno_aliases = {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
+    _ = baseline_calc  # Retained for positional signature compatibility
+    # Copy remaining raw_row fields, excluding S.NO aliases, unnamed columns, and generated/legacy cols
     for k, v in product.raw_row.items():
         k_str = str(k).strip()
+        k_lower = k_str.lower()
         if (
-            k in sno_aliases
-            or k_str.lower().startswith("unnamed:")
-            or not k_str
-            or k_str
-            in {
-                "Insurance",
-                "Digi Discovery Coverage",
-                "Digi Discovery Detail",
-                "Alfa Risk Alert",
-                "Digi Risk Alert",
-            }
+            not k_str
+            or k_lower.startswith("unnamed:")
+            or k in SNO_ALIASES
+            or k_lower in SNO_ALIASES_LOWER
+            or k_lower in GENERATED_RAW_EXCLUSIONS_LOWER
         ):
             continue
         out_record[k] = v
@@ -494,27 +492,30 @@ def build_output_record(
             break
 
     out_record["Shipping Estimate"] = shipping
-    plat_lower = platform.lower().strip()
-    alfa_comm = f"{config.ALFA_COMMISSION_PCT:.2f}%"
-    digi_lev_comm = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-    if plat_lower == "digi" and digi_res.status != "SKIPPED":
-        out_record["Commision"] = digi_res.effective_comm if digi_res.effective_comm else alfa_comm
-    else:
-        out_record["Commision"] = alfa_comm
-    out_record["Digi Effective Commision"] = (
-        digi_res.effective_comm if digi_res.status != "SKIPPED" else ""
-    )
-    # Category-driven insurance (% on Net + Shipping before commission); column only appears when > 0
+    plat_lower = config.normalize_platform(platform, allow_all=True)
+
+    vendor_specs = [
+        spec
+        for spec in (
+            ("alfa", "AlfaMall", "Alfa Commission", "Total Without Profit (Alfa)", alfa_res, floors.zero_margin_alfa),
+            ("digi", "DigiMall", "Digi Commission", "Total Without Profit (Digi)", digi_res, floors.zero_margin_digi),
+        )
+        if plat_lower in {"all", spec[0]}
+    ]
+    for plat_key, label, comm_col, _, res, _ in vendor_specs:
+        configured_comm = config.format_commission_pct(config.get_vendor_commission_pct(plat_key))
+        if res.status != "SKIPPED":
+            if res.effective_comm and res.effective_comm != configured_comm:
+                raise ValueError(
+                    f"{label} effective_comm {res.effective_comm!r} != configured {configured_comm!r}"
+                )
+            out_record[comm_col] = configured_comm
+        else:
+            out_record[comm_col] = ""
     if floors.insurance_pct > 0:
         out_record["Insurance"] = f"{floors.insurance_pct:.2f}%"
-
-    # Total Without Profit: If Digi uses leverage commission, record leverage breakeven
-    if digi_res.status != "SKIPPED" and digi_res.effective_comm == digi_lev_comm:
-        out_record["Total Without Profit"] = round(floors.zero_margin_8)
-    else:
-        out_record["Total Without Profit"] = round(floors.zero_margin_10)
-
-    out_record["Calculation"] = round(baseline_calc)
+    for _, _, _, twop_col, _, zero_margin_val in vendor_specs:
+        out_record[twop_col] = round(zero_margin_val)
 
     out_record["Minimum Price Alfa"] = alfa_res.min_price if alfa_res.status != "SKIPPED" else None
     out_record["Maximum Price Alfa"] = alfa_res.max_price if alfa_res.status != "SKIPPED" else None
@@ -625,6 +626,7 @@ def process_product_with_offers(
         product.name, brand=product.brand, category=_extract_product_category(product)
     )
 
+    plat_lower = config.normalize_platform(platform, allow_all=True)
     cost_base = calculate_cost_base(product.net_price, shipping, insurance_pct=insurance_pct)
     floors = calculate_floors(
         cost_base,
@@ -632,33 +634,29 @@ def process_product_with_offers(
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
         insurance_pct=insurance_pct,
+        platform=plat_lower,
     )
-    effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
-    baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
 
-    alfa_res = evaluate_alfa_pricing(floors, alfa_offers)
-    digi_res = evaluate_digi_pricing(floors, digi_offers)
-
-    if (
-        platform.lower().strip() == "digi"
-        and digi_res.status != "SKIPPED"
-        and digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-    ):
-        baseline_calc = calculate_baseline(
-            cost_base,
-            target_profit=effective_target_profit,
-            payout_rate=config.get_digi_leverage_payout_rate(),
-        )
+    alfa_res = (
+        evaluate_alfa_pricing(floors, alfa_offers)
+        if plat_lower in {"all", "alfa"}
+        else create_skipped_platform_result("AlfaMall")
+    )
+    digi_res = (
+        evaluate_digi_pricing(floors, digi_offers)
+        if plat_lower in {"all", "digi"}
+        else create_skipped_platform_result("DigiMall")
+    )
 
     return build_output_record(
         product=product,
         shipping=shipping,
         floors=floors,
-        baseline_calc=baseline_calc,
+        baseline_calc=0.0,
         alfa_res=alfa_res,
         digi_res=digi_res,
         personal_comm_pct=personal_comm_pct,
-        platform=platform,
+        platform=plat_lower,
     )
 
 
@@ -683,29 +681,26 @@ def render_start_banner(
         if config.COMPANY_MIN_PROFIT_PKR.is_integer()
         else config.COMPANY_MIN_PROFIT_PKR
     )
-    alfa_pct_g = f"{config.ALFA_COMMISSION_PCT:g}"
-    digi_std_g = f"{config.DIGI_STANDARD_COMMISSION_PCT:g}"
-    digi_lev_g = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
-
     floor_desc = (
         f" (+{personal_comm_pct:g}% Personal Comm on Real Profit + Rs. {min_p_int} Company Floor)"
         if personal_comm_pct > 0
         else f" (+Rs. {min_p_int} guarantee)"
     )
     if plat_lower == "alfa":
+        alfa_pct_g = f"{config.get_alfa_commission_pct():g}"
         grid.add_row("Target Platform:", "[bold #2c4699]AlfaMall Only[/]")
-        grid.add_row("Pricing Strategy:", f"AlfaMall {alfa_pct_g}% Floor{floor_desc}")
+        grid.add_row("Pricing Strategy:", f"AlfaMall Fixed {alfa_pct_g}% Floor{floor_desc}")
     elif plat_lower == "digi":
+        digi_pct_g = f"{config.get_digi_commission_pct():g}"
         grid.add_row("Target Platform:", "[bold #229693]DigiMall Only[/]")
-        grid.add_row(
-            "Pricing Strategy:",
-            f"DigiMall Two-Tier ({digi_std_g}% -> {digi_lev_g}% Bank Switch){floor_desc}",
-        )
+        grid.add_row("Pricing Strategy:", f"DigiMall Fixed {digi_pct_g}% Floor{floor_desc}")
     else:
+        alfa_pct_g = f"{config.get_alfa_commission_pct():g}"
+        digi_pct_g = f"{config.get_digi_commission_pct():g}"
         grid.add_row("Target Platform:", "[bold]AlfaMall & DigiMall[/]")
         grid.add_row(
             "Pricing Strategy:",
-            f"AlfaMall {alfa_pct_g}% Floor | DigiMall Two-Tier ({digi_std_g}% -> {digi_lev_g}% Bank Switch){floor_desc}",
+            f"AlfaMall Fixed {alfa_pct_g}% Floor | DigiMall Fixed {digi_pct_g}% Floor{floor_desc}",
         )
     if personal_comm_pct > 0:
         grid.add_row(
@@ -1045,19 +1040,15 @@ def build_scraped_sellers_table(
 
     # 2. DigiMall Scraped Competitors
     if digi_res.status != "SKIPPED":
-        digi_comm_note = (
-            f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}% Viable"
-            if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-            else f"{config.DIGI_STANDARD_COMMISSION_PCT:g}% Viable"
-        )
+        digi_comm_note = f"{config.get_digi_commission_pct():g}% Configured"
         _render_platform_offers_to_table(
             tbl=tbl,
             platform_tag="[bold #229693]DigiMall[/]",
             offers=digi_offers,
             res=digi_res,
-            floor_price=floors.floor_digi_8,
-            floor_label=f"8% Floor Rs. {floors.floor_digi_8:,.0f}",
-            empty_label="[bold cyan]Baseline Undercut (+2% margin)[/]",
+            floor_price=floors.floor_digi,
+            floor_label=f"Floor Rs. {floors.floor_digi:,.0f}",
+            empty_label=f"[bold cyan]Monopoly Pricing (+Rs. {config.MONOPOLY_PROFIT_PKR:,.0f} margin)[/]",
             target_undercut_label=f"[bold green]Target Undercut ({digi_comm_note})[/]",
         )
 
@@ -1079,9 +1070,15 @@ def build_platform_decision_table(
         padding=(0, 1),
         expand=True,
     )
+    alfa_rate_hdr = (
+        f" ({config.get_alfa_commission_pct():g}%)" if alfa_res.status != "SKIPPED" else ""
+    )
+    digi_rate_hdr = (
+        f" ({config.get_digi_commission_pct():g}%)" if digi_res.status != "SKIPPED" else ""
+    )
     plat_tbl.add_column("Decision Metric", style="bold cyan", width=16)
-    plat_tbl.add_column("[bold #2c4699]AlfaMall (Strict 10%)[/]", style="white", ratio=1)
-    plat_tbl.add_column("[bold #229693]DigiMall (Two-Tier Switch)[/]", style="white", ratio=1)
+    plat_tbl.add_column(f"[bold #2c4699]AlfaMall{alfa_rate_hdr}[/]", style="white", ratio=1)
+    plat_tbl.add_column(f"[bold #229693]DigiMall{digi_rate_hdr}[/]", style="white", ratio=1)
 
     # Active offers summary
     is_alfa_down = alfa_res.status == STATUS_SERVER_DOWN or (
@@ -1115,14 +1112,17 @@ def build_platform_decision_table(
 
     plat_tbl.add_row("Scraped Offers", alfa_offers_str, digi_offers_str)
 
-    # Commission tier applied
-    if digi_res.status == "SKIPPED":
-        digi_comm_badge = "[dim]N/A (Skipped)[/]"
-    elif digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%":
-        digi_comm_badge = f"[bold blue]{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}% Emergency Switch[/]"
-    else:
-        digi_comm_badge = f"[#229693]{config.DIGI_LEVERAGE_COMMISSION_PCT:g}% + {(config.DIGI_STANDARD_COMMISSION_PCT - config.DIGI_LEVERAGE_COMMISSION_PCT):g}% Spread[/]"
-    alfa_comm_badge = f"{config.ALFA_COMMISSION_PCT:.2f}% Standard" if alfa_res.status != "SKIPPED" else "[dim]N/A (Skipped)[/]"
+    # Commission applied (strictly configured fixed vendor rate)
+    digi_comm_badge = (
+        "[dim]N/A (Skipped)[/]"
+        if digi_res.status == "SKIPPED"
+        else f"[#229693]{config.format_commission_pct(config.get_digi_commission_pct())} Configured[/]"
+    )
+    alfa_comm_badge = (
+        "[dim]N/A (Skipped)[/]"
+        if alfa_res.status == "SKIPPED"
+        else f"{config.format_commission_pct(config.get_alfa_commission_pct())} Configured"
+    )
     plat_tbl.add_row("Bank Commission", alfa_comm_badge, digi_comm_badge)
 
     # Final Price
@@ -1183,12 +1183,7 @@ def build_platform_decision_table(
             or "sub-floor" in (digi_res.reason or "").lower()
             or (digi_res.min_price is not None and digi_res.final_price >= digi_res.min_price)
         ):
-            tier_note = (
-                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
-                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-                else ""
-            )
-            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED{tier_note})[/]"
+            digi_p_str = f"[bold yellow]Rs. {digi_res.final_price:,} (CAPPED)[/]"
         elif (
             "monopoly" in (digi_res.status or "").lower()
             or "monopoly" in (digi_res.reason or "").lower()
@@ -1199,27 +1194,13 @@ def build_platform_decision_table(
             "capped" in (digi_res.reason or "").lower()
             or "sweet-spot" in (digi_res.reason or "").lower()
         ):
-            tier_note = (
-                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
-                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-                else ""
-            )
-            digi_p_str = (
-                f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT{tier_note})[/]"
-            )
+            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING SWEET-SPOT)[/]"
         elif (
             "undercut" in (digi_res.status or "").lower()
             or "undercut" in (digi_res.reason or "").lower()
             or "winning price" in (digi_res.reason or "").lower()
         ):
-            tier_note = (
-                f" ({config.DIGI_LEVERAGE_COMMISSION_PCT:g}% RATE)"
-                if digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-                else ""
-            )
-            digi_p_str = (
-                f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT{tier_note})[/]"
-            )
+            digi_p_str = f"[bold green]Rs. {digi_res.final_price:,} (WINNING UNDERCUT)[/]"
         else:
             digi_p_str = f"[bold #229693]Rs. {digi_res.final_price:,}[/]"
     elif digi_res.coverage_status == "CAPPED" and digi_res.final_price is None and digi_res.status != STATUS_CANDIDATES_REJECTED:
@@ -1313,8 +1294,9 @@ def render_audit_card(
     is_shipping_fallback: bool = False,
 ) -> None:
     """Print a polished, executive-grade audit card enclosed in a rounded box."""
-    tot_10 = round(floors.zero_margin_10)
-    tot_8 = round(floors.zero_margin_8)
+    _ = baseline_calc  # Retained for positional signature compatibility
+    tot_alfa = round(floors.zero_margin_alfa)
+    tot_digi = round(floors.zero_margin_digi)
 
     # 1. Logistics and Cost Breakdown Grid
     specs = Table.grid(padding=(0, 3), expand=True)
@@ -1335,41 +1317,41 @@ def render_audit_card(
         if config.COMPANY_MIN_PROFIT_PKR.is_integer()
         else config.COMPANY_MIN_PROFIT_PKR
     )
-    alfa_pct_g = f"{config.ALFA_COMMISSION_PCT:g}"
-    digi_pct_g = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
+    def _vendor_cost_rows(
+        name: str,
+        plat_key: str,
+        color: str,
+        total_val: int,
+        floor_val: float,
+        personal_comm_amt: int,
+        skipped: bool,
+    ) -> tuple[tuple[str, str], tuple[str, str]]:
+        if skipped:
+            return (f"[dim]{name} (Skipped):[/]", "[dim]-[/]"), (
+                f"[dim]{name} Floor (Skipped):[/]",
+                "[dim]-[/]",
+            )
+        pct_g = f"{config.get_vendor_commission_pct(plat_key):g}"
+        comm_part = f"+{personal_comm_amt:,} Comm + " if personal_comm_amt > 0 else "+"
+        return (
+            (f"[{color}]{name} {pct_g}% (Without {min_p_int}):[/]", f"Rs. {total_val:,}"),
+            (
+                f"[bold {color}]{name} {pct_g}% Floor ({comm_part}{min_p_int}):[/]",
+                f"[bold {color}]Rs. {floor_val:,.0f}[/]",
+            ),
+        )
 
-    specs.add_row(
-        "Net Catalog Price:",
-        f"Rs. {product.net_price:,.0f}",
-        f"[#2c4699]Alfa {alfa_pct_g}% (Without {min_p_int}):[/]",
-        f"Rs. {tot_10:,}",
+    alfa_tot_row, alfa_floor_row = _vendor_cost_rows(
+        "Alfa", "alfa", "#2c4699", tot_alfa, floors.floor_alfa, floors.alfa_personal_comm, alfa_res.status == "SKIPPED"
     )
-    specs.add_row(
-        "Courier Shipping:",
-        shipping_str,
-        (
-            f"[bold #2c4699]Alfa {alfa_pct_g}% Floor (+{floors.alfa_personal_comm:,} Comm + {min_p_int}):[/]"
-            if floors.alfa_personal_comm > 0
-            else f"[bold #2c4699]Alfa {alfa_pct_g}% Floor (+{min_p_int}):[/]"
-        ),
-        f"[bold #2c4699]Rs. {floors.floor_alfa:,.0f}[/]",
+    digi_tot_row, digi_floor_row = _vendor_cost_rows(
+        "Digi", "digi", "#229693", tot_digi, floors.floor_digi, floors.digi_personal_comm, digi_res.status == "SKIPPED"
     )
-    specs.add_row(
-        "Real Landed Cost:",
-        f"[bold green]Rs. {floors.cost_base:,.2f}[/]",
-        f"[#229693]Digi {digi_pct_g}% (Without {min_p_int}):[/]",
-        f"Rs. {tot_8:,}",
-    )
-    specs.add_row(
-        "Dimensions:",
-        dim_str,
-        (
-            f"[bold #229693]Digi {digi_pct_g}% Floor (+{floors.digi_personal_comm:,} Comm + {min_p_int}):[/]"
-            if floors.digi_personal_comm > 0
-            else f"[bold #229693]Digi {digi_pct_g}% Floor (+{min_p_int}):[/]"
-        ),
-        f"[bold #229693]Rs. {floors.floor_digi_8:,.0f}[/]",
-    )
+
+    specs.add_row("Net Catalog Price:", f"Rs. {product.net_price:,.0f}", *alfa_tot_row)
+    specs.add_row("Courier Shipping:", shipping_str, *alfa_floor_row)
+    specs.add_row("Real Landed Cost:", f"[bold green]Rs. {floors.cost_base:,.2f}[/]", *digi_tot_row)
+    specs.add_row("Dimensions:", dim_str, *digi_floor_row)
     if floors.insurance_pct > 0:
         ins_g = f"{floors.insurance_pct:g}"
         ins_base = product.net_price + shipping
@@ -1583,9 +1565,7 @@ async def process_item_async(
     digi_context: DigiDiscoveryContext | None = None,
 ) -> dict[str, Any]:
     """Execute scraping and pricing calculations for a single product with concurrency control."""
-    plat = platform.lower().strip()
-    if plat not in ("all", "alfa", "digi"):
-        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+    plat = config.normalize_platform(platform, allow_all=True)
 
     _, target_model = extract_search_query_and_model(product.name, brand=product.brand)
     patterns = generate_search_patterns(product.name, brand=product.brand)
@@ -1602,9 +1582,9 @@ async def process_item_async(
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
         insurance_pct=insurance_pct,
+        platform=plat,
     )
-    effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
-    baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
+
 
     alfa_task = None
     digi_task = None
@@ -1638,7 +1618,7 @@ async def process_item_async(
                 session,
                 digi_plan,
                 target_model,
-                floor_price=floors.floor_digi_8,
+                floor_price=floors.floor_digi,
                 brand=product.brand,
                 target_desc=product.name,
                 context=digi_context,
@@ -1770,16 +1750,7 @@ async def process_item_async(
         else:
             digi_res = create_skipped_platform_result("DigiMall")
 
-        if (
-            plat == "digi"
-            and digi_res.status != "SKIPPED"
-            and digi_res.effective_comm == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-        ):
-            baseline_calc = calculate_baseline(
-                cost_base,
-                target_profit=effective_target_profit,
-                payout_rate=config.get_digi_leverage_payout_rate(),
-            )
+
 
     # Autonomous Multi-Catalog Learning Ingestion (ADR-003)
     target_slots = extract_product_slots(product.name, brand=product.brand)
@@ -1826,7 +1797,7 @@ async def process_item_async(
                 product=product,
                 shipping=shipping,
                 floors=floors,
-                baseline_calc=baseline_calc,
+                baseline_calc=0.0,
                 target_model=target_model,
                 alfa_offers=alfa_offers,
                 digi_offers=digi_offers,
@@ -1848,7 +1819,7 @@ async def process_item_async(
         product=product,
         shipping=shipping,
         floors=floors,
-        baseline_calc=baseline_calc,
+        baseline_calc=0.0,
         alfa_res=alfa_res,
         digi_res=digi_res,
         personal_comm_pct=personal_comm_pct,
@@ -2020,32 +1991,34 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
             digi_p_val, rec.get("Digi Real Profit", 0), digi_reason, digi_alert
         )
 
+        digi_comm_raw = rec.get("Digi Commission")
+        digi_comm_str = (
+            "" if digi_comm_raw is None or pd.isna(digi_comm_raw) else str(digi_comm_raw).strip()
+        )
+        digi_status_val = str(rec.get("Digi Status", "") or "")
+        is_digi_skipped = (
+            "Digi Commission" not in rec
+            or "skipped" in digi_reason.lower()
+            or "skipped" in digi_status_val.lower()
+            or (not digi_comm_str and not digi_reason)
+        )
         if (
             "server is down" in digi_reason.lower()
             or "unreachable" in digi_reason.lower()
             or digi_alert == "SERVER_DOWN"
         ):
             digi_comm = "[dim red]N/A[/]"
-        elif pd.notna(digi_p_val) and digi_p_val is not None and str(digi_p_val).strip() != "":
-            raw_digi_comm = (
-                str(
-                    rec.get(
-                        "Digi Effective Commision",
-                        f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
-                    )
-                ).replace("%", "")
-                + "%"
-            )
-            digi_lev_pct_str = f"{config.DIGI_LEVERAGE_COMMISSION_PCT:g}"
-            if digi_lev_pct_str in raw_digi_comm or str(config.DIGI_LEVERAGE_COMMISSION_PCT) in raw_digi_comm:
-                digi_comm = f"[bold yellow]{raw_digi_comm}[/]"
-            else:
-                digi_comm = f"[blue]{raw_digi_comm}[/]"
+        elif is_digi_skipped:
+            digi_comm = "[dim]-[/]"
         else:
-            raw_comm = rec.get("Digi Effective Commision")
-            if not raw_comm:
-                raw_comm = f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%"
-            digi_comm = str(raw_comm).replace("%", "") + "%"
+            resolved_comm = (
+                digi_comm_str
+                or config.format_commission_pct(config.get_digi_commission_pct())
+            ).replace("%", "") + "%"
+            has_digi_price = (
+                pd.notna(digi_p_val) and digi_p_val is not None and str(digi_p_val).strip() != ""
+            )
+            digi_comm = f"[blue]{resolved_comm}[/]" if has_digi_price else resolved_comm
 
         table.add_row(
             sno,
@@ -2063,7 +2036,7 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
     console.print(
         "[dim]LEGEND:[/dim] "
         f"[bold red]RED[/]: Safe Fallback (Market Below Floor) / Thin Margin (< Rs. {int(config.THIN_BUFFER_THRESHOLD_PKR)}) | "
-        f"[bold yellow]YELLOW[/]: Capped Sweet-Spot / {config.DIGI_LEVERAGE_COMMISSION_PCT:g}% Bank Switch | "
+        "[bold yellow]YELLOW[/]: Capped Sweet-Spot | "
         "[bold green]GREEN[/]: Optimal Win | "
         "[bold yellow]CROSS-CHECK[/]: Target modifier omitted in listings (priced against base model)"
     )
@@ -2233,9 +2206,7 @@ async def run_pipeline(
     Returns:
         Processed DataFrame with repriced data.
     """
-    plat = platform.lower().strip()
-    if plat not in ("all", "alfa", "digi"):
-        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+    plat = config.normalize_platform(platform, allow_all=True)
 
     input_path = Path(input_path)
     if not input_path.exists():
@@ -2399,19 +2370,8 @@ async def run_pipeline(
         else:
             delete_checkpoint(input_path)
 
-        out_df = pd.DataFrame(records)
-        # Mixed/ambiguous rows can introduce columns after the first record.
-        risk_columns = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in out_df.columns]
-        out_df = out_df[[c for c in out_df.columns if c not in risk_columns] + risk_columns]
-        # Insurance column (only present when a category defines it) sits right after commission cols
-        if "Insurance" in out_df.columns:
-            cols_wo_ins = [c for c in out_df.columns if c != "Insurance"]
-            anchor = next(
-                (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
-            )
-            if anchor is not None:
-                pos = cols_wo_ins.index(anchor) + 1
-                out_df = out_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
+        # Mixed/ambiguous rows can introduce columns after the first record; normalize schema once.
+        out_df = normalize_export_dataframe(pd.DataFrame(records))
 
         if "Shipping Estimate" in out_df.columns:
             out_df["Shipping Estimate"] = out_df["Shipping Estimate"].apply(format_export_shipping)

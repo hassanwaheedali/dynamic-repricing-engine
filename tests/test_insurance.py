@@ -120,11 +120,10 @@ class TestFloorsWithInsurance:
         min_p = config.COMPANY_MIN_PROFIT_PKR
         assert floors.insurance_pct == ins
         assert floors.cost_base == pytest.approx(93000.0 * (1 + ins / 100), abs=0.01)
-        assert floors.zero_margin_10 == pytest.approx(cost / config.get_alfa_payout_rate())
+        assert floors.zero_margin_alfa == pytest.approx(cost / config.get_alfa_payout_rate())
+        assert floors.zero_margin_digi == pytest.approx(cost / config.get_digi_payout_rate())
         assert floors.floor_alfa == pytest.approx((cost + min_p) / config.get_alfa_payout_rate())
-        assert floors.floor_digi_8 == pytest.approx(
-            (cost + min_p) / config.get_digi_leverage_payout_rate()
-        )
+        assert floors.floor_digi == pytest.approx((cost + min_p) / config.get_digi_payout_rate())
 
     def test_default_insurance_is_zero_and_unchanged(self) -> None:
         cost = 72000.0
@@ -138,8 +137,8 @@ class TestFloorsWithInsurance:
         ins = 2.5
         cost = calculate_cost_base(90000.0, 3000.0, insurance_pct=ins)
         floors = calculate_floors(cost, insurance_pct=ins)
-        expected = (93000.0 * (1 + ins / 100)) / (1 - config.ALFA_COMMISSION_PCT / 100)
-        assert floors.zero_margin_10 == pytest.approx(expected, abs=0.01)
+        expected_alfa = (93000.0 * (1 + ins / 100)) / (1 - config.get_alfa_commission_pct() / 100)
+        assert floors.zero_margin_alfa == pytest.approx(expected_alfa, abs=0.01)
 
     def test_profit_guarantee_holds_at_floor_with_insurance_in_cost(self) -> None:
         ins = 2.5
@@ -162,9 +161,12 @@ class TestPipelineInsuranceEndToEnd:
         ins = resolve_insurance_pct(prod.name, brand=prod.brand)
         cost_ins = (prod.net_price + rec["Shipping Estimate"]) * (1 + ins / 100)
         assert rec["Insurance"] == f"{ins:.2f}%"
-        # Total Without Profit = (Net + Shipping + insurance on it) / commission payout
-        assert rec["Total Without Profit"] == round(
-            cost_ins / config.get_digi_standard_payout_rate()
+        # Total Without Profit per vendor = (Net + Shipping + insurance on it) / vendor payout
+        assert rec["Total Without Profit (Alfa)"] == round(
+            cost_ins / config.get_alfa_payout_rate()
+        )
+        assert rec["Total Without Profit (Digi)"] == round(
+            cost_ins / config.get_digi_payout_rate()
         )
         # Reported profit is measured against the insurance-inclusive cost
         assert rec["Alfa Real Profit"] == round(
@@ -196,7 +198,8 @@ class TestPipelineInsuranceEndToEnd:
         rec = process_product_with_offers(prod, ScrapeResult(offers=[]), ScrapeResult(offers=[]))
         assert "Insurance" not in rec
         cost_base = prod.net_price + rec["Shipping Estimate"]
-        assert rec["Total Without Profit"] == round(cost_base / config.get_digi_standard_payout_rate())
+        assert rec["Total Without Profit (Alfa)"] == round(cost_base / config.get_alfa_payout_rate())
+        assert rec["Total Without Profit (Digi)"] == round(cost_base / config.get_digi_payout_rate())
 
 
 class TestTerminalShowsInsurance:
@@ -252,11 +255,15 @@ class TestExcelInsurance:
                 "Net Price": 100000,
                 "Profit": 500,
                 "Shipping Estimate": 3500,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
+                "Alfa Commission": config.format_commission_pct(config.get_alfa_commission_pct()),
+                "Digi Commission": config.format_commission_pct(config.get_digi_commission_pct()),
                 "Insurance": f"{ins:.2f}%",
-                "Total Without Profit": 118286,
-                "Calculation": 118857,
+                "Total Without Profit (Alfa)": round(
+                    ((100000 + 3500) * (1 + ins / 100.0)) / config.get_alfa_payout_rate()
+                ),
+                "Total Without Profit (Digi)": round(
+                    ((100000 + 3500) * (1 + ins / 100.0)) / config.get_digi_payout_rate()
+                ),
                 "Final Price Alfa": 122999,
                 "Final Price Digi": 122999,
                 "Alfa Real Profit": 4124,
@@ -271,11 +278,15 @@ class TestExcelInsurance:
                 "Net Price": 100000,
                 "Profit": 500,
                 "Shipping Estimate": 3000,
-                "Commision": f"{config.ALFA_COMMISSION_PCT:.2f}%",
-                "Digi Effective Commision": f"{config.DIGI_STANDARD_COMMISSION_PCT:.2f}%",
+                "Alfa Commission": config.format_commission_pct(config.get_alfa_commission_pct()),
+                "Digi Commission": config.format_commission_pct(config.get_digi_commission_pct()),
                 "Insurance": None,
-                "Total Without Profit": 114444,
-                "Calculation": 115000,
+                "Total Without Profit (Alfa)": round(
+                    (100000 + 3000) / config.get_alfa_payout_rate()
+                ),
+                "Total Without Profit (Digi)": round(
+                    (100000 + 3000) / config.get_digi_payout_rate()
+                ),
                 "Final Price Alfa": 115999,
                 "Final Price Digi": 115999,
                 "Alfa Real Profit": 1400,
@@ -297,7 +308,12 @@ class TestExcelInsurance:
         assert ws is not None
         cols = [c.value for c in ws[1]]
         ins_letter = openpyxl.utils.get_column_letter(cols.index("Insurance") + 1)
-        for col_name in ("Total Without Profit", "Calculation", "Alfa Real Profit", "Digi Real Profit"):
+        for col_name in (
+            "Total Without Profit (Alfa)",
+            "Total Without Profit (Digi)",
+            "Alfa Real Profit",
+            "Digi Real Profit",
+        ):
             idx = cols.index(col_name) + 1
             for row in (2, 3):
                 formula = str(ws.cell(row=row, column=idx).value)

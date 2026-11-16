@@ -107,11 +107,23 @@ def test_range_record_layout_and_values() -> None:
 def test_range_record_leaves_pricing_columns_empty() -> None:
     rec = build_range_record(_product(), MarketRange(1, 2, 2), MarketRange(1, 2, 2))
     for col in (
-        "Shipping Estimate", "Commision", "Digi Effective Commision", "Total Without Profit",
-        "Calculation", "Final Price Alfa", "Final Price Digi", "Alfa Status", "Digi Status",
-        "Alfa Real Profit", "Digi Real Profit", "Alfa Reason", "Digi Reason",
-    ):  # fmt: skip
+        "Shipping Estimate",
+        "Alfa Commission",
+        "Digi Commission",
+        "Total Without Profit (Alfa)",
+        "Total Without Profit (Digi)",
+        "Final Price Alfa",
+        "Final Price Digi",
+        "Alfa Status",
+        "Digi Status",
+        "Alfa Real Profit",
+        "Digi Real Profit",
+        "Alfa Reason",
+        "Digi Reason",
+    ):
         assert rec[col] == "", col
+    for legacy in ("Commision", "Digi Effective Commision", "Total Without Profit", "Calculation"):
+        assert legacy not in rec, legacy
 
 
 def test_range_record_down_platform_blank_with_alert() -> None:

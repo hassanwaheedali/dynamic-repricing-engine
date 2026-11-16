@@ -62,11 +62,10 @@ def test_build_output_record_alfa_only() -> None:
     )
     floors = CostFloors(
         cost_base=153000.0,
-        zero_margin_10=170000.0,
-        zero_margin_8=166304.0,
+        zero_margin_alfa=170000.0,
+        zero_margin_digi=166304.0,
         floor_alfa=170556.0,
-        floor_digi_10=170556.0,
-        floor_digi_8=166848.0,
+        floor_digi=166848.0,
     )
     alfa_res = PlatformPricingResult(
         min_price=175000.0,
@@ -75,7 +74,7 @@ def test_build_output_record_alfa_only() -> None:
         real_profit=4409,
         status="Target Undercut",
         reason="Undercut lowest competitor",
-        effective_comm="10.00%",
+        effective_comm=f"{config.get_alfa_commission_pct():.2f}%",
     )
     digi_res = create_skipped_platform_result("DigiMall")
 
@@ -96,7 +95,21 @@ def test_build_output_record_alfa_only() -> None:
     assert record["Final Price Digi"] is None
     assert record["Digi Real Profit"] is None
     assert record["Digi Risk Alert"] == ""
-    assert record["Digi Effective Commision"] == ""
+    assert record["Digi Commission"] == ""
+    assert record["Alfa Commission"] == f"{config.get_alfa_commission_pct():.2f}%"
+
+    record_alfa = build_output_record(
+        product=product,
+        shipping=3000.0,
+        floors=floors,
+        baseline_calc=170556.0,
+        alfa_res=alfa_res,
+        digi_res=digi_res,
+        platform="alfa",
+    )
+    assert "Digi Commission" not in record_alfa
+    assert "Total Without Profit (Digi)" not in record_alfa
+    assert record_alfa["Alfa Commission"] == f"{config.get_alfa_commission_pct():.2f}%"
     assert record["Digi Status"] == ""
 
 
@@ -114,11 +127,10 @@ def test_build_output_record_digi_only() -> None:
     )
     floors = CostFloors(
         cost_base=153000.0,
-        zero_margin_10=170000.0,
-        zero_margin_8=166304.0,
+        zero_margin_alfa=170000.0,
+        zero_margin_digi=166304.0,
         floor_alfa=170556.0,
-        floor_digi_10=170556.0,
-        floor_digi_8=166848.0,
+        floor_digi=166848.0,
     )
     alfa_res = create_skipped_platform_result("AlfaMall")
     digi_res = PlatformPricingResult(
@@ -128,7 +140,7 @@ def test_build_output_record_digi_only() -> None:
         real_profit=5147,
         status="Target Undercut",
         reason="Undercut at leverage rate",
-        effective_comm=f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%",
+        effective_comm=f"{config.get_digi_commission_pct():.2f}%",
     )
 
     record = build_output_record(
@@ -144,8 +156,10 @@ def test_build_output_record_digi_only() -> None:
     assert record["Final Price Digi"] == 171899
     assert record["Digi Real Profit"] == 5147
     assert record["Digi Risk Alert"] == "NONE"
-    assert record["Digi Effective Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
-    assert record["Commision"] == f"{config.DIGI_LEVERAGE_COMMISSION_PCT:.2f}%"
+    assert record["Digi Commission"] == f"{config.get_digi_commission_pct():.2f}%"
+    assert "Alfa Commission" not in record
+    assert "Total Without Profit (Alfa)" not in record
+    assert "Total Without Profit (Digi)" in record
     assert record["Final Price Alfa"] is None
 
 

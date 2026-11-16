@@ -42,7 +42,14 @@ from pricing_engine.matcher import (
     extract_search_query_and_model,
     generate_search_patterns,
 )
-from pricing_engine.models import MarketRange, ProductInput, ScrapeResult
+from pricing_engine.models import (
+    GENERATED_RAW_EXCLUSIONS_LOWER,
+    SNO_ALIASES,
+    SNO_ALIASES_LOWER,
+    MarketRange,
+    ProductInput,
+    ScrapeResult,
+)
 from pricing_engine.pipeline import parse_product_input
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
@@ -55,17 +62,13 @@ RANGE_ALERT_NONE = "NONE"
 RANGE_ALERT_NO_OFFERS = "NO_OFFERS"
 RANGE_ALERT_SERVER_DOWN = "SERVER_DOWN"
 
-SNO_ALIASES: frozenset[str] = frozenset(
-    {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
-)
-
 # Columns kept in the output contract but intentionally left blank in range mode.
 BLANK_COST_COLUMNS: tuple[str, ...] = (
     "Shipping Estimate",
-    "Commision",
-    "Digi Effective Commision",
-    "Total Without Profit",
-    "Calculation",
+    "Alfa Commission",
+    "Digi Commission",
+    "Total Without Profit (Alfa)",
+    "Total Without Profit (Digi)",
 )
 BLANK_DECISION_COLUMNS: tuple[str, ...] = (
     "Final Price Alfa",
@@ -77,20 +80,17 @@ BLANK_DECISION_COLUMNS: tuple[str, ...] = (
     "Alfa Reason",
     "Digi Reason",
 )
-GENERATED_COLUMNS: frozenset[str] = frozenset(
+GENERATED_COLUMNS_LOWER: frozenset[str] = frozenset(
     {
-        *BLANK_COST_COLUMNS,
-        *BLANK_DECISION_COLUMNS,
-        "Minimum Price Alfa",
-        "Maximum Price Alfa",
-        "Minimum Price Digi",
-        "Maximum Price Digi",
-        "Alfa Offers Found",
-        "Digi Offers Found",
-        "Alfa Risk Alert",
-        "Digi Risk Alert",
-        "Digi Discovery Coverage",
-        "Digi Discovery Detail",
+        *GENERATED_RAW_EXCLUSIONS_LOWER,
+        *(c.lower() for c in BLANK_COST_COLUMNS),
+        *(c.lower() for c in BLANK_DECISION_COLUMNS),
+        "minimum price alfa",
+        "maximum price alfa",
+        "minimum price digi",
+        "maximum price digi",
+        "alfa offers found",
+        "digi offers found",
     }
 )
 
@@ -118,8 +118,17 @@ def build_range_record(
     """
     record: dict[str, Any] = {"S.NO": product.sno}
     for key, value in product.raw_row.items():
-        if key not in SNO_ALIASES and key not in GENERATED_COLUMNS:
-            record[key] = value
+        key_str = str(key).strip()
+        key_lower = key_str.lower()
+        if (
+            not key_str
+            or key_lower.startswith("unnamed:")
+            or key in SNO_ALIASES
+            or key_lower in SNO_ALIASES_LOWER
+            or key_lower in GENERATED_COLUMNS_LOWER
+        ):
+            continue
+        record[key] = value
 
     for col in BLANK_COST_COLUMNS:
         record[col] = ""
