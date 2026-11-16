@@ -12,7 +12,7 @@ UNIT_PATTERNS: dict[CapacityUnit, str] = {
     "T": r"(?:TONS?|ΤΟ[NΝ]|T)",
     "INCH": r"(?:INCH(?:ES)?|IN|\"|''|')",
     "KG": r"(?:KGS?|K\.G|KILOS?)",
-    "CFT": r"(?:CU\.?\s*FT\.?|CFT|CUBIC\s*(?:FEET|FOOT|FT))",
+    "CFT": r"(?:CU\.?\s*FT\.?|CFT|CUBIC(?:\s*(?:FEET|FOOT|FT))?)",
     "L": r"(?:LTRS?|LITRES?|LITERS?|L)",
     "TAP": r"(?:TAPS?|FAUCETS?)",
 }
@@ -30,6 +30,20 @@ def format_amount(amount: Decimal) -> str:
     """Format without exponent or context-dependent Decimal rounding."""
     value = format(amount, "f")
     return value.rstrip("0").rstrip(".") if "." in value else value
+
+
+def parse_amount(value: object) -> Decimal | None:
+    """Normalize numeric evidence without binary floating point or nonfinite values."""
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return amount if amount.is_finite() else None
+
+
+def explicit_capacity_pattern(unit: CapacityUnit) -> str:
+    """Configured extraction pattern; inference and scaling stay with the caller."""
+    return rf"(?i)(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{UNIT_PATTERNS[unit]}(?!\w)"
 
 
 @dataclass(frozen=True)
@@ -51,16 +65,12 @@ def parse_capacity(value: str | None) -> Capacity | None:
     for unit, pattern in UNIT_PATTERNS.items():
         match = re.fullmatch(rf"\s*(\d+(?:\.\d+)?)\s*[-]?\s*{pattern}\s*", value or "", re.I)
         if match:
-            try:
-                amount = Decimal(match[1])
-            except InvalidOperation:
-                return None
-            return Capacity(amount, unit) if amount > 0 else None
+            amount = parse_amount(match[1])
+            return Capacity(amount, unit) if amount is not None and amount > 0 else None
     return None
 
 
 def find_capacity(text: str, unit: CapacityUnit) -> Capacity | None:
     """Read an explicit bounded measurement; caller owns category/SKU context."""
-    pattern = rf"(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{UNIT_PATTERNS[unit]}(?!\w)"
-    match = re.search(pattern, text, re.I)
+    match = re.search(explicit_capacity_pattern(unit), text)
     return parse_capacity(match[0]) if match else None

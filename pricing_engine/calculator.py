@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 import config
+from pricing_engine.capacity import parse_amount
 from pricing_engine.models import CostFloors
 
 # Standard psychological price endings ordered from highest to lowest margin
@@ -29,16 +30,24 @@ def _extract_numeric_capacity(
         if not match:
             continue
         with contextlib.suppress(ValueError, TypeError, IndexError):
-            val = float(match.group(1))
+            val = parse_amount(match.group(1))
+            if val is None:
+                continue
             min_val = rule.get("min")
             max_val = rule.get("max")
-            if min_val is not None and val < float(min_val):
+            minimum = parse_amount(min_val) if min_val is not None else None
+            maximum = parse_amount(max_val) if max_val is not None else None
+            if (min_val is not None and minimum is None) or (max_val is not None and maximum is None):
                 continue
-            if max_val is not None and val > float(max_val):
+            if minimum is not None and val < minimum:
                 continue
-            scale = float(rule.get("scale", 1.0))
-            divisor = float(rule.get("divisor", 1.0))
-            return (val * scale) / divisor
+            if maximum is not None and val > maximum:
+                continue
+            scale = parse_amount(rule.get("scale", 1))
+            divisor = parse_amount(rule.get("divisor", 1))
+            if scale is None or divisor is None or divisor == 0:
+                continue
+            return float((val * scale) / divisor)
     return None
 
 

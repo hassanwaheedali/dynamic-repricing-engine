@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pricing_engine.capacity import explicit_capacity_pattern
+
 # ==============================================================================
 # 1. PLATFORM BANK COMMISSIONS (%)
 # ==============================================================================
@@ -71,7 +73,7 @@ VOLUMETRIC_DIVISOR: float = 5000.0
 # ==============================================================================
 DEFAULT_CAPACITY_RULES: dict[str, list[dict[str, Any]]] = {
     "kg": [
-        {"pattern": r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b"},
+        {"pattern": explicit_capacity_pattern("KG")},
         # Model code stem extraction (e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg)
         {
             "pattern": r"\b[a-z]{0,4}[- ]?(\d{2,3})(?:[- ]|\b)",
@@ -81,17 +83,15 @@ DEFAULT_CAPACITY_RULES: dict[str, list[dict[str, Any]]] = {
         },
     ],
     "l": [
-        {"pattern": r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:l|ltr|ltrs|liter|liters|litre|litres)\b"},
+        {"pattern": explicit_capacity_pattern("L")},
     ],
     "cuft": [
         {
-            "pattern": (
-                r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:cu\.?\s*ft\.?|cft|cuft|cubic\s*(?:feet|foot|ft)?)\b"
-            )
+            "pattern": explicit_capacity_pattern("CFT")
         },
     ],
     "inch": [
-        {"pattern": r"\b(\d{2,3})\s*(?:\"|''|[-]?\s*(?:inch|inches|in\b))"},
+        {"pattern": explicit_capacity_pattern("INCH")},
         {
             "pattern": (
                 r"\b(24|32|39|40|42|43|48|49|50|55|58|60|65|70|75|85|98|100)"

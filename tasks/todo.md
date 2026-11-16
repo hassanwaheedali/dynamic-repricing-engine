@@ -76,7 +76,7 @@
 - [x] 2. Canonical capacity parsing and matching corrections.
 - [x] 3. Shared safe series fallback without identity replacement.
 - [x] 4. Structural model / measurement span protection.
-- [ ] 5. Shipping capacity normalization reuse.
+- [x] 5. Shipping capacity normalization reuse.
 - [ ] 6. Shared ordered model-first query generation.
 - [ ] 7. Shared offer processing and synchronous finalization.
 - [ ] 8. Deterministic stock-aware identity-safe deduplication.
