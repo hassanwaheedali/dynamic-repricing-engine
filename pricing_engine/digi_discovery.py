@@ -37,7 +37,6 @@ from pricing_engine.models import (
 )
 from pricing_engine.offer_processing import (
     deduplicate_offers,
-    deduplicate_own_offers,
     finalize_offers,
 )
 from pricing_engine.offer_processing import (
@@ -316,7 +315,9 @@ async def discover_digimall(
             and not exhaustive
             and sum(
                 not o.is_sold_out
-                for o in deduplicate_offers([offer for result in results for offer in result.offers])
+                for o in deduplicate_offers(
+                    [offer for result in results for offer in result.offers]
+                )
             )
             >= 2
         ):
@@ -335,12 +336,10 @@ async def discover_digimall(
         before_count = len(deduplicate_offers(observed_exact))
         observed_exact.extend(result.offers)
         tier_summary[tier] += max(0, len(deduplicate_offers(observed_exact)) - before_count)
+    # Preserve raw evidence until one shared finalization; prefix/own-store
+    # decisions cannot safely be made on partial per-query pools.
     pools = {
-        name: (
-            deduplicate_own_offers([offer for result in results for offer in getattr(result, name)])
-            if name == "own_offers"
-            else deduplicate_offers([offer for result in results for offer in getattr(result, name)])
-        )
+        name: [offer for result in results for offer in getattr(result, name)]
         for name in ("offers", "base_offers", "sibling_offers", "own_offers")
     }
     reasons: dict[str, int] = {}

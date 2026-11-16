@@ -14,6 +14,101 @@ from pricing_engine.offer_processing import (
 )
 
 
+def test_empty_explicit_alfa_query_still_finalizes_duplicate_evidence() -> None:
+    from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall
+
+    async def run() -> None:
+        clear_scraper_cache()
+        session = AsyncMock()
+        raw = {
+            "title": "Acme AX-900 Washer",
+            "vendor": {"name": "Seller"},
+            "variant_detail": {"discounted_price": "100000"},
+        }
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"count": 2, "results": [raw, raw.copy()]}
+        session.get.return_value = response
+        result = await scrape_alfamall(
+            session, " ", "AX-900", brand="Acme", target_desc="Acme AX-900 Washer"
+        )
+        assert len(result.offers) == 1 and result.offers[0].duplicate_count == 2
+
+    asyncio.run(run())
+
+
+def test_tier_priority_precedes_notice_preference() -> None:
+    from dataclasses import replace
+
+    exact = ScrapedOffer(
+        "Seller", 100, False, "Same", match_tier=1, compatibility_notice="Optional feature"
+    )
+    base = replace(exact, match_tier=2, compatibility_notice=None)
+    for order in permutations([exact, base]):
+        assert deduplicate_offers(list(order))[0].match_tier == 1
+
+
+@pytest.mark.parametrize("platform", ["alfa", "digi"])
+def test_conflicting_prefix_evidence_survives_query_aggregation(platform: str) -> None:
+    from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
+
+    async def run() -> None:
+        clear_scraper_cache()
+        session = AsyncMock()
+
+        async def get(*args: object, **kwargs: object) -> MagicMock:
+            models = ["AX-900", "900"] if kwargs["params"]["q"] == "first" else ["AB-900"]
+            raw = [
+                {
+                    "title": f"Acme {model} Washer",
+                    "vendor": {"name": "Seller"},
+                    "variant_detail": {"discounted_price": "100000"},
+                }
+                for model in models
+            ]
+            response = MagicMock(status_code=200)
+            response.json.return_value = {"count": len(raw), "results": raw}
+            return response
+
+        session.get.side_effect = get
+        scraper = scrape_alfamall if platform == "alfa" else scrape_digimall
+        result = await scraper(
+            session,
+            {"tier_1": ["first", "second"]},
+            "900",
+            brand="Acme",
+            target_desc="Acme 900 Washer",
+        )
+        assert len(result.offers) == 3
+
+    asyncio.run(run())
+
+
+def test_own_base_model_is_not_hidden_by_same_handle_series_copy() -> None:
+    from pricing_engine.offer_processing import deduplicate_own_offers
+
+    target = "Samsung 55Q7FAA 55 Inch Vision Series QLED Smart LED TV"
+    titles = [
+        "Samsung 55 Inch Vision Series QLED Smart LED TV",
+        "Samsung 55Q7F 55 Inch Vision Series QLED Smart LED TV",
+    ]
+    raw = [
+        {
+            "id": "same",
+            "title": title,
+            "vendor": {"name": "Kia Chahiye"},
+            "variant_detail": {"discounted_price": "100000"},
+        }
+        for title in titles
+    ]
+    _, _, _, _, own, *_ = parse_offers_with_tiers(
+        raw, "55Q7FAA", "Samsung", target, series_fallback=True
+    )
+    assert {o.match_basis for o in own} == {"model", "series"}
+    for order in permutations(own):
+        merged = deduplicate_own_offers(list(order))
+        assert merged[0].match_basis == "model"
+
+
 def test_equivalent_prefixed_spellings_do_not_inflate_offers() -> None:
     target = "Haier HWM 120-316S6 Washing Machine"
     raw = [

@@ -85,13 +85,6 @@ def _safe_console_print(msg: str) -> None:
         pass
 
 
-
-
-
-
-
-
-
 # Run-scoped on-demand cache: (platform, query, target_desc) -> ScrapeResult
 _query_cache: dict[tuple[str, str, str], ScrapeResult] = {}
 _raw_items_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -108,24 +101,6 @@ def clear_scraper_cache() -> None:
 def get_scraper_cache() -> dict[tuple[str, str, str], ScrapeResult]:
     """Return a read-only copy of current query cache."""
     return dict(_query_cache)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 async def _execute_waterfall(
@@ -182,8 +157,12 @@ async def _execute_waterfall(
     executed_lower: set[str] = set()
     for tier_name in all_tiers:
         if tier_name == "series_fallback" and (
-            any_failure or has_active_model_offers(
-                collected_offers, collected_base_offers, collected_sibling_offers, collected_own_offers
+            any_failure
+            or has_active_model_offers(
+                collected_offers,
+                collected_base_offers,
+                collected_sibling_offers,
+                collected_own_offers,
             )
         ):
             continue
@@ -255,7 +234,7 @@ async def _execute_waterfall(
                 for off in sub_res.base_offers:
                     collected_base_offers.append(off)
 
-                collected_sibling_offers.extend(sub_res.sibling_offers)
+                collected_sibling_offers.extend(getattr(sub_res, "sibling_offers", []))
 
                 collected_own_offers.extend(sub_res.own_offers)
 
@@ -267,16 +246,24 @@ async def _execute_waterfall(
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
             matched_tier = tier_name
-        instock_exact_count = sum(1 for o in deduplicate_offers(collected_offers) if not o.is_sold_out)
+        instock_exact_count = sum(
+            1 for o in deduplicate_offers(collected_offers) if not o.is_sold_out
+        )
         if not exhaustive and instock_exact_count >= 2:
             break
 
-    selection = finalize_offers(ScrapeResult(
-        offers=collected_offers, base_offers=collected_base_offers,
-        sibling_offers=collected_sibling_offers, own_offers=collected_own_offers,
-        active_modifier_fallback=detected_missing_modifier,
-        active_modifier_source=detected_missing_source,
-    ), target_model, floor_price)
+    selection = finalize_offers(
+        ScrapeResult(
+            offers=collected_offers,
+            base_offers=collected_base_offers,
+            sibling_offers=collected_sibling_offers,
+            own_offers=collected_own_offers,
+            active_modifier_fallback=detected_missing_modifier,
+            active_modifier_source=detected_missing_source,
+        ),
+        target_model,
+        floor_price,
+    )
     final_offers = selection.offers
     collected_base_offers = selection.base_offers
     collected_sibling_offers = selection.sibling_offers
@@ -311,10 +298,14 @@ async def _execute_waterfall(
     )
     final_error = None if overall_success else (first_failure_error or last_error)
 
-    discovery_status = _processing.classify_discovery(replace(
-        selection, is_success=overall_success, pagination_complete=all_pagination_complete,
-        suspicious_rejected_count=total_suspicious_rejected,
-    ))
+    discovery_status = _processing.classify_discovery(
+        replace(
+            selection,
+            is_success=overall_success,
+            pagination_complete=all_pagination_complete,
+            suspicious_rejected_count=total_suspicious_rejected,
+        )
+    )
 
     return ScrapeResult(
         offers=final_offers,
@@ -513,10 +504,6 @@ async def _scrape_platform_single_query(
                     )
                     break
 
-        e_cached = deduplicate_offers(e_cached)
-        b_cached = deduplicate_offers(b_cached)
-        s_cached = deduplicate_offers(s_cached)
-        o_cached = deduplicate_own_offers(o_cached)
         d_src_cached = "target"
         if b_cached:
             d_cached, d_src_cached = _select_winning_modifier_meta(
@@ -774,10 +761,6 @@ async def _scrape_platform_single_query(
                             )
                             break
 
-                exact_offers = deduplicate_offers(exact_offers)
-                base_offers = deduplicate_offers(base_offers)
-                sibling_offers = deduplicate_offers(sibling_offers)
-                own_offers = deduplicate_own_offers(own_offers)
                 detected_source = "target"
                 if base_offers:
                     detected_modifier, detected_source = _select_winning_modifier_meta(
@@ -950,7 +933,7 @@ async def scrape_alfamall(
     """
     if isinstance(query, str):
         if not query.strip():
-            return await _scrape_alfamall_single_query(
+            raw_result = await _scrape_alfamall_single_query(
                 session=session,
                 query=query,
                 target_model=target_model,
@@ -960,6 +943,7 @@ async def scrape_alfamall(
                 brand=brand,
                 target_desc=target_desc,
             )
+            return finalize_offers(raw_result, target_model, floor_price)
         query = {"tier_1": [query]}
 
     fallback = build_series_search(target_desc, brand)

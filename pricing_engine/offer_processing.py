@@ -125,7 +125,11 @@ def _select_winning_modifier(
 
 
 def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
-    """Deduplicate offers by vendor key, price, color family, and variant, tracking duplicate counts and preserving metadata."""
+    """Deduplicate a complete evidence pool; retain raw query pools until finalization.
+
+    Prefix consensus needs all observed identities. Do not fold partially merged
+    results: an omitted prefix must never bridge two conflicting explicit ones.
+    """
     counts: dict[OfferKey, int] = {}
     first_seen: dict[OfferKey, ScrapedOffer] = {}
     # Bare/optional-prefix spellings merge only when this pool has one possible
@@ -146,19 +150,24 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
         key = (*key[:4], f"{off.brand_name.casefold()}:{prefix}:{core}")
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
 
-        def preference(
-            offer: ScrapedOffer,
-        ) -> tuple[bool, bool, bool, bool, str, str, str, str, str]:
+        def preference(offer: ScrapedOffer) -> tuple[bool, bool, int, bool, bool, tuple[str, ...]]:
             return (
                 offer.is_sold_out,
                 offer.match_basis == "series",
+                offer.match_tier or 1,
                 offer.missing_modifier is not None,
                 offer.compatibility_notice is not None,
-                offer.raw_title.casefold(),
-                offer.product_handle or "",
-                offer.missing_modifier or "",
-                offer.compatibility_notice or "",
-                offer.modifier_source,
+                (
+                    offer.raw_title.casefold(),
+                    offer.raw_title,
+                    offer.product_handle or "",
+                    offer.missing_modifier or "",
+                    offer.compatibility_notice or "",
+                    offer.modifier_source,
+                    offer.scraped_model or "",
+                    offer.vendor_name,
+                    offer.brand_name,
+                ),
             )
 
         if key not in first_seen or preference(off) < preference(first_seen[key]):
@@ -205,11 +214,13 @@ def deduplicate_own_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
         # Prefer in-stock over sold-out, and exact (Tier 1) over base fallback when stock status is equal
         existing_rank = (
             1 if existing.is_sold_out else 0,
+            existing.match_basis == "series",
             existing.match_tier or 1,
             1 if existing.missing_modifier is not None else 0,
         )
         new_rank = (
             1 if clean_off.is_sold_out else 0,
+            clean_off.match_basis == "series",
             clean_off.match_tier or 1,
             1 if clean_off.missing_modifier is not None else 0,
         )
