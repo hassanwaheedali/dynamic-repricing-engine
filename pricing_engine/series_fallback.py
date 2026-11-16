@@ -3,8 +3,8 @@
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from decimal import Decimal
 
+from pricing_engine.capacity import parse_capacity
 from pricing_engine.matcher import (
     MatchDecision,
     ProductSlots,
@@ -14,17 +14,10 @@ from pricing_engine.matcher import (
 )
 from pricing_engine.models import ScrapedOffer
 
-CAPACITY_QUERY_UNITS = {"T": "Ton", "INCH": "Inch", "KG": "KG", "CFT": "CFT", "TAP": "Tap"}
-
 
 def has_active_model_offers(*pools: Iterable[ScrapedOffer]) -> bool:
     """Any compatible in-stock model, including own stores, suppresses widening."""
     return any(not offer.is_sold_out for pool in pools for offer in pool)
-
-
-def _capacity_key(value: str | None) -> tuple[Decimal, str] | None:
-    match = re.fullmatch(r"(\d+(?:\.\d+)?)([A-Z]+)", value or "")
-    return (Decimal(match[1]), match[2]) if match else None
 
 
 @dataclass(frozen=True)
@@ -41,14 +34,11 @@ def build_series_search(description: str, brand: str) -> SeriesSearch | None:
     if not brand.strip() or not re.search(r"\bSERIES\b", description, re.IGNORECASE):
         return None
     slots = extract_product_slots(description, brand)
-    capacity = _capacity_key(slots.guarded_facets.capacity)
+    capacity = parse_capacity(slots.guarded_facets.capacity)
     words = _tokenize_series_words(slots.series)
     if not capacity or not words or len(words) > 4 or any(re.search(r"\d", word) for word in words):
         return None
-    amount, unit = capacity
-    if unit not in CAPACITY_QUERY_UNITS:
-        return None
-    query = f"{brand.strip()} {slots.series} {amount.normalize():f} {CAPACITY_QUERY_UNITS[unit]}"
+    query = f"{brand.strip()} {slots.series} {capacity.query_text()}"
     return SeriesSearch(query, slots.series, slots)
 
 
@@ -76,7 +66,7 @@ def referee_series_match(description: str | SeriesSearch, title: str, brand: str
             candidate,
             reason_code="SERIES_CONFLICT",
         )
-    if _capacity_key(search.target.guarded_facets.capacity) != _capacity_key(
+    if parse_capacity(search.target.guarded_facets.capacity) != parse_capacity(
         candidate.guarded_facets.capacity
     ):
         return MatchDecision(

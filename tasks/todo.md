@@ -72,8 +72,8 @@
 - [x] Final validation: 807 tests passed; 33 focused tests; Ruff passed; strict Mypy passed (17 source files); whitespace check passed; changed executable-line coverage 189/195 (96.92%).
 # Architecture consolidation — active 2026-11-17
 
-- [ ] 1. Contract, baseline evidence and dynamic regression scaffolding.
-- [ ] 2. Canonical capacity parsing and matching corrections.
+- [x] 1. Contract, baseline evidence and dynamic regression scaffolding.
+- [x] 2. Canonical capacity parsing and matching corrections.
 - [ ] 3. Shared safe series fallback without identity replacement.
 - [ ] 4. Structural model / measurement span protection.
 - [ ] 5. Shipping capacity normalization reuse.
@@ -85,4 +85,3 @@
 - [ ] 11. Differential audit, checkpoint versions, full gates and adversarial review.
 
 Cross-model review skipped by explicit user instruction. Existing completed checklist follows.
-

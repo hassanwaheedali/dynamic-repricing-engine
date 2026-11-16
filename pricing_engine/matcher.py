@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import Literal
 
+from pricing_engine.capacity import find_capacity, parse_capacity
 from pricing_engine.registry import (
     _SEED_DAWLANCE_CAPACITIES,
     _SEED_UNIVERSAL_CAPACITIES,
@@ -10,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v2-series"
+MATCHER_POLICY_VERSION = "product-evidence-v3-capacity"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -1369,6 +1370,8 @@ def is_dimension_or_spec_token(token: str) -> bool:
     """Check if a token represents physical dimensions, capacity, or feature counts instead of a model code."""
     clean = token.strip("-_., \"'")
     if not clean:
+        return True
+    if parse_capacity(clean) is not None:
         return True
     if re.match(r"^T\d+$", clean, re.IGNORECASE):
         return True
@@ -3522,27 +3525,21 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             re.IGNORECASE,
         )
     )
-    m_screen = re.search(
-        r"(?<![\d./])(\d{2})\s*-?\s*(?:INCH(?:ES)?\b|\"|\')", clean_title, re.IGNORECASE
-    )
+    m_screen = find_capacity(clean_title, "INCH")
     if m_screen:
-        capacity = f"{m_screen.group(1)}INCH"
+        capacity = str(m_screen)
         is_display = True
-    elif is_display and anchor and re.match(r"^(\d{2})[A-Z]\w{3,}$", anchor):
-        capacity = f"{anchor[:2]}INCH"
+    elif is_display and anchor and (screen_model := re.match(r"^(\d{2,3})[A-Z]\w{3,}$", anchor)):
+        capacity = f"{screen_model[1]}INCH"
     else:
         # Refrigerator CFT (Cubic Feet)
-        m_cft = re.search(
-            r"\b(\d+(?:\.\d+)?)\s*(?:CU\s*FT|CU\.FT|CFT)\b", clean_title, re.IGNORECASE
-        )
+        m_cft = find_capacity(clean_title, "CFT")
         if m_cft:
-            capacity = f"{int(float(m_cft.group(1)))}CFT"
+            capacity = str(m_cft)
         else:
-            # Washing machine KG
-            m_kg = re.search(r"\b(\d+(?:\.\d+)?)\s*[-]?\s*KGS?\b", clean_title, re.IGNORECASE)
+            m_kg = find_capacity(clean_title, "KG")
             if m_kg:
-                kg_val = float(m_kg.group(1))
-                capacity = f"{kg_val:g}KG"
+                capacity = str(m_kg)
             elif anchor and (
                 m_anchor := re.match(r"^(?:[A-Za-z]{2,4}-)?(\d{2,3})-[A-Za-z0-9]+", anchor)
             ):
@@ -3552,11 +3549,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
                     capacity = f"{cap_val:g}KG"
             elif not is_non_ac:
                 # AC Tonnage
-                m_ton = re.search(
-                    r"\b(\d+(?:\.\d+)?)\s*[-]?\s*(?:TON|ΤΟN)\b", clean_title, re.IGNORECASE
-                )
+                m_ton = find_capacity(clean_title, "T")
                 if m_ton:
-                    capacity = f"{m_ton.group(1)}T"
+                    capacity = str(m_ton)
                 elif is_ac:
                     # AC capacity codes
                     for t in tokens + clean_title.split():
@@ -3588,6 +3583,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             word_map = {"SINGLE": "1", "TWO": "2", "DOUBLE": "2", "THREE": "3", "FOUR": "4"}
             tap_num = word_map.get(val.upper(), val)
             capacity = f"{tap_num}TAP"
+
+    if capacity and (canonical_capacity := parse_capacity(capacity)):
+        capacity = str(canonical_capacity)
 
     # 2e. Tub Series (slash-attached /WB is Wide Body on washers, Wood Brown color on non-washer stems)
     is_washer_tub_ctx = detected_family == "WASHING_MACHINE" or bool(
@@ -3817,6 +3815,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     # Distribute candidate tokens into Category 1 vs Category 2:
     for tok in candidate_tokens:
+        if parse_capacity(tok) is not None:
+            continue
         if tok in dedicated_orthogonal_slots:
             continue
         if norm_anc and tok in norm_anc:
@@ -5688,34 +5688,9 @@ def referee_match(
     # 3b. Capacity / Screen Size Guard (Unit-Preserving Normalization - AUD-HIGH-03)
     if target_slots.guarded_facets.capacity and cand_slots.guarded_facets.capacity:
 
-        def _norm_cap(c: str) -> str:
-            val_str = re.sub(r"[^0-9.]", "", c)
-            unit_str = re.sub(r"[0-9.\s\-_]", "", c).upper()
-            try:
-                return f"{float(val_str):g}_{unit_str}"
-            except (ValueError, TypeError):
-                return c.strip().upper()
-
-        norm_cap_t = _norm_cap(target_slots.guarded_facets.capacity)
-        norm_cap_c = _norm_cap(cand_slots.guarded_facets.capacity)
-        # Allow 1T <-> 1.25T rounded prose tonnage equivalence ONLY when BOTH sides share an identical
-        # matched 13xxx/14xxx BTU AC SKU anchor (e.g. 14HFT 1.25 Ton <-> HSU-14HFT / HSU-14HFTEX 1.0 Ton).
-        is_identical_14k_btu_sku = False
-        if (
-            {norm_cap_t, norm_cap_c} == {"1_T", "1.25_T"}
-            and target_slots.anchor
-            and cand_slots.anchor
-        ):
-            _, st_t = _strip_leading_sku_prefix(
-                re.sub(r"[^A-Z0-9]", "", target_slots.anchor.upper())
-            )
-            _, st_c = _strip_leading_sku_prefix(re.sub(r"[^A-Z0-9]", "", cand_slots.anchor.upper()))
-            m_btu_t = re.match(r"^(1[34])[A-Z]{2,}", st_t)
-            m_btu_c = re.match(r"^(1[34])[A-Z]{2,}", st_c)
-            if m_btu_t and m_btu_c and m_btu_t.group(1) == m_btu_c.group(1):
-                is_identical_14k_btu_sku = True
-
-        if norm_cap_t != norm_cap_c and not is_identical_14k_btu_sku:
+        norm_cap_t = parse_capacity(target_slots.guarded_facets.capacity)
+        norm_cap_c = parse_capacity(cand_slots.guarded_facets.capacity)
+        if norm_cap_t != norm_cap_c:
             return MatchDecision(
                 reason_code="FACET_CONFLICT",
                 is_match=False,
