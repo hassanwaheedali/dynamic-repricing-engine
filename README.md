@@ -17,9 +17,9 @@ An automated, high-speed, enterprise-grade dynamic repricing pipeline built spec
 
 > *"Hey there! I'm **Hassan Waheed Ali** ([@hassanwaheedali](https://github.com/hassanwaheedali)). While working at **KiaChahiye** ([kiachahiye.pk](https://kiachahiye.pk)), I saw firsthand how painful, exhausting, and risky manual repricing was. 
 > 
-> Every single morning, our team had to manually look up dozens of products on AlfaMall and DigiMall, check competitor rates, calculate courier charges based on box dimensions, compute bank commission cuts (8% vs. 10%), apply profit margins, and update spreadsheets one by one. It was taking hours of manual labor and was always vulnerable to human calculation errors or underpricing.
+> Every single morning, our team had to manually look up dozens of products on AlfaMall and DigiMall, check competitor rates, calculate courier charges based on box dimensions, compute per-vendor configured bank commissions (`ALFA_COMMISSION_PCT` vs. `DIGI_COMMISSION_PCT`), apply profit margins, and update spreadsheets one by one. It was taking hours of manual labor and was always vulnerable to human calculation errors or underpricing.
 > 
-> I initially started this as a casual personal project to shift our operations from tedious manual work to 100% automation. But as the engine evolved — with Chrome impersonation, smart variant matching, and multi-tier bank spread math — it became incredibly fast, robust, and accurate. 
+> I initially started this as a casual personal project to shift our operations from tedious manual work to 100% automation. But as the engine evolved — with Chrome impersonation, smart variant matching, and configured per-vendor commission math — it became incredibly fast, robust, and accurate. 
 > 
 > Now, we are expanding this from an internal tool into a **next-level dynamic repricing SaaS engine** for multiple Pakistani and regional e-commerce marketplaces. Contributions, forks, and ideas are warmly welcomed!"*
 
@@ -33,9 +33,8 @@ In simple words, you give it your product catalog (like your ACs, Washing Machin
 2. **Filters Out Junk & Variants**: Drops out-of-stock items and protects against wrong variant collisions (e.g. it strictly refuses to match a White AC `12AITH21W` against a Black AC `12AITH21B` or an 8kg washer against a 10kg washer).
 3. **Calculates Real Landed Shipping**: Automatically calculates volumetric weight ($\frac{L \times W \times H}{5000}$) and courier cost per product.
 4. **Guarantees Profit (+Rs. 500 Floor)**: Enforces hard mathematical floors so you **never sell at a loss** regardless of competitor price cuts.
-5. **DigiMall 2-Tier Bank Switch**:
-   - **Tier 1 (10% Tier)**: Undercuts competitors while enjoying extra profit margin from the 8% Faysal Bank agreement.
-   - **Tier 2 (8% Emergency Switch)**: If a competitor is aggressive, switches to the 8% bank rate to win the buy box while still keeping your profit intact.
+5. **Strictly Fixed Per-Vendor Commissions**:
+   - Strictly applies each platform's configured commission percentage (`ALFA_COMMISSION_PCT`, default `10%`; `DIGI_COMMISSION_PCT`, default `8%`) across all floors, evaluations, exports, and Excel formulas with zero automatic commission switching.
 6. **Applies Psychological Pricing**: Rounds all winning prices to standard retail endings (`.999`, `.899`, `.799`, `.499`, `.299`, `.199`, `.099`).
 7. **Monopoly Protection**: If you are the only seller with stock, sets an optimal profit price (+Rs. 4,000 margin) rather than leaving money on the table.
 8. **Exports Clean, Upload-Ready CSVs**: Saves timestamped audit files and an always-synced `_latest.csv` ready for direct upload to merchant portals.
@@ -75,8 +74,8 @@ The system is built as a modular async pipeline with clear boundaries:
        4. Pricing & Margin Evaluator (`pricing_engine/evaluator.py`)
        • Courier shipping: Volumetric formula or declarative category fallback rate
        • Cost base calculation: Net Price + Shipping
-       • AlfaMall: Strict 10% undercutting above hard floor (+Rs. 500)
-       • DigiMall: Two-Tier switch (10% standard -> 8% emergency rate)
+       • AlfaMall: Fixed configured rate (`ALFA_COMMISSION_PCT`, default 10%) above hard floor (+Rs. 500)
+       • DigiMall: Fixed configured rate (`DIGI_COMMISSION_PCT`, default 8%) above hard floor (+Rs. 500)
        • Optional Personal Commission floor (-m <pct>) with winning candidate filter
        • Monopoly pricing (+Rs. 4,000) when zero competitors exist
        • Psychological threshold rounding (.999, .899, etc.)
@@ -128,7 +127,7 @@ Pricing Script/
 │   ├── calculator.py            # Cost base, volumetric & category fallback shipping formulas
 │   ├── matcher.py               # Fuzzy-resistant SKU model extraction & variant protection
 │   ├── scraper.py               # Fast async JSON scraper for AlfaMall & DigiMall
-│   ├── evaluator.py             # Buy-box winning logic & 2-tier bank commission switch
+│   ├── evaluator.py             # Buy-box winning logic under strictly fixed per-vendor commissions
 │   ├── models.py                # Strongly typed dataclasses
 │   ├── learner.py               # Autonomous search query pattern learner
 │   ├── registry.py              # Pattern registry (in-memory + Supabase)
@@ -245,18 +244,16 @@ $$\text{Shipping Estimate (PKR)} = \text{Volumetric Weight} \times 70.0\text{ PK
 $$\text{Cost Base} = \text{Net Price} + \text{Shipping Estimate}$$
 
 ### 2. Hard Profit Floors (+Rs. 500 Guarantee)
-- **AlfaMall (10% Commission)**:
-  $$\text{Floor}_{\text{Alfa}} = \frac{\text{Cost Base} + 500}{0.90}$$
-- **DigiMall Standard (10% Tier)**:
-  $$\text{Floor}_{\text{Digi\_10}} = \frac{\text{Cost Base} + 500}{0.90}$$
-- **DigiMall Emergency (8% Faysal Bank Rate)**:
-  $$\text{Floor}_{\text{Digi\_8}} = \frac{\text{Cost Base} + 500}{0.92}$$
+- **AlfaMall (`ALFA_COMMISSION_PCT`, default 10%)**:
+  $$\text{Floor}_{\text{Alfa}} = \frac{\text{Cost Base} + 500}{1 - \frac{\text{ALFA\_COMMISSION\_PCT}}{100}}$$
+- **DigiMall (`DIGI_COMMISSION_PCT`, default 8%)**:
+  $$\text{Floor}_{\text{Digi}} = \frac{\text{Cost Base} + 500}{1 - \frac{\text{DIGI\_COMMISSION\_PCT}}{100}}$$
 
 ### 3. Winning Undercut Rules
 - **Winning Condition**: $\text{Floor} \le \text{Our Price} < \text{Lowest Viable Competitor}$.
 - **Psychological Rounding**: If undercut yields `72,877` and floor is `72,500`, engine rounds to `72,799` or `72,899`.
-- **Monopoly Pricing**: If zero valid competitors exist in the market, pricing sets:
-  $$\text{Monopoly Price} = \frac{\text{Cost Base} + 4000}{0.90}$$
+- **Monopoly Pricing**: If zero valid competitors exist in the market, each vendor computes independently from its configured commission rate:
+  $$\text{Monopoly Price}_{\text{vendor}} = \frac{\text{Cost Base} + 4000}{1 - \frac{\text{Vendor Commission \%}}{100}}$$
   (rounded to psychological ending) to capture optimal margin.
 
 ---

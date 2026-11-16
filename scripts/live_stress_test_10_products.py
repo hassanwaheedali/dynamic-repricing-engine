@@ -233,7 +233,7 @@ async def run_single_product_test(session: AsyncSession, p_data: dict[str, Any])
         session, patterns, target_model, floor_price=floors.floor_alfa, brand=prod.brand
     )
     digi_task = scrape_digimall(
-        session, patterns, target_model, floor_price=floors.floor_digi_8, brand=prod.brand
+        session, patterns, target_model, floor_price=floors.floor_digi, brand=prod.brand
     )
     alfa_res, digi_res = await asyncio.gather(alfa_task, digi_task)
 
@@ -287,8 +287,7 @@ async def run_single_product_test(session: AsyncSession, p_data: dict[str, Any])
         "cost_base": cost_base,
         "floors": {
             "floor_alfa": floors.floor_alfa,
-            "floor_digi_10": floors.floor_digi_10,
-            "floor_digi_8": floors.floor_digi_8,
+            "floor_digi": floors.floor_digi,
         },
         "alfa_audit": {
             "executed_queries": alfa_res.executed_queries,

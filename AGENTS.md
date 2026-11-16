@@ -11,7 +11,7 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
   1. **Zero Browser/Selenium Overhead**: Use direct HTTP JSON endpoints via `curl_cffi` (Chrome 120 impersonation) for sub-second responses and zero IP blocking.
   2. **Variant Match Protection**: Strict SKU model extraction. Never allow cross-variant or cross-color mispricing (e.g. `12AITH21W` White must never match `12AITH21B` Black; 8kg washers must never match 10kg washers).
   3. **Guaranteed Profit Floors**: Hard mathematical floor (+Rs. 500 minimum net profit guarantee). Never sell at a loss regardless of competitor price wars.
-  4. **Two-Tier Bank Commission Arbitrage**: Leverage DigiMall's special 8% Faysal Bank rate to capture extra profit or win tough competition against competitors paying 10%.
+  4. **Strictly Fixed Per-Vendor Commissions**: Each vendor strictly applies its own configured percentage (`effective_commission_rate == configured_vendor_commission_rate`; defaults `ALFA_COMMISSION_PCT = 10.0`, `DIGI_COMMISSION_PCT = 8.0`) across every calculation, floor, pipeline, checkpoint, CSV, and XLSX formula. Zero automatic emergency overrides or hidden fallbacks.
   5. **Deterministic Data Integrity**: Guaranteed Column 1 `S.NO`, pure integer price outputs (zero `.0` float drift), and ANSI-free risk alerts.
   6. **Strict DRY Concept & Generic Dynamic Algorithms (Zero Category & Brand Hardcoding)**:
      - **Zero Static Lists**: Never hardcode category conditionals (`if 'MINI BAR'`), static brand lists (`["DAWLANCE", "GREE", ...]`), or static prefix sets (`(HWM|DWT|DW|WM|...)`) in `matcher.py` or anywhere in the engine.
@@ -37,17 +37,13 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
 - **Cost Base**:
   $$\text{Cost Base} = \text{Net Purchase Price} + \text{Shipping Estimate}$$
 - **Total Without Profit (0% Margin Breakeven)**:
-  - AlfaMall (10% Commission): $\frac{\text{Cost Base}}{0.90}$
-  - DigiMall Leverage (8% Commission): $\frac{\text{Cost Base}}{0.92}$
-- **Baseline Catalog Calculation**:
-  $$\text{Baseline} = \frac{\text{Cost Base} + \text{Profit Target}}{0.90}$$
-  *(Profit Target defaults to Rs. 500 if omitted in catalog)*
+  - AlfaMall (`ALFA_COMMISSION_PCT`, default `10.0` $\rightarrow$ `0.90` payout): $\frac{\text{Cost Base}}{1 - \text{ALFA\_COMMISSION\_PCT}/100}$
+  - DigiMall (`DIGI_COMMISSION_PCT`, default `8.0` $\rightarrow$ `0.92` payout): $\frac{\text{Cost Base}}{1 - \text{DIGI\_COMMISSION\_PCT}/100}$
 - **Absolute Hard Profit Floors (+Rs. 500 Net Profit Guarantee)**:
-  - $\text{Floor}_{\text{Alfa}} = \frac{\text{Cost Base} + 500}{0.90}$
-  - $\text{Floor}_{\text{Digi\_10}} = \frac{\text{Cost Base} + 500}{0.90}$
-  - $\text{Floor}_{\text{Digi\_8}} = \frac{\text{Cost Base} + 500}{0.92}$
+  - $\text{Floor}_{\text{Alfa}} = \frac{\text{Cost Base} + \text{Min Profit}}{1 - \text{ALFA\_COMMISSION\_PCT}/100}$
+  - $\text{Floor}_{\text{Digi}} = \frac{\text{Cost Base} + \text{Min Profit}}{1 - \text{DIGI\_COMMISSION\_PCT}/100}$
 - **Monopoly Pricing (Zero Competitors in Market)**:
-  $$\text{Monopoly Price} = \frac{\text{Cost Base} + 4000}{0.90} \longrightarrow \text{Psychological Threshold}$$
+  $$\text{Monopoly Price}_{\text{vendor}} = \frac{\text{Cost Base} + 4000}{1 - \text{Vendor Commission \%}/100} \longrightarrow \text{Psychological Threshold}$$
 
 ---
 
@@ -64,18 +60,19 @@ Prices must end strictly in standard retail psychological endings:
 
 ### Platform Decision Engines
 
-1. **AlfaMall (Strict 10% Commission)**:
+1. **AlfaMall (Strictly Fixed Configured Rate, Default 10%)**:
    - Discard all scraped offers below $\text{Floor}_{\text{Alfa}}$ (sub-floor loss-makers).
    - If viable competitors exist: Undercut the lowest viable competitor $\ge \text{Floor}_{\text{Alfa}}$.
    - If lowest competitor is excessively inflated above baseline calculation: Apply **Capped Sweet-Spot** rule to protect high sales velocity.
    - If 0 competitors found: Set **Monopoly Price** (+Rs. 4,000 margin with psychological ending).
    - If all competitors are below floor: Fall back safely to $\text{Floor}_{\text{Alfa}}$ or return `NaN` with `SAFE_FALLBACK` alert.
 
-2. **DigiMall (Two-Tier 10% $\rightarrow$ 8% Faysal Bank Switch)**:
-   - **Tier 1 (Default 10% Tier)**: If the lowest competitor is $\ge \text{Floor}_{\text{Digi\_10}}$, undercut and win at 10% tier. Bank only charges 8%, capturing an extra 2% bank spread profit. Record `Digi Effective Commision` as `10.00%`.
-   - **Tier 2 (Emergency 8% Switch)**: If lowest competitor is below $\text{Floor}_{\text{Digi\_10}}$ but $\ge \text{Floor}_{\text{Digi\_8}}$, switch to 8% bank rate, undercut to win. Record `Digi Effective Commision` as `8.00%`.
-   - **Upper Band Undercut**: If lowest competitor is below $\text{Floor}_{\text{Digi\_8}}$, drop them and attempt to undercut the next higher viable competitor at 8%.
-   - **Zero Competitors**: Apply Monopoly pricing (+Rs. 4,000 margin).
+2. **DigiMall (Strictly Fixed Configured Rate, Default 8%)**:
+   - Strictly uses `DIGI_COMMISSION_PCT` (`get_digi_commission_pct()` / `get_digi_payout_rate()`) across every branch with zero emergency rate switching.
+   - Discard all scraped offers $\le \lceil \text{Floor}_{\text{Digi}} \rceil$ (sub-floor loss-makers).
+   - If viable competitors exist: Undercut the lowest viable competitor with adaptive psychological pricing and optional sweet-spot capping.
+   - If all competitors are below floor: Apply Safe Fallback pricing above $\text{Floor}_{\text{Digi}}$ with `SAFE_FALLBACK` alert.
+   - If 0 competitors found (and discovery is complete): Apply Monopoly pricing (+Rs. 4,000 target margin at configured Digi rate).
 
 ### Risk Alert Classifications
 - `NONE`: Optimal healthy winning price.
@@ -161,10 +158,11 @@ Standardized output column ordering:
 2. Original input columns (`Brand`, `Name`, `Net Price`, `Length`, `Width`, `Height`, `Profit`, any custom tags)
 3. Calculated pricing columns:
    - `Shipping Estimate`
-   - `Commision` (`10.00%`)
-   - `Digi Effective Commision` (`10.00%` or `8.00%`)
-   - `Total Without Profit` (Cost base breakeven at effective rate)
-   - `Calculation` (Baseline target price)
+   - `Alfa Commission` (present in unified / `--platform alfa` exports)
+   - `Digi Commission` (present in unified / `--platform digi` exports)
+   - `Insurance` (present only when product category defines it, anchored right after commission columns)
+   - `Total Without Profit (Alfa)` (present in unified / `--platform alfa` exports)
+   - `Total Without Profit (Digi)` (present in unified / `--platform digi` exports)
    - `Minimum Price Alfa`, `Maximum Price Alfa`
    - `Minimum Price Digi`, `Maximum Price Digi`
    - `Final Price Alfa`, `Final Price Digi`

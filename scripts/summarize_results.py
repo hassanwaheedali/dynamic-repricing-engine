@@ -17,7 +17,7 @@ for item in data[5:7]:
     print(f"  Target Model: '{item['target_model']}' | Anchor: '{item['slots']['anchor']}'")
     print(f"  Guarded Facets: {item['slots']['facets']}")
     print(
-        f"  Floors: Alfa={item['floors']['floor_alfa']:,.0f} | Digi 10%={item['floors']['floor_digi_10']:,.0f} | Digi 8%={item['floors']['floor_digi_8']:,.0f}"
+        f"  Floors: Alfa={item['floors']['floor_alfa']:,.0f} | Digi={item['floors']['floor_digi']:,.0f}"
     )
 
     print("\n  [ALFAMALL AUDIT]:")
