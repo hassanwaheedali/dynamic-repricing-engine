@@ -9,6 +9,14 @@ from pricing_engine.matcher import extract_product_slots
 from pricing_engine.series_fallback import build_series_search, referee_series_match
 
 
+@pytest.mark.parametrize("unit", ["1T", "1.0T", "1 Ton"])
+def test_supported_tonnage_aliases_never_become_series_words(unit: str) -> None:
+    search = build_series_search(f"Acme AX-900 Aurora Series {unit} Split AC", "Acme")
+    assert search is not None
+    decision = referee_series_match(search, f"Acme Aurora {unit} Split AC", "Acme")
+    assert decision.is_base_match, decision.reason
+
+
 def test_model_basis_survives_same_seller_price_series_duplicate() -> None:
     from pricing_engine.models import ScrapedOffer
     from pricing_engine.scraper import deduplicate_offers

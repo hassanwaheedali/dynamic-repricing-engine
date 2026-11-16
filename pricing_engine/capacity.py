@@ -43,7 +43,10 @@ def parse_amount(value: object) -> Decimal | None:
 
 def explicit_capacity_pattern(unit: CapacityUnit) -> str:
     """Configured extraction pattern; inference and scaling stay with the caller."""
-    return rf"(?i)(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{UNIT_PATTERNS[unit]}(?!\w)"
+    return rf"(?i:(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{UNIT_PATTERNS[unit]}(?!\w))"
+
+
+CAPACITY_MEASUREMENT_PATTERN = "|".join(explicit_capacity_pattern(unit) for unit in UNIT_PATTERNS)
 
 
 @dataclass(frozen=True)

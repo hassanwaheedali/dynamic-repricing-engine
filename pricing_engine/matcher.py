@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import Literal
 
-from pricing_engine.capacity import find_capacity, parse_capacity
+from pricing_engine.capacity import CAPACITY_MEASUREMENT_PATTERN, find_capacity, parse_capacity
 from pricing_engine.registry import (
     _SEED_DAWLANCE_CAPACITIES,
     _SEED_UNIVERSAL_CAPACITIES,
@@ -11,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v6-stock-identity"
+MATCHER_POLICY_VERSION = "product-evidence-v7-consolidated"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -1367,8 +1367,6 @@ def _normalize_sku_separators(text: str) -> str:
     )
 
 
-
-
 _MODEL_UNIT_SUFFIX_RE = re.compile(
     r"\b(?P<prefix>[A-Za-z]{2,4})[-_\s]+(?P<number>\d{3,6})[-_\s]*(?P<suffix>[WL])\b", re.I
 )
@@ -1376,14 +1374,17 @@ _MODEL_UNIT_SUFFIX_RE = re.compile(
 
 def _strip_category_measurements(text: str) -> str:
     """Protect structurally prefixed model spans before category/unit removal."""
-    pattern = rf"(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})|(?:{CATEGORY_PATTERNS.pattern})"
+    pattern = rf"(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})|(?:{CATEGORY_PATTERNS.pattern})|(?:{CAPACITY_MEASUREMENT_PATTERN})"
 
     def remove_or_preserve(match: re.Match[str]) -> str:
-        if match.group("model") and match.group("prefix").upper() not in NON_SKU_TOKENS:
-            return match.group("model")
-        return CATEGORY_PATTERNS.sub(" ", match.group(0))
+        if match.group("model"):
+            if match.group("prefix").upper() not in NON_SKU_TOKENS:
+                return match.group("model")
+            return CATEGORY_PATTERNS.sub(" ", match.group(0))
+        return " "
 
     return re.sub(pattern, remove_or_preserve, text, flags=re.I)
+
 
 def is_dimension_or_spec_token(token: str) -> bool:
     """Check if a token represents physical dimensions, capacity, or feature counts instead of a model code."""
@@ -3432,13 +3433,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     # Enhanced anchor detection for compound models (e.g. 24 HDZ, 48 EDC, 18 HE-DC, HMO-45200, HAF-50MB, 32 D2)
     if not anchor:
-        sub_anchor = clean_marketplace_noise(clean_title)
-        sub_anchor = re.sub(
-            r"\b\d+(?:\.\d+)?[\s\-_]*(?:TON|ΤΟN|KG|KGS|CFT|CU\s*FT|CU\.FT|LTR|LITRES?|LITERS?|WATTS?)\b",
-            " ",
-            sub_anchor,
-            flags=re.IGNORECASE,
-        )
+        sub_anchor = _strip_category_measurements(clean_marketplace_noise(clean_title))
         if detected_brand:
             sub_anchor = re.sub(
                 rf"^(?:{re.escape(detected_brand)}|{re.escape(detected_brand[:3]) if len(detected_brand) >= 4 else '---'})[\s\-_,:]*",
@@ -4501,7 +4496,11 @@ def _resolve_effective_single_letter_variant(
     raw_text: str, slots: ProductSlots, brand: str = "", *, include_sku: bool = True
 ) -> tuple[str | None, str | None]:
     """Resolve single-letter variant suffix and human-readable label from stem suffix or lid phrases."""
-    base_var = _extract_stem_single_letter_variant(raw_text, slots.anchor, brand=brand) if include_sku else None
+    base_var = (
+        _extract_stem_single_letter_variant(raw_text, slots.anchor, brand=brand)
+        if include_sku
+        else None
+    )
     res_set = {r.upper() for r in slots.residuals}
     if (
         "CLEAR LID" in res_set
@@ -4627,7 +4626,16 @@ def _referee_match(
     if isinstance(target, str):
         branches = expand_cartesian_branches(target)
         if len(branches) > 1:
-            decs = [_referee_match(b, candidate_title, brand=brand, candidate_brand=candidate_brand, match_basis=match_basis) for b in branches]
+            decs = [
+                _referee_match(
+                    b,
+                    candidate_title,
+                    brand=brand,
+                    candidate_brand=candidate_brand,
+                    match_basis=match_basis,
+                )
+                for b in branches
+            ]
             for dec in decs:
                 if dec.is_match:
                     return dec
@@ -4644,7 +4652,12 @@ def _referee_match(
 
     cand_branches = expand_cartesian_branches(candidate_title)
     if len(cand_branches) > 1:
-        decs = [_referee_match(target, cb, brand=brand, candidate_brand=candidate_brand, match_basis=match_basis) for cb in cand_branches]
+        decs = [
+            _referee_match(
+                target, cb, brand=brand, candidate_brand=candidate_brand, match_basis=match_basis
+            )
+            for cb in cand_branches
+        ]
         target_has_col_slash = isinstance(target, str) and bool(_extract_slash_color_chain(target))
         cand_col_chain = _extract_slash_color_chain(candidate_title)
         for dec in decs:
@@ -4675,23 +4688,42 @@ def _referee_match(
     target_slots = extract_product_slots(target, brand=brand) if isinstance(target, str) else target
     cand_slots = extract_product_slots(candidate_title, brand=brand)
     if match_basis == "series":
-        def reject_series(reason: str, code: MatchReasonCode) -> MatchDecision:
-            return MatchDecision(False, reason, target_slots, cand_slots, reason_code=code, match_basis="series")
 
-        if not brand.strip() or not re.match(rf"^\s*{re.escape(brand.strip())}\b", cand_slots.normalized_title, re.I):
-            return reject_series("Series fallback requires explicit catalog series and product brand", "MISSING_IDENTITY")
+        def reject_series(reason: str, code: MatchReasonCode) -> MatchDecision:
+            return MatchDecision(
+                False, reason, target_slots, cand_slots, reason_code=code, match_basis="series"
+            )
+
+        if not brand.strip() or not re.match(
+            rf"^\s*{re.escape(brand.strip())}\b", cand_slots.normalized_title, re.I
+        ):
+            return reject_series(
+                "Series fallback requires explicit catalog series and product brand",
+                "MISSING_IDENTITY",
+            )
         if cand_slots.anchor:
-            return reject_series("Series fallback cannot accept an explicitly stated unverified SKU", "MODEL_CONFLICT")
+            return reject_series(
+                "Series fallback cannot accept an explicitly stated unverified SKU",
+                "MODEL_CONFLICT",
+            )
         series_tokens = normalize_series_tokens(target_slots.series)
         if not series_tokens or series_tokens != normalize_series_tokens(cand_slots.series):
-            return reject_series("Series fallback requires the same complete named series", "SERIES_CONFLICT")
+            return reject_series(
+                "Series fallback requires the same complete named series", "SERIES_CONFLICT"
+            )
         target_capacity = parse_capacity(target_slots.guarded_facets.capacity)
-        if target_capacity is None or target_capacity != parse_capacity(cand_slots.guarded_facets.capacity):
-            return reject_series("Series fallback requires verified matching capacity", "FACET_CONFLICT")
+        if target_capacity is None or target_capacity != parse_capacity(
+            cand_slots.guarded_facets.capacity
+        ):
+            return reject_series(
+                "Series fallback requires verified matching capacity", "FACET_CONFLICT"
+            )
         target_family = _detect_appliance_family(target_slots.normalized_title)
         candidate_family = _detect_appliance_family(cand_slots.normalized_title)
         if not target_family or not candidate_family:
-            return reject_series("Series fallback requires explicit product family evidence", "MISSING_IDENTITY")
+            return reject_series(
+                "Series fallback requires explicit product family evidence", "MISSING_IDENTITY"
+            )
 
     # Every guard consumes the same product text that supplied the slots. Raw
     # seller clauses and campaigns must never re-enter category or color checks.
@@ -5412,13 +5444,17 @@ def _referee_match(
             )
 
     # Single-letter variant suffix guard (5-Case Referee)
-    raw_t_check = target_slots.normalized_title if match_basis == "series" else (
-        target
-        if isinstance(target, str)
+    raw_t_check = (
+        target_slots.normalized_title
+        if match_basis == "series"
         else (
-            f"{target_slots.anchor} "
-            f"{target_slots.guarded_facets.color_raw or ''} "
-            f"{' '.join(target_slots.residuals)}"
+            target
+            if isinstance(target, str)
+            else (
+                f"{target_slots.anchor} "
+                f"{target_slots.guarded_facets.color_raw or ''} "
+                f"{' '.join(target_slots.residuals)}"
+            )
         )
     )
     effective_t_var, t_mod_label = _resolve_effective_single_letter_variant(
@@ -5727,7 +5763,6 @@ def _referee_match(
 
     # 3b. Capacity / Screen Size Guard (Unit-Preserving Normalization - AUD-HIGH-03)
     if target_slots.guarded_facets.capacity and cand_slots.guarded_facets.capacity:
-
         norm_cap_t = parse_capacity(target_slots.guarded_facets.capacity)
         norm_cap_c = parse_capacity(cand_slots.guarded_facets.capacity)
         if norm_cap_t != norm_cap_c:
@@ -5927,7 +5962,9 @@ def referee_match(
     return _referee_match(target, candidate_title, brand, candidate_brand=candidate_brand)
 
 
-def referee_series_candidate(target: ProductSlots, candidate_title: str, brand: str) -> MatchDecision:
+def referee_series_candidate(
+    target: ProductSlots, candidate_title: str, brand: str
+) -> MatchDecision:
     """Evaluate absent-SKU series evidence through the ordinary physical referee."""
     decision = _referee_match(target, candidate_title, brand, match_basis="series")
     if not (decision.is_match or decision.is_base_match):
@@ -5939,11 +5976,21 @@ def referee_series_candidate(target: ProductSlots, candidate_title: str, brand: 
     )
     if decision.compatibility_notice:
         notice += " " + decision.compatibility_notice
-    if target.guarded_facets.color_family and candidate and not candidate.guarded_facets.color_family:
+    if (
+        target.guarded_facets.color_family
+        and candidate
+        and not candidate.guarded_facets.color_family
+    ):
         notice += f" [CROSS-CHECK NOTICE: Catalog color '{target.guarded_facets.color_raw}' omitted by market listing]"
     return replace(
-        decision, is_match=False, is_base_match=True, match_tier=2, match_basis="series",
-        reason_code="BASE_MATCH", detected_variant=None, compatibility_notice=notice,
+        decision,
+        is_match=False,
+        is_base_match=True,
+        match_tier=2,
+        match_basis="series",
+        reason_code="BASE_MATCH",
+        detected_variant=None,
+        compatibility_notice=notice,
         missing_modifier=f"Series {target.series} {target.guarded_facets.capacity}",
         modifier_source="market",
         reason=f"Series-only fallback after model matching failed: {target.series} / {target.guarded_facets.capacity}",
@@ -5955,7 +6002,9 @@ def normalize_search_query(query: str) -> str:
     return " ".join(query.split()).casefold()
 
 
-def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 3) -> tuple[str, ...]:
+def generate_model_first_queries(
+    canonical_name: str, brand: str, budget: int = 3
+) -> tuple[str, ...]:
     """Generate ordered brandless model candidates, preserving compound/base coverage."""
     if budget < 1:
         raise ValueError("Model query budget must be positive")
@@ -5977,7 +6026,11 @@ def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 
     is_compound_anchor = bool(
         anchor and re.match(r"^[A-Za-z]{2,3}[-_][A-Za-z]{2,3}[-_]?\d+", anchor)
     )
-    if anchor and re.search(r"\d", anchor) and normalize_search_query(anchor) != normalize_search_query(model):
+    if (
+        anchor
+        and re.search(r"\d", anchor)
+        and normalize_search_query(anchor) != normalize_search_query(model)
+    ):
         queries.append(anchor)
     base_model = _capacity_led_base_model(slots, brand)
     if (
@@ -5994,7 +6047,11 @@ def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 
             if len(queries) < budget:
                 queries.append(clean)
                 break
-            if is_compound_anchor and len(queries) == budget and normalize_search_query(anchor) != normalize_search_query(model):
+            if (
+                is_compound_anchor
+                and len(queries) == budget
+                and normalize_search_query(anchor) != normalize_search_query(model)
+            ):
                 # Preserve compound anchor without brand wrapper + bare sub-stem within 3-query cap
                 queries = [queries[0], anchor, clean]
                 break
