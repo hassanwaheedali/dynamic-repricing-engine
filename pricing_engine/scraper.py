@@ -189,8 +189,7 @@ async def _execute_waterfall(
     collected_base_offers: list[ScrapedOffer] = []
     collected_sibling_offers: list[ScrapedOffer] = []
     collected_own_offers: list[ScrapedOffer] = []
-    seen_offers: set[tuple[str, float, str, str]] = set()
-    seen_sibling_offers: set[tuple[str, float, str, str]] = set()
+    seen_offers: set[_processing.OfferKey] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
     any_success = False
@@ -294,17 +293,13 @@ async def _execute_waterfall(
                     dedupe_key = _offer_dedupe_key(off)
                     if dedupe_key not in seen_offers:
                         seen_offers.add(dedupe_key)
-                        collected_offers.append(off)
                         tier_offers_count += 1
+                    collected_offers.append(off)
 
                 for off in sub_res.base_offers:
                     collected_base_offers.append(off)
 
-                for off in getattr(sub_res, "sibling_offers", []):
-                    dedupe_key = _offer_dedupe_key(off)
-                    if dedupe_key not in seen_sibling_offers:
-                        seen_sibling_offers.add(dedupe_key)
-                        collected_sibling_offers.append(off)
+                collected_sibling_offers.extend(sub_res.sibling_offers)
 
                 collected_own_offers.extend(sub_res.own_offers)
 
@@ -315,7 +310,7 @@ async def _execute_waterfall(
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
             matched_tier = tier_name
-        instock_exact_count = sum(1 for o in collected_offers if not o.is_sold_out)
+        instock_exact_count = sum(1 for o in deduplicate_offers(collected_offers) if not o.is_sold_out)
         if not exhaustive and instock_exact_count >= 2:
             break
 

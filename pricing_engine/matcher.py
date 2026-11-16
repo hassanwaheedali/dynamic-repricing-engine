@@ -11,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v5-structural-measurements"
+MATCHER_POLICY_VERSION = "product-evidence-v6-stock-identity"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -5999,3 +5999,8 @@ def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 
                 queries = [queries[0], anchor, clean]
                 break
     return tuple(queries[:budget])
+
+
+def normalize_model_identity(model: str) -> str:
+    """Lossless alphanumeric SKU key; never erase a manufacturer/family prefix."""
+    return re.sub(r"[^A-Z0-9]", "", model.upper())

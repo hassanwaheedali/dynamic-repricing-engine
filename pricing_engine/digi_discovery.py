@@ -18,12 +18,12 @@ from pricing_engine.models import (
     DISCOVERY_PAGINATION_INCOMPLETE,
     DISCOVERY_SEARCH_FAILED,
     RejectedCandidate,
-    ScrapedOffer,
     ScrapeResult,
     format_rejection_summary,
     merge_rejected_examples,
 )
 from pricing_engine.offer_processing import (
+    OfferKey,
     deduplicate_offers,
     deduplicate_own_offers,
     finalize_offers,
@@ -109,21 +109,6 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
     if not branches:
         raise ValueError("No usable model found for DigiMall discovery")
     return DigiQueryPlan(tuple(branches))
-
-
-def _dedupe_available(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
-    """Prefer in-stock copies before applying the canonical metadata deduplicator."""
-
-    available_keys = {_offer_dedupe_key(o) for o in offers if not o.is_sold_out}
-    preferred = [
-        o for o in offers if not o.is_sold_out or _offer_dedupe_key(o) not in available_keys
-    ]
-    merged = deduplicate_offers(preferred)
-    counts: dict[tuple[str, float, str, str], int] = {}
-    for offer in offers:
-        key = _offer_dedupe_key(offer)
-        counts[key] = counts.get(key, 0) + offer.duplicate_count
-    return [replace(o, duplicate_count=counts[_offer_dedupe_key(o)]) for o in merged]
 
 
 async def _fetch_query(
@@ -334,7 +319,7 @@ async def discover_digimall(
             and not exhaustive
             and sum(
                 not o.is_sold_out
-                for o in _dedupe_available([offer for result in results for offer in result.offers])
+                for o in deduplicate_offers([offer for result in results for offer in result.offers])
             )
             >= 2
         ):
@@ -348,7 +333,7 @@ async def discover_digimall(
             error_detail="No usable DigiMall query",
             pagination_complete=False,
         )
-    seen_exact: set[tuple[str, float, str, str]] = set()
+    seen_exact: set[OfferKey] = set()
     for tier, result in zip(query_tiers, results, strict=True):
         for offer in result.offers:
             key = _offer_dedupe_key(offer)
@@ -359,7 +344,7 @@ async def discover_digimall(
         name: (
             deduplicate_own_offers([offer for result in results for offer in getattr(result, name)])
             if name == "own_offers"
-            else _dedupe_available([offer for result in results for offer in getattr(result, name)])
+            else deduplicate_offers([offer for result in results for offer in getattr(result, name)])
         )
         for name in ("offers", "base_offers", "sibling_offers", "own_offers")
     }

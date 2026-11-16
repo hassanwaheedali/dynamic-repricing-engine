@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-from pricing_engine.matcher import MatchDecision, referee_match
+from pricing_engine.matcher import MatchDecision, normalize_model_identity, referee_match
 from pricing_engine.models import (
     DISCOVERY_CANDIDATES_REJECTED,
     DISCOVERY_COMPLETE_NO_COMPETITORS,
@@ -27,8 +27,10 @@ from pricing_engine.series_fallback import (
     referee_series_match,
 )
 
+OfferKey = tuple[str, float, str, str, str]
 
-def offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float, str, str]:
+
+def offer_dedupe_key(off: ScrapedOffer) -> OfferKey:
     """Build deduplication key, preserving distinct color/variant listings even from the same vendor."""
     v_norm = off.vendor_name.lower().strip()
     if not v_norm or v_norm == "unknown vendor":
@@ -36,7 +38,9 @@ def offer_dedupe_key(off: ScrapedOffer) -> tuple[str, float, str, str]:
         v_norm = f"unknown::{fallback_id}"
     col = (off.color_family or "").lower().strip()
     var = (off.detected_variant or "").lower().strip()
-    return (v_norm, round(off.price, 2), col, var)
+    model = normalize_model_identity(off.scraped_model or "")
+    identity = f"{off.brand_name.casefold()}:{model}"
+    return (v_norm, round(off.price, 2), col, var, identity)
 
 
 def _select_winning_offer(
@@ -115,8 +119,8 @@ def _select_winning_modifier(
 
 def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     """Deduplicate offers by vendor key, price, color family, and variant, tracking duplicate counts and preserving metadata."""
-    counts: dict[tuple[str, float, str, str], int] = {}
-    first_seen: dict[tuple[str, float, str, str], ScrapedOffer] = {}
+    counts: dict[OfferKey, int] = {}
+    first_seen: dict[OfferKey, ScrapedOffer] = {}
     for off in offers:
         key = offer_dedupe_key(off)
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
@@ -141,7 +145,7 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
             unique_offers.append(replace(off, duplicate_count=total_dupes))
         else:
             unique_offers.append(off)
-    return unique_offers
+    return sorted(unique_offers, key=lambda o: (o.is_sold_out, o.price, offer_dedupe_key(o)))
 
 
 def _own_offer_identity_key(off: ScrapedOffer) -> tuple[str, ...]:
@@ -505,9 +509,9 @@ def finalize_offers(
     result: ScrapeResult, target_model: str, floor_price: float | None = None
 ) -> ScrapeResult:
     """Choose compatible evidence and warnings while preserving retrieval diagnostics."""
-    collected_offers = result.offers
+    collected_offers = deduplicate_offers(result.offers)
     collected_base_offers = result.base_offers
-    collected_sibling_offers = result.sibling_offers
+    collected_sibling_offers = deduplicate_offers(result.sibling_offers)
     collected_own_offers = result.own_offers
     detected_missing_modifier = result.active_modifier_fallback
     detected_missing_source = result.active_modifier_source
