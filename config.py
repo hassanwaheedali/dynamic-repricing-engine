@@ -87,9 +87,7 @@ DEFAULT_CAPACITY_RULES: dict[str, list[dict[str, Any]]] = {
         {"pattern": explicit_capacity_pattern("L")},
     ],
     "cuft": [
-        {
-            "pattern": explicit_capacity_pattern("CFT")
-        },
+        {"pattern": explicit_capacity_pattern("CFT")},
     ],
     "inch": [
         {"pattern": explicit_capacity_pattern("INCH")},

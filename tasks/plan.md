@@ -1,8 +1,8 @@
 # Master Specification & Implementation Plan: Generic Model Variants, Optional Specifications & Matching Accuracy
 
-## Active follow-up: architecture consolidation (2026-11-17)
+## Completed follow-up: architecture consolidation (2026-11-17)
 
-The approved eleven-milestone implementation contract is in [architecture-consolidation-contract.md](architecture-consolidation-contract.md). Earlier completed plans below are retained as history. Baseline commit: `6a66118`. No production upload or database mutation is authorized by this refactor.
+The approved eleven-milestone implementation contract is in [architecture-consolidation-contract.md](architecture-consolidation-contract.md). Completion evidence is in [../docs/architecture-consolidation.md](../docs/architecture-consolidation.md). Earlier completed plans below are retained as history. Baseline commit: `6a66118`. No production upload or database mutation is authorized by this refactor.
 
 > [!IMPORTANT]
 > **ARCHITECTURAL SPECIFICATION IMPLEMENTED & VERIFIED (100% COMPLETE).**

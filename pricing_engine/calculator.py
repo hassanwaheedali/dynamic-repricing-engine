@@ -37,7 +37,9 @@ def _extract_numeric_capacity(
             max_val = rule.get("max")
             minimum = parse_amount(min_val) if min_val is not None else None
             maximum = parse_amount(max_val) if max_val is not None else None
-            if (min_val is not None and minimum is None) or (max_val is not None and maximum is None):
+            if (min_val is not None and minimum is None) or (
+                max_val is not None and maximum is None
+            ):
                 continue
             if minimum is not None and val < minimum:
                 continue

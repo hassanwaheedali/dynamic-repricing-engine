@@ -1,0 +1,19 @@
+{
+  "catalog_products": 100,
+  "matching_probes": 400,
+  "shipping_unchanged": 100,
+  "captured_offer_pricing_cases": 4,
+  "captured_cases_equal_excluding_default_match_basis": true,
+  "approved_changes": [
+    {
+      "item": 79,
+      "correction": "structural model recovered",
+      "fields": [
+        "alfa_queries",
+        "digi_plan"
+      ]
+    }
+  ],
+  "unexplained": [],
+  "boundary": "Offline controlled probes and captured/mock evidence; no live inventory claim"
+}

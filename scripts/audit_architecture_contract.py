@@ -104,12 +104,64 @@ def snapshot() -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--compare", type=Path)
+    parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    data = snapshot()
+    # Compare the persisted wire shape: dataclass/query tuples serialize as arrays.
+    data = json.loads(json.dumps(snapshot()))
     args.output.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(
         f"Captured {len(data['catalog'])} products and {len(data['captured'])} realistic offer cases"
     )
+    if args.compare:
+        baseline = json.loads(args.compare.read_text(encoding="utf-8"))
+        report = compare_snapshots(baseline, data)
+        if args.report:
+            args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(report))
+        if report["unexplained"]:
+            raise SystemExit(1)
+
+
+def compare_snapshots(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """Explain only approved query corrections and additive internal provenance."""
+    approved = []
+    unexplained = []
+    for old, new in zip(before["catalog"], after["catalog"], strict=True):
+        changed = [key for key in old if old[key] != new[key]]
+        if not changed:
+            continue
+        recovered_model = "error" in old["digi_plan"] and "branches" in new["digi_plan"]
+        if recovered_model and set(changed) <= {"alfa_queries", "digi_plan"}:
+            approved.append(
+                {"item": old["item"], "correction": "structural model recovered", "fields": changed}
+            )
+        else:
+            unexplained.append({"item": old["item"], "fields": changed})
+
+    def external(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: external(item) for key, item in value.items() if key != "match_basis"}
+        if isinstance(value, list):
+            return [external(item) for item in value]
+        return value
+
+    captured_equal = external(before["captured"]) == external(after["captured"])
+    if not captured_equal:
+        unexplained.append({"captured": "offer, warning, identity or pricing difference"})
+    return {
+        "catalog_products": len(after["catalog"]),
+        "matching_probes": sum(len(case["decisions"]) for case in after["catalog"]),
+        "shipping_unchanged": sum(
+            old["shipping"] == new["shipping"]
+            for old, new in zip(before["catalog"], after["catalog"], strict=True)
+        ),
+        "captured_offer_pricing_cases": len(after["captured"]),
+        "captured_cases_equal_excluding_default_match_basis": captured_equal,
+        "approved_changes": approved,
+        "unexplained": unexplained,
+        "boundary": "Offline controlled probes and captured/mock evidence; no live inventory claim",
+    }
 
 
 if __name__ == "__main__":

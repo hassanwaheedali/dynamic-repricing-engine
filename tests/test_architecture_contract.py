@@ -17,7 +17,11 @@ def test_catalog_model_queries_preserve_coverage_and_order(case: dict) -> None:
     """Approved parsing fixes may update the explicit baseline after review."""
     expected = case["digi_plan"]
     if "error" in expected:
-        return  # Known baseline parsing defect; correction has a dedicated regression.
+        # The recorded model-loss defect must now produce usable numeric queries.
+        corrected = generate_digimall_plan(case["title"], case["brand"])
+        assert corrected.branches
+        assert all(any(char.isdigit() for char in branch.model) for branch in corrected.branches)
+        return
     plan = generate_digimall_plan(case["title"], case["brand"])
     assert [list(branch.queries) for branch in plan.branches] == [
         branch["queries"] for branch in expected["branches"]

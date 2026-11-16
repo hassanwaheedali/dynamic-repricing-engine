@@ -22,3 +22,18 @@ The parser monkeypatch test now patches its canonical `offer_processing.referee_
 ## Milestone adjustment
 
 Availability/basis representative preference moved forward from milestone 8 because series priority cannot be correct without it. Milestone 8 still owns distinct identity keys, deterministic ordering and removal of the Digi-only workaround.
+
+## Final independent review and corrections
+
+All following findings were classified valid/actionable and reproduced by failing tests before correction:
+
+- Equivalent spaced/glued manufacturer prefixes inflated counts: use the matcher's structural prefix/core split and complete-pool prefix consensus. Conflicting explicit prefixes never bridge through a bare model.
+- Seller display names are not unique identities: honor verified seller handles.
+- Nonempty warning metadata and tier could tie by arrival order: preference now orders availability, basis, tier and stable metadata.
+- Partial query dedup lost prefix provenance: retain raw external and own-store pools through retrieval/cache and aggregate before finalization. Deduplication requires the complete evidence pool; it is intentionally not a streaming-fold API.
+- Same-handle own-store series Tier 2 could shadow an active model Tier 2: preserve raw own evidence until suppression and prefer model basis when own-store duplicates are merged.
+- Compact capacity aliases leaked into series text or became a decimal-tail anchor: category cleanup and fallback anchor recognition now consume the shared capacity vocabulary.
+- Legacy empty Alfa query strings bypassed finalization after raw-cache separation: preserve the existing single-query retrieval and finalize its result before returning publicly.
+- Full regression suite caught old callback result shapes without `sibling_offers`: restored the pre-existing optional-field adapter; existing tests were not altered.
+
+Boundary, implementation, dedup and final-correction reviews were performed by actual isolated subagents. Cross-model review remained skipped by user instruction. All substantiated findings have corresponding tests and corrections; no unresolved finding is accepted as safe by assertion alone.
