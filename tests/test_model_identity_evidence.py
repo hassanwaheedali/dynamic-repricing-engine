@@ -281,7 +281,7 @@ def test_real_payloads_reach_market_range_and_pricing(case: dict[str, Any], plat
         assert pricing.final_price is not None
         assert "Monopoly" not in pricing.status
         assert pricing.final_price >= (
-            floors.floor_alfa if platform == "alfa" else floors.floor_digi_8
+            floors.floor_alfa if platform == "alfa" else floors.floor_digi
         )
 
     asyncio.run(run())

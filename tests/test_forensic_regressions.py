@@ -643,11 +643,10 @@ def test_task16_sold_out_exact_offer_falls_back_to_instock_base_offers() -> None
 
         floors = CostFloors(
             cost_base=120000.0,
-            zero_margin_10=133333.0,
-            zero_margin_8=130435.0,
+            zero_margin_alfa=133333.0,
+            zero_margin_digi=130435.0,
             floor_alfa=133889.0,
-            floor_digi_10=133889.0,
-            floor_digi_8=130978.0,
+            floor_digi=130978.0,
         )
         eval_res = evaluate_alfa_pricing(floors, res)
         assert eval_res.status == "Competitive Win"
@@ -823,11 +822,10 @@ def test_task19_partial_waterfall_outage_does_not_trigger_false_monopoly() -> No
 
         floors = CostFloors(
             cost_base=50000.0,
-            zero_margin_10=55556.0,
-            zero_margin_8=54348.0,
+            zero_margin_alfa=55556.0,
+            zero_margin_digi=54348.0,
             floor_alfa=56111.0,
-            floor_digi_10=56111.0,
-            floor_digi_8=54891.0,
+            floor_digi=54891.0,
         )
         from pricing_engine.evaluator import evaluate_digi_pricing
 

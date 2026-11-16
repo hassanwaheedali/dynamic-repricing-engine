@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import config
 from pricing_engine.calculator import calculate_floors
@@ -461,9 +461,16 @@ class TestOwnStoreDeduplicationAndTerminalSummary:
             assert digi_res.own_offers[0].price == 72500.0
             assert digi_res.own_offers[0].duplicate_count == 1
 
-            floors = calculate_floors(67000.0, min_profit=config.COMPANY_MIN_PROFIT_PKR, personal_comm_pct=5.0)
-            alfa_eval = evaluate_alfa_pricing(floors, alfa_res)
-            digi_eval = evaluate_digi_pricing(floors, digi_res)
+            with (
+                patch.object(config, "ALFA_COMMISSION_PCT", 10.0),
+                patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+                patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+            ):
+                floors = calculate_floors(
+                    67000.0, min_profit=config.COMPANY_MIN_PROFIT_PKR, personal_comm_pct=5.0
+                )
+                alfa_eval = evaluate_alfa_pricing(floors, alfa_res)
+                digi_eval = evaluate_digi_pricing(floors, digi_res)
 
             assert alfa_eval.final_price == 75499
             assert "[OWN STORE ACTIVE: Kia Chahiye Pvt Ltd @ Rs. 72,399]" in alfa_eval.reason

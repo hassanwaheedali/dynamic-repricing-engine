@@ -804,7 +804,14 @@ def test_slice_g_evaluator_propagates_tier_2_and_tier_3_notices_without_duplicat
     asyncio.run(_run())
 
 
-def test_reg_10_item_23_floor_math_own_store_monopoly_and_external_undercut() -> None:
+def test_reg_10_item_23_floor_math_own_store_monopoly_and_external_undercut(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import config
+
+    monkeypatch.setattr(config, "ALFA_COMMISSION_PCT", 10.0)
+    monkeypatch.setattr(config, "COMPANY_MIN_PROFIT_PKR", 500.0)
+    monkeypatch.setattr(config, "MONOPOLY_PROFIT_PKR", 4000.0)
     """REG-10: Item #23 Haier HPU-48HE Option [1]/[3] floors, Kia Chahiye monopoly, and external undercut."""
     import math
 

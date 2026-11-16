@@ -655,14 +655,14 @@ def test_aud_med_01_csv_xlsx_parity_and_dynamic_comm_labels(tmp_path: Path) -> N
     offers = [ScrapedOffer("CompA", 165000.0, False, "Gree GS-18PITH11W")]
     rec = process_product_with_offers(product, offers, offers, personal_comm_pct=8.0)
 
+    min_profit_int = int(config.COMPANY_MIN_PROFIT_PKR)
+    target_col = f"Min Profit Target (8% + {min_profit_int})"
     assert "My 8% Commission" in rec
-    assert "Min Profit Target (8% + 500)" in rec
+    assert target_col in rec
     assert "Alfa 8% Goal" in rec
     assert "Digi 8% Goal" in rec
     assert rec["Alfa 8% Goal"] == "WIN + 8% ACHIEVED"
-    assert rec["Min Profit Target (8% + 500)"] == calculate_effective_target_profit(
-        personal_comm_pct=8.0
-    )
+    assert rec[target_col] == calculate_effective_target_profit(personal_comm_pct=8.0)
 
     df = pd.DataFrame([rec])
     manifest = export_results(
@@ -955,21 +955,25 @@ def test_aud_new_01_platform_personal_comm_and_config_ssot() -> None:
 
 
 def test_aud_new_02_digi_fractional_floor_band_handling() -> None:
-    """AUD-NEW-02: Competitor inside (floor_digi_8, ceil(floor_digi_8)] must drop to upper-band undercut."""
-    floors = calculate_floors(cost_base=53500.0, min_profit=config.COMPANY_MIN_PROFIT_PKR)
-    expected_digi_floor = (53500.0 + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_leverage_payout_rate()
-    assert math.isclose(floors.floor_digi_8, expected_digi_floor, rel_tol=1e-4)
+    """AUD-NEW-02: Competitor inside (floor_digi, ceil(floor_digi)] must drop to upper-band undercut."""
+    with (
+        patch.object(config, "DIGI_COMMISSION_PCT", 8.0),
+        patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0),
+    ):
+        floors = calculate_floors(cost_base=53500.0, min_profit=config.COMPANY_MIN_PROFIT_PKR)
+        expected_digi_floor = (53500.0 + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_payout_rate()
+        assert math.isclose(floors.floor_digi, expected_digi_floor, rel_tol=1e-4)
 
-    # Offer 1 at 58696.0 cannot be strictly undercut by any integer >= 58696; Offer 2 at 60500.0 is viable!
-    offers = [
-        ScrapedOffer("AtCeilBoundary", 58696.0, False, "Model Z"),
-        ScrapedOffer("ViableUpper", 60500.0, False, "Model Z"),
-    ]
-    res = evaluate_digi_pricing(floors, offers)
-    assert res.final_price is not None
-    assert math.ceil(floors.floor_digi_8) <= res.final_price < 60500
-    assert len(res.dropped) == 1
-    assert "AtCeilBoundary" in res.dropped[0]
+        # Offer 1 at 58696.0 cannot be strictly undercut by any integer >= 58696; Offer 2 at 60500.0 is viable!
+        offers = [
+            ScrapedOffer("AtCeilBoundary", 58696.0, False, "Model Z"),
+            ScrapedOffer("ViableUpper", 60500.0, False, "Model Z"),
+        ]
+        res = evaluate_digi_pricing(floors, offers)
+        assert res.final_price is not None
+        assert math.ceil(floors.floor_digi) <= res.final_price < 60500
+        assert len(res.dropped) == 1
+        assert "AtCeilBoundary" in res.dropped[0]
 
 
 def test_aud_new_03_ambiguity_resolution_preserves_scrape_metadata() -> None:

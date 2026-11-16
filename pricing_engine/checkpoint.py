@@ -25,6 +25,7 @@ from pricing_engine.models import CheckpointState
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_DIR = Path("data/.checkpoints")
+COMMISSION_POLICY_VERSION = "fixed-vendor-comm-v2"
 
 
 def compute_row_fingerprint(
@@ -74,15 +75,20 @@ def compute_row_fingerprint(
     ship_override = _to_float(
         r_dict.get("Shipping Estimate") or r_dict.get("shipping_estimate"), 0.0
     )
-    norm_plat = platform.strip().lower() or "all"
+    norm_plat = config.normalize_platform(platform, allow_all=True, default_blank_to_all=True)
     norm_comm = round(float(personal_comm_pct), 4)
 
     raw_signature = (
         f"{brand}|{name}|{net_price:.2f}|{profit:.2f}|{length:.2f}|{width:.2f}|{height:.2f}"
         f"|{ship_override:.2f}|{norm_plat}|{norm_comm:.4f}|{MATCHER_POLICY_VERSION}"
+        f"|{COMMISSION_POLICY_VERSION}"
     )
+    if norm_plat in {"alfa", "all"}:
+        raw_signature += f"|alfa_comm={config.get_alfa_commission_pct():.6f}"
     if norm_plat in {"digi", "all"}:
-        raw_signature += f"|{DIGI_DISCOVERY_POLICY_VERSION}"
+        raw_signature += (
+            f"|digi_comm={config.get_digi_commission_pct():.6f}|{DIGI_DISCOVERY_POLICY_VERSION}"
+        )
     return hashlib.sha256(raw_signature.encode("utf-8")).hexdigest()[:16]
 
 

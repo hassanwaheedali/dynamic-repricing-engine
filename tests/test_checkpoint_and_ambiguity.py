@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import config
 from pricing_engine.checkpoint import (
     compute_row_fingerprint,
     delete_checkpoint,
@@ -152,6 +153,21 @@ def test_compute_row_fingerprint_detects_changes() -> None:
     # 4. Modifying Brand must change fingerprint
     brand_change_row = {**base_row, "Brand": "Haier"}
     assert compute_row_fingerprint(brand_change_row) != fp_orig
+
+    # 5. Platform-scoped commission rate invalidation
+    fp_all = compute_row_fingerprint(base_row, platform="all")
+    fp_alfa = compute_row_fingerprint(base_row, platform="alfa")
+    fp_digi = compute_row_fingerprint(base_row, platform="digi")
+
+    with patch.object(config, "DIGI_COMMISSION_PCT", config.get_digi_commission_pct() + 1.5):
+        assert compute_row_fingerprint(base_row, platform="all") != fp_all
+        assert compute_row_fingerprint(base_row, platform="digi") != fp_digi
+        assert compute_row_fingerprint(base_row, platform="alfa") == fp_alfa
+
+    with patch.object(config, "ALFA_COMMISSION_PCT", config.get_alfa_commission_pct() + 1.5):
+        assert compute_row_fingerprint(base_row, platform="all") != fp_all
+        assert compute_row_fingerprint(base_row, platform="alfa") != fp_alfa
+        assert compute_row_fingerprint(base_row, platform="digi") == fp_digi
 
 
 def test_checkpoint_save_load_and_detect_dirty_rows(tmp_path: Path) -> None:
