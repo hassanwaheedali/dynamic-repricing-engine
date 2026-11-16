@@ -232,14 +232,14 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     for off in offers:
         key = _offer_dedupe_key(off)
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
-        if (
-            key not in first_seen
-            or (first_seen[key].missing_modifier is not None and off.missing_modifier is None)
-            or (
-                first_seen[key].compatibility_notice is not None
-                and off.compatibility_notice is None
+        def preference(offer: ScrapedOffer) -> tuple[bool, bool, bool, bool, str, str]:
+            return (
+                offer.is_sold_out, offer.match_basis == "series",
+                offer.missing_modifier is not None, offer.compatibility_notice is not None,
+                offer.raw_title.casefold(), offer.product_handle or "",
             )
-        ):
+
+        if key not in first_seen or preference(off) < preference(first_seen[key]):
             first_seen[key] = off
 
     unique_offers: list[ScrapedOffer] = []
@@ -339,7 +339,6 @@ async def _execute_waterfall(
     collected_sibling_offers: list[ScrapedOffer] = []
     collected_own_offers: list[ScrapedOffer] = []
     seen_offers: set[tuple[str, float, str, str]] = set()
-    seen_base_offers: set[tuple[str, float, str, str]] = set()
     seen_sibling_offers: set[tuple[str, float, str, str]] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
@@ -448,10 +447,7 @@ async def _execute_waterfall(
                         tier_offers_count += 1
 
                 for off in sub_res.base_offers:
-                    dedupe_key = _offer_dedupe_key(off)
-                    if dedupe_key not in seen_base_offers:
-                        seen_base_offers.add(dedupe_key)
-                        collected_base_offers.append(off)
+                    collected_base_offers.append(off)
 
                 for off in getattr(sub_res, "sibling_offers", []):
                     dedupe_key = _offer_dedupe_key(off)
@@ -471,6 +467,13 @@ async def _execute_waterfall(
         instock_exact_count = sum(1 for o in collected_offers if not o.is_sold_out)
         if not exhaustive and instock_exact_count >= 2:
             break
+
+    from pricing_engine.series_fallback import has_active_model_offers
+
+    collected_base_offers = deduplicate_offers(collected_base_offers)
+    if has_active_model_offers(collected_offers, collected_base_offers, collected_sibling_offers, collected_own_offers):
+        collected_base_offers = [o for o in collected_base_offers if o.match_basis == "model"]
+        collected_own_offers = [o for o in collected_own_offers if o.match_basis == "model"]
 
     has_instock_exact = any(not o.is_sold_out for o in collected_offers)
     has_instock_base = any(not o.is_sold_out for o in collected_base_offers)
@@ -799,6 +802,7 @@ def _parse_offers_with_tiers(
             scraped_model=scraped_model_val,
             color_family=color_family_val,
             match_tier=effective_tier,
+            match_basis=decision.match_basis,
             compatibility_notice=decision.compatibility_notice,
             vendor_handle=vendor_handle or None,
         )

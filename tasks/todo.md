@@ -74,7 +74,7 @@
 
 - [x] 1. Contract, baseline evidence and dynamic regression scaffolding.
 - [x] 2. Canonical capacity parsing and matching corrections.
-- [ ] 3. Shared safe series fallback without identity replacement.
+- [x] 3. Shared safe series fallback without identity replacement.
 - [ ] 4. Structural model / measurement span protection.
 - [ ] 5. Shipping capacity normalization reuse.
 - [ ] 6. Shared ordered model-first query generation.

@@ -1,7 +1,7 @@
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 STATUS_SERVER_DOWN: str = "Server Down / Unreachable"
 STATUS_INCOMPLETE_DISCOVERY: str = "Incomplete Discovery"
@@ -154,6 +154,7 @@ class ScrapedOffer:
     compatibility_notice: str | None = None
     vendor_handle: str | None = None
     brand_name: str = ""
+    match_basis: Literal["model", "series"] = "model"
 
 
 def resolve_non_competitor_kind(offer: ScrapedOffer) -> str | None:

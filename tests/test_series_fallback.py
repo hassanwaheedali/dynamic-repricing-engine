@@ -81,13 +81,14 @@ def test_series_fallback_requires_same_brand_whole_series_and_capacity(title: st
     assert not decision.is_match and not decision.is_base_match and decision.match_tier is None
 
 
-def test_different_model_same_verified_series_is_warned_not_exact() -> None:
+def test_different_model_same_series_is_rejected_by_approved_sku_policy() -> None:
     from pricing_engine.series_fallback import referee_series_match
 
     title = "Midea Titan 1 Ton Inverter Split AC MSEZ1D-12HRFN1-QC2"
     assert not referee_match(MIDEA, title, "Midea").is_match
     decision = referee_series_match(MIDEA, title, "Midea")
-    assert decision.is_base_match and not decision.is_match and decision.match_tier == 2
+    # Approved correction: an explicit conflicting SKU cannot enter series-only fallback.
+    assert not decision.is_base_match and not decision.is_match and decision.match_tier is None
 
 
 @pytest.mark.parametrize("platform", ["alfa", "digi"])
@@ -348,7 +349,7 @@ def test_series_rules_work_without_a_known_brand_or_model() -> None:
     search = build_series_search(target, "Acme")
     assert search is not None and search.query == "Acme Aurora 1.5 Ton"
     assert referee_series_match(
-        search, "Acme Aurora 1.5 Ton Inverter Split AC AX-1201", "Acme"
+        search, "Acme Aurora 1.5 Ton Inverter Split AC", "Acme"
     ).is_base_match
     assert build_series_search("Acme AX-1200 1.5 Ton Inverter Split AC", "Acme") is None
     assert build_series_search("Acme AX-1200 Aurora Series Inverter Split AC", "Acme") is None
@@ -374,7 +375,8 @@ def test_fallbacks_reach_both_pipeline_exports(
     ).to_csv(catalog, index=False)
     titles = {
         "55Q7F": "Samsung 55 Inch QLED Smart TV 55Q7F",
-        "Midea Titan 1 Ton": "Midea Titan 1 Ton Inverter Split AC MSEZ1D-12HRFN1-QC2",
+        # Series-only pricing now requires omitted SKU, not a different stated SKU.
+        "Midea Titan 1 Ton": "Midea Titan 1 Ton Inverter Split AC",
     }
     session = AsyncMock()
 

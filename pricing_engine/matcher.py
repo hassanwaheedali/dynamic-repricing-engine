@@ -11,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v3-capacity"
+MATCHER_POLICY_VERSION = "product-evidence-v4-bounded-series"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -95,6 +95,7 @@ class MatchDecision:
     compatibility_notice: str | None = None
     reason_code: MatchReasonCode = "UNKNOWN"
     detected_variant: str | None = None
+    match_basis: Literal["model", "series"] = "model"
 
     @property
     def is_definitive_rejection(self) -> bool:
@@ -851,7 +852,7 @@ def _canonicalize_plus_series(text: str) -> str:
     return re.sub(r"\s{2,}", " ", t).strip()
 
 
-def _tokenize_series_words(text: str) -> set[str]:
+def normalize_series_tokens(text: str) -> set[str]:
     """Canonical series tokenizer splitting hyphenated generation/series names consistently."""
     if not text:
         return set()
@@ -1364,6 +1365,7 @@ def _normalize_sku_separators(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+
 
 
 def is_dimension_or_spec_token(token: str) -> bool:
@@ -4479,10 +4481,10 @@ def _extract_stem_single_letter_variant(
 
 
 def _resolve_effective_single_letter_variant(
-    raw_text: str, slots: ProductSlots, brand: str = ""
+    raw_text: str, slots: ProductSlots, brand: str = "", *, include_sku: bool = True
 ) -> tuple[str | None, str | None]:
     """Resolve single-letter variant suffix and human-readable label from stem suffix or lid phrases."""
-    base_var = _extract_stem_single_letter_variant(raw_text, slots.anchor, brand=brand)
+    base_var = _extract_stem_single_letter_variant(raw_text, slots.anchor, brand=brand) if include_sku else None
     res_set = {r.upper() for r in slots.residuals}
     if (
         "CLEAR LID" in res_set
@@ -4589,12 +4591,13 @@ def _extract_slash_color_chain(text: str) -> list[str]:
     return []
 
 
-def referee_match(
+def _referee_match(
     target: ProductSlots | str,
     candidate_title: str,
     brand: str = "",
     *,
     candidate_brand: str = "",
+    match_basis: Literal["model", "series"] = "model",
 ) -> MatchDecision:
     """Evaluate candidate marketplace listing against target product slots.
 
@@ -4607,7 +4610,7 @@ def referee_match(
     if isinstance(target, str):
         branches = expand_cartesian_branches(target)
         if len(branches) > 1:
-            decs = [referee_match(b, candidate_title, brand=brand, candidate_brand=candidate_brand) for b in branches]
+            decs = [_referee_match(b, candidate_title, brand=brand, candidate_brand=candidate_brand, match_basis=match_basis) for b in branches]
             for dec in decs:
                 if dec.is_match:
                     return dec
@@ -4624,7 +4627,7 @@ def referee_match(
 
     cand_branches = expand_cartesian_branches(candidate_title)
     if len(cand_branches) > 1:
-        decs = [referee_match(target, cb, brand=brand, candidate_brand=candidate_brand) for cb in cand_branches]
+        decs = [_referee_match(target, cb, brand=brand, candidate_brand=candidate_brand, match_basis=match_basis) for cb in cand_branches]
         target_has_col_slash = isinstance(target, str) and bool(_extract_slash_color_chain(target))
         cand_col_chain = _extract_slash_color_chain(candidate_title)
         for dec in decs:
@@ -4654,6 +4657,25 @@ def referee_match(
 
     target_slots = extract_product_slots(target, brand=brand) if isinstance(target, str) else target
     cand_slots = extract_product_slots(candidate_title, brand=brand)
+    if match_basis == "series":
+        def reject_series(reason: str, code: MatchReasonCode) -> MatchDecision:
+            return MatchDecision(False, reason, target_slots, cand_slots, reason_code=code, match_basis="series")
+
+        if not brand.strip() or not re.match(rf"^\s*{re.escape(brand.strip())}\b", cand_slots.normalized_title, re.I):
+            return reject_series("Series fallback requires explicit catalog series and product brand", "MISSING_IDENTITY")
+        if cand_slots.anchor:
+            return reject_series("Series fallback cannot accept an explicitly stated unverified SKU", "MODEL_CONFLICT")
+        series_tokens = normalize_series_tokens(target_slots.series)
+        if not series_tokens or series_tokens != normalize_series_tokens(cand_slots.series):
+            return reject_series("Series fallback requires the same complete named series", "SERIES_CONFLICT")
+        target_capacity = parse_capacity(target_slots.guarded_facets.capacity)
+        if target_capacity is None or target_capacity != parse_capacity(cand_slots.guarded_facets.capacity):
+            return reject_series("Series fallback requires verified matching capacity", "FACET_CONFLICT")
+        target_family = _detect_appliance_family(target_slots.normalized_title)
+        candidate_family = _detect_appliance_family(cand_slots.normalized_title)
+        if not target_family or not candidate_family:
+            return reject_series("Series fallback requires explicit product family evidence", "MISSING_IDENTITY")
+
     # Every guard consumes the same product text that supplied the slots. Raw
     # seller clauses and campaigns must never re-enter category or color checks.
     candidate_title = cand_slots.normalized_title
@@ -5015,7 +5037,7 @@ def referee_match(
         # For unique 5-digit catalog models (e.g. 91998 deep freezers), Glass Door is inherent to the SKU
         # and frequently omitted by marketplace sellers in listing titles.
         is_5digit_stem = bool(target_slots.anchor and re.search(r"\d{5,}", target_slots.anchor))
-        if missing_finish == "GD" and is_5digit_stem:
+        if match_basis == "model" and missing_finish == "GD" and is_5digit_stem:
             pass  # Accept as direct match
         else:
             omitted_fallbacks.append(
@@ -5202,7 +5224,7 @@ def referee_match(
     extended_edition_designation: str | None = None
     market_inherent_specs: list[str] = []
 
-    if target_slots.anchor:
+    if target_slots.anchor and match_basis == "model":
         norm_t = re.sub(r"[^A-Z0-9]", "", target_slots.anchor.upper())
         norm_cand_title = re.sub(r"[^A-Z0-9]", "", candidate_title.upper())
 
@@ -5372,59 +5394,59 @@ def referee_match(
                 candidate_slots=cand_slots,
             )
 
-        # Single-letter variant suffix guard (5-Case Referee)
-        raw_t_check = (
-            target
-            if isinstance(target, str)
-            else (
-                f"{target_slots.anchor} "
-                f"{target_slots.guarded_facets.color_raw or ''} "
-                f"{' '.join(target_slots.residuals)}"
-            )
+    # Single-letter variant suffix guard (5-Case Referee)
+    raw_t_check = target_slots.normalized_title if match_basis == "series" else (
+        target
+        if isinstance(target, str)
+        else (
+            f"{target_slots.anchor} "
+            f"{target_slots.guarded_facets.color_raw or ''} "
+            f"{' '.join(target_slots.residuals)}"
         )
-        effective_t_var, t_mod_label = _resolve_effective_single_letter_variant(
-            raw_t_check, target_slots, brand=brand
-        )
-        effective_c_var, _ = _resolve_effective_single_letter_variant(
-            candidate_title, cand_slots, brand=brand
-        )
+    )
+    effective_t_var, t_mod_label = _resolve_effective_single_letter_variant(
+        raw_t_check, target_slots, brand=brand, include_sku=match_basis == "model"
+    )
+    effective_c_var, _ = _resolve_effective_single_letter_variant(
+        candidate_title, cand_slots, brand=brand, include_sku=match_basis == "model"
+    )
 
-        if effective_t_var and effective_c_var and effective_t_var != effective_c_var:
-            return MatchDecision(
-                reason_code="MODEL_CONFLICT",
-                is_match=False,
-                reason=f"Single-letter variant suffix collision: {effective_t_var} vs {effective_c_var}",
-                target_slots=target_slots,
-                candidate_slots=cand_slots,
-            )
-        t_var_satisfied_by_color = bool(
-            effective_t_var
-            and effective_t_var in COLOR_SUFFIX_MAP
-            and cand_slots.guarded_facets.color_family == COLOR_SUFFIX_MAP[effective_t_var]
+    if effective_t_var and effective_c_var and effective_t_var != effective_c_var:
+        return MatchDecision(
+            reason_code="MODEL_CONFLICT",
+            is_match=False,
+            reason=f"Single-letter variant suffix collision: {effective_t_var} vs {effective_c_var}",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
         )
-        c_var_satisfied_by_color = bool(
-            effective_c_var
-            and effective_c_var in COLOR_SUFFIX_MAP
-            and target_slots.guarded_facets.color_family == COLOR_SUFFIX_MAP[effective_c_var]
+    t_var_satisfied_by_color = bool(
+        effective_t_var
+        and effective_t_var in COLOR_SUFFIX_MAP
+        and cand_slots.guarded_facets.color_family == COLOR_SUFFIX_MAP[effective_t_var]
+    )
+    c_var_satisfied_by_color = bool(
+        effective_c_var
+        and effective_c_var in COLOR_SUFFIX_MAP
+        and target_slots.guarded_facets.color_family == COLOR_SUFFIX_MAP[effective_c_var]
+    )
+    if effective_t_var and not effective_c_var and not t_var_satisfied_by_color:
+        mod_name = t_mod_label or f"Variant {effective_t_var}"
+        omitted_fallbacks.append(
+            (
+                mod_name,
+                f"Single-letter variant '{effective_t_var}' omitted by candidate; fallback to base model",
+                "target",
+            )
         )
-        if effective_t_var and not effective_c_var and not t_var_satisfied_by_color:
-            mod_name = t_mod_label or f"Variant {effective_t_var}"
-            omitted_fallbacks.append(
-                (
-                    mod_name,
-                    f"Single-letter variant '{effective_t_var}' omitted by candidate; fallback to base model",
-                    "target",
-                )
+    if not effective_t_var and effective_c_var and not c_var_satisfied_by_color:
+        market_variant_suffix = effective_c_var
+        omitted_fallbacks.append(
+            (
+                f"Variant {effective_c_var}",
+                f"Candidate has variant suffix '{effective_c_var}' omitted in target; fallback with cross-check",
+                "market",
             )
-        if not effective_t_var and effective_c_var and not c_var_satisfied_by_color:
-            market_variant_suffix = effective_c_var
-            omitted_fallbacks.append(
-                (
-                    f"Variant {effective_c_var}",
-                    f"Candidate has variant suffix '{effective_c_var}' omitted in target; fallback with cross-check",
-                    "market",
-                )
-            )
+        )
 
     # 2. Dynamic Series and Sub-series Check (Pure Token-Based Set Logic, Zero Hardcoding)
     sku_evidence = _complete_sku_evidence_level(target_slots, cand_slots, brand=brand)
@@ -5437,9 +5459,9 @@ def referee_match(
 
         cand_clean = clean_marketplace_noise(_canonicalize_plus_series(candidate_title))
         cand_clean = re.sub(r"\([^)]*\)", " ", cand_clean)
-        cand_series_words = _tokenize_series_words(cand_clean)
+        cand_series_words = normalize_series_tokens(cand_clean)
         if cand_slots.series:
-            cand_series_words |= _tokenize_series_words(cand_slots.series)
+            cand_series_words |= normalize_series_tokens(cand_slots.series)
 
         target_text = (
             target if isinstance(target, str) else f"{target_slots.series} {target_slots.anchor}"
@@ -5450,7 +5472,7 @@ def referee_match(
 
         matched_alt = None
         for alt in alternatives:
-            alt_words = _tokenize_series_words(alt)
+            alt_words = normalize_series_tokens(alt)
             diff = alt_words - cand_series_words
             if not diff:
                 matched_alt = alt
@@ -5482,10 +5504,10 @@ def referee_match(
                 )
             )
             target_all_text = f"{target_slots.anchor} {target_slots.series} {target_slots.guarded_facets.tub_series or ''} {' '.join(target_slots.residuals)} {' '.join(target_slots.guarded_facets.capabilities)}".upper()
-            target_all_words = _tokenize_series_words(target_all_text)
+            target_all_words = normalize_series_tokens(target_all_text)
             # Check if candidate has an opposing, conflicting series
             cand_ser_clean = cand_slots.series.strip().upper()
-            cand_ser_words = _tokenize_series_words(cand_ser_clean) if cand_ser_clean else set()
+            cand_ser_words = normalize_series_tokens(cand_ser_clean) if cand_ser_clean else set()
             has_conflicting_series = bool(
                 cand_ser_clean
                 and cand_ser_clean not in {"REGULAR", "STANDARD", "NORMAL"}
@@ -5525,13 +5547,13 @@ def referee_match(
                     candidate_slots=cand_slots,
                 )
 
-        matched_alt_words = _tokenize_series_words(matched_alt)
+        matched_alt_words = normalize_series_tokens(matched_alt)
         target_sub_tokens = {
             w
             for w in matched_alt_words
             if w in GENUINE_SUB_SERIES_TOKENS or (len(w) == 1 and w.isalpha())
         }
-        cand_ser_tokens = _tokenize_series_words(cand_slots.series)
+        cand_ser_tokens = normalize_series_tokens(cand_slots.series)
         cand_sub_tokens = {
             w
             for w in cand_ser_tokens
@@ -5576,7 +5598,7 @@ def referee_match(
     # 3a. Generic Category 2 Hardware Capabilities & Modifiers Engine (Zero Hardcoding, Pure Dynamic Set Logic)
     target_caps = target_slots.guarded_facets.capabilities
     cand_caps = cand_slots.guarded_facets.capabilities
-    target_series_toks = _tokenize_series_words(target_slots.series)
+    target_series_toks = normalize_series_tokens(target_slots.series)
 
     # Check if target title specifies optional/allowed feature tags like [OPT:T3,QC0] or [ALLOW:T3]
     allowed_feature_tags = set(target_slots.guarded_facets.allowed_feature_tags)
@@ -5590,7 +5612,8 @@ def referee_match(
     # '<SKU>-T3' upgraded SKU suffix like 'GS-18AITH24S-T3'), treat 'T3' as a market-documented inherent spec.
     has_inherent_prose_t3 = False
     if (
-        "T3" in (cand_caps - target_caps)
+        match_basis == "model"
+        and "T3" in (cand_caps - target_caps)
         and "T3" not in allowed_feature_tags
         and target_slots.anchor
     ):
@@ -5625,7 +5648,7 @@ def referee_match(
     extra_cand_caps = {
         c
         for c in (cand_caps - target_caps)
-        if not (target_slots.anchor and c in target_slots.anchor.upper())
+        if not (match_basis == "model" and target_slots.anchor and c in target_slots.anchor.upper())
         and c not in target_series_toks
         and c not in {"WIFI", "IOT", "SMART"}
         and c not in allowed_feature_tags
@@ -5651,7 +5674,7 @@ def referee_match(
     }
     if extra_conn_caps:
         stripped_t_anc = re.sub(r"^[A-Z]{2,4}[-_]?", "", (target_slots.anchor or "").upper())
-        if not stripped_t_anc or stripped_t_anc.isdigit():
+        if match_basis == "series" or not stripped_t_anc or stripped_t_anc.isdigit():
             conn_str = ", ".join(sorted(extra_conn_caps))
             omitted_fallbacks.append(
                 (
@@ -5873,4 +5896,38 @@ def referee_match(
         modifier_source="market" if compat_mod_str else "target",
         match_tier=1,
         compatibility_notice=tier1_notice,
+    )
+
+
+def referee_match(
+    target: ProductSlots | str,
+    candidate_title: str,
+    brand: str = "",
+    *,
+    candidate_brand: str = "",
+) -> MatchDecision:
+    """Normal model matching; model-anchor requirements are never relaxed."""
+    return _referee_match(target, candidate_title, brand, candidate_brand=candidate_brand)
+
+
+def referee_series_candidate(target: ProductSlots, candidate_title: str, brand: str) -> MatchDecision:
+    """Evaluate absent-SKU series evidence through the ordinary physical referee."""
+    decision = _referee_match(target, candidate_title, brand, match_basis="series")
+    if not (decision.is_match or decision.is_base_match):
+        return replace(decision, match_basis="series")
+    candidate = decision.candidate_slots
+    notice = (
+        f"[FALLBACK MODEL: Series '{target.series}' / {target.guarded_facets.capacity}; "
+        f"catalog model '{target.anchor}' not verified; market model 'not stated']"
+    )
+    if decision.compatibility_notice:
+        notice += " " + decision.compatibility_notice
+    if target.guarded_facets.color_family and candidate and not candidate.guarded_facets.color_family:
+        notice += f" [CROSS-CHECK NOTICE: Catalog color '{target.guarded_facets.color_raw}' omitted by market listing]"
+    return replace(
+        decision, is_match=False, is_base_match=True, match_tier=2, match_basis="series",
+        reason_code="BASE_MATCH", detected_variant=None, compatibility_notice=notice,
+        missing_modifier=f"Series {target.series} {target.guarded_facets.capacity}",
+        modifier_source="market",
+        reason=f"Series-only fallback after model matching failed: {target.series} / {target.guarded_facets.capacity}",
     )
