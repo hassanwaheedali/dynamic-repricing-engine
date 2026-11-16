@@ -7,6 +7,15 @@ from typing import TYPE_CHECKING, Any
 
 from curl_cffi.requests import AsyncSession
 
+from config import (
+    DIGI_MAX_PAGES as DIGI_MAX_PAGES,
+)
+from config import (
+    DIGI_PAGE_SIZE as DIGI_PAGE_SIZE,
+)
+from config import (
+    DIGI_QUERY_BUDGET as DIGI_QUERY_BUDGET,
+)
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
     MatchDecision,
@@ -40,9 +49,6 @@ if TYPE_CHECKING:
     from pricing_engine.scraper import PlatformConfig
 
 DIGI_DISCOVERY_POLICY_VERSION = "model-first-v4"
-DIGI_PAGE_SIZE = 100
-DIGI_MAX_PAGES = 3
-DIGI_QUERY_BUDGET = 3
 normalize_query = normalize_search_query
 
 

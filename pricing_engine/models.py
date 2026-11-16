@@ -337,3 +337,15 @@ class CheckpointState:
     pending_indices: list[int] = field(default_factory=list)
     pending_reasons: dict[int, str] = field(default_factory=dict)
     updated_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformConfig:
+    """Configuration descriptor for a specific storefront search API."""
+
+    platform_name: str
+    display_name: str
+    search_url: str
+    base_params: dict[str, str]
+    headers: dict[str, str]
+

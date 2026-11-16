@@ -5,7 +5,7 @@ import math
 import random
 import sys
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -15,6 +15,21 @@ if TYPE_CHECKING:
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
 
+from config import (
+    ALFA_SEARCH_URL as ALFA_SEARCH_URL,
+)
+from config import (
+    ALFAMALL_CONFIG as ALFAMALL_CONFIG,
+)
+from config import (
+    COMMON_HEADERS as COMMON_HEADERS,
+)
+from config import (
+    DIGI_SEARCH_URL as DIGI_SEARCH_URL,
+)
+from config import (
+    DIGIMALL_CONFIG as DIGIMALL_CONFIG,
+)
 from pricing_engine import offer_processing as _processing
 from pricing_engine.models import (
     DISCOVERY_SEARCH_FAILED,
@@ -23,6 +38,9 @@ from pricing_engine.models import (
     ScrapeResult,
     is_non_competitor_vendor,
     merge_rejected_examples,
+)
+from pricing_engine.models import (
+    PlatformConfig as PlatformConfig,
 )
 
 _offer_dedupe_key = _processing.offer_dedupe_key
@@ -68,67 +86,12 @@ def _safe_console_print(msg: str) -> None:
         pass
 
 
-ALFA_SEARCH_URL = "https://be.alfamall.com/storefront/search_products"
-DIGI_SEARCH_URL = "https://digimall-be.faysalbank.com/storefront/search_products"
-
-COMMON_HEADERS: dict[str, str] = {
-    "accept": "application/json, text/plain, */*",
-    "accept-language": "en-US,en;q=0.9",
-    "accept-encoding": "gzip, deflate, br, zstd",
-    "content-type": "application/json",
-    "sec-ch-ua": '"Google Chrome";v="120", "Chromium";v="120", "Not?A_Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-site",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-}
 
 
-@dataclass(frozen=True, slots=True)
-class PlatformConfig:
-    """Configuration descriptor for a specific storefront search API."""
-
-    platform_name: str
-    display_name: str
-    search_url: str
-    base_params: dict[str, str]
-    headers: dict[str, str]
 
 
-ALFAMALL_CONFIG = PlatformConfig(
-    platform_name="alfamall",
-    display_name="AlfaMall",
-    search_url=ALFA_SEARCH_URL,
-    base_params={
-        "page": "1",
-        "limit": "100",
-        "storefront": "23",
-        "storefront_domain": "alfamall.com",
-    },
-    headers={
-        **COMMON_HEADERS,
-        "origin": "https://alfamall.com",
-        "referer": "https://alfamall.com/",
-    },
-)
 
-DIGIMALL_CONFIG = PlatformConfig(
-    platform_name="digimall",
-    display_name="DigiMall",
-    search_url=DIGI_SEARCH_URL,
-    base_params={
-        "storefront": "23",
-        "page": "1",
-        "limit": "100",
-    },
-    headers={
-        **COMMON_HEADERS,
-        "origin": "https://digimall.faysalbank.com",
-        "referer": "https://digimall.faysalbank.com/",
-    },
-)
+
 
 # Run-scoped on-demand cache: (platform, query, target_desc) -> ScrapeResult
 _query_cache: dict[tuple[str, str, str], ScrapeResult] = {}

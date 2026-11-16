@@ -80,7 +80,7 @@
 - [x] 6. Shared ordered model-first query generation.
 - [x] 7. Shared offer processing and synchronous finalization.
 - [x] 8. Deterministic stock-aware identity-safe deduplication.
-- [ ] 9. Shared transport contracts and configuration.
+- [x] 9. Shared transport contracts and configuration.
 - [ ] 10. Acyclic transport dependencies and diagnostics.
 - [ ] 11. Differential audit, checkpoint versions, full gates and adversarial review.
 

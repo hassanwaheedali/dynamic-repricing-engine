@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from pricing_engine.capacity import explicit_capacity_pattern
+from pricing_engine.models import PlatformConfig
 
 # ==============================================================================
 # 1. PLATFORM BANK COMMISSIONS (%)
@@ -403,3 +404,65 @@ def get_digi_standard_payout_rate() -> float:
 def get_digi_leverage_payout_rate() -> float:
     """Return DigiMall Faysal Bank tier payout multiplier (e.g. 0.92 for 8% commission)."""
     return 1.0 - (DIGI_LEVERAGE_COMMISSION_PCT / 100.0)
+
+
+# Storefront protocol settings; retrieval policies remain platform-specific.
+ALFA_SEARCH_URL = "https://be.alfamall.com/storefront/search_products"
+
+
+DIGI_SEARCH_URL = "https://digimall-be.faysalbank.com/storefront/search_products"
+
+
+COMMON_HEADERS: dict[str, str] = {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "content-type": "application/json",
+    "sec-ch-ua": '"Google Chrome";v="120", "Chromium";v="120", "Not?A_Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
+
+ALFAMALL_CONFIG = PlatformConfig(
+    platform_name="alfamall",
+    display_name="AlfaMall",
+    search_url=ALFA_SEARCH_URL,
+    base_params={
+        "page": "1",
+        "limit": "100",
+        "storefront": "23",
+        "storefront_domain": "alfamall.com",
+    },
+    headers={
+        **COMMON_HEADERS,
+        "origin": "https://alfamall.com",
+        "referer": "https://alfamall.com/",
+    },
+)
+
+
+DIGIMALL_CONFIG = PlatformConfig(
+    platform_name="digimall",
+    display_name="DigiMall",
+    search_url=DIGI_SEARCH_URL,
+    base_params={
+        "storefront": "23",
+        "page": "1",
+        "limit": "100",
+    },
+    headers={
+        **COMMON_HEADERS,
+        "origin": "https://digimall.faysalbank.com",
+        "referer": "https://digimall.faysalbank.com/",
+    },
+)
+
+
+DIGI_PAGE_SIZE = 100
+DIGI_MAX_PAGES = 3
+DIGI_QUERY_BUDGET = 3
