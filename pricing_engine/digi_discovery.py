@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import re
 from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -11,11 +10,11 @@ from curl_cffi.requests import AsyncSession
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
     MatchDecision,
-    _capacity_led_base_model,
     expand_cartesian_branches,
-    extract_product_slots,
-    extract_search_query_and_model,
-    generate_search_patterns,
+    generate_model_first_queries,
+)
+from pricing_engine.matcher import (
+    normalize_search_query,
 )
 from pricing_engine.models import (
     DISCOVERY_PAGINATION_INCOMPLETE,
@@ -34,6 +33,8 @@ if TYPE_CHECKING:
 DIGI_DISCOVERY_POLICY_VERSION = "model-first-v4"
 DIGI_PAGE_SIZE = 100
 DIGI_MAX_PAGES = 3
+DIGI_QUERY_BUDGET = 3
+normalize_query = normalize_search_query
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,11 +51,6 @@ class DigiQueryPlan:
     """Target branches; success in one branch never suppresses another."""
 
     branches: tuple[DigiQueryBranch, ...]
-
-
-def normalize_query(query: str) -> str:
-    """Normalize case and whitespace without conflating model separators."""
-    return " ".join(query.split()).casefold()
 
 
 def is_definitive_digi_rejection(decision: MatchDecision) -> bool:
@@ -97,46 +93,9 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
     if brand.strip().casefold() in INVALID_BRAND_VALUES:
         raise ValueError("Brand must be supplied by the catalog for DigiMall discovery")
     branches: list[DigiQueryBranch] = []
-    brand_pattern = re.compile(rf"\b{re.escape(brand.strip())}\b", re.IGNORECASE)
     for branch in expand_cartesian_branches(description):
-        _, model = extract_search_query_and_model(branch, brand=brand)
-        model = " ".join(brand_pattern.sub(" ", model).split())
-        if not re.search(r"\d", model):
-            raise ValueError("No usable numeric model found for DigiMall discovery")
-        queries = [model]
-        alternate = model.replace("-", " ") if "-" in model else model.replace(" ", "")
-        if normalize_query(alternate) != normalize_query(model):
-            queries.append(" ".join(alternate.split()))
-        # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
-        # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
-        # Always schedule the bare anchor stem so the suffix is verified by the matcher
-        # (as a compatibility notice) instead of being required by the search engine.
-        slots = extract_product_slots(branch, brand=brand)
-        anchor = slots.anchor
-        is_compound_anchor = bool(
-            anchor and re.match(r"^[A-Za-z]{2,3}[-_][A-Za-z]{2,3}[-_]?\d+", anchor)
-        )
-        if anchor and re.search(r"\d", anchor) and normalize_query(anchor) != normalize_query(model):
-            queries.append(anchor)
-        base_model = _capacity_led_base_model(slots, brand)
-        if (
-            base_model
-            and len(queries) < 3
-            and normalize_query(base_model) not in {normalize_query(q) for q in queries}
-        ):
-            queries.append(base_model)
-        for candidate in generate_search_patterns(branch, brand=brand).get("tier_2", []):
-            clean = " ".join(brand_pattern.sub(" ", candidate).split())
-            if re.search(r"\d", clean) and normalize_query(clean) not in {
-                normalize_query(q) for q in queries
-            }:
-                if len(queries) < 3:
-                    queries.append(clean)
-                    break
-                if is_compound_anchor and len(queries) == 3 and normalize_query(anchor) != normalize_query(model):
-                    # Preserve compound anchor without brand wrapper + bare sub-stem within 3-query cap
-                    queries = [queries[0], anchor, clean]
-                    break
+        queries = generate_model_first_queries(branch, brand, budget=DIGI_QUERY_BUDGET)
+        model = queries[0]
         branches.append(DigiQueryBranch(branch, model, tuple(queries)))
     if not branches:
         raise ValueError("No usable model found for DigiMall discovery")

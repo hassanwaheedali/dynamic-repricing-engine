@@ -5948,3 +5948,54 @@ def referee_series_candidate(target: ProductSlots, candidate_title: str, brand: 
         modifier_source="market",
         reason=f"Series-only fallback after model matching failed: {target.series} / {target.guarded_facets.capacity}",
     )
+
+
+def normalize_search_query(query: str) -> str:
+    """Case/whitespace normalization; model separators remain meaningful."""
+    return " ".join(query.split()).casefold()
+
+
+def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 3) -> tuple[str, ...]:
+    """Generate ordered brandless model candidates, preserving compound/base coverage."""
+    if budget < 1:
+        raise ValueError("Model query budget must be positive")
+    brand_pattern = re.compile(rf"\b{re.escape(brand.strip())}\b", re.I)
+    _, model = extract_search_query_and_model(canonical_name, brand=brand)
+    model = " ".join(brand_pattern.sub(" ", model).split())
+    if not re.search(r"\d", model):
+        raise ValueError("No usable numeric model found for DigiMall discovery")
+    queries = [model]
+    alternate = model.replace("-", " ") if "-" in model else model.replace(" ", "")
+    if normalize_search_query(alternate) != normalize_search_query(model):
+        queries.append(" ".join(alternate.split()))
+    # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
+    # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
+    # Always schedule the bare anchor stem so the suffix is verified by the matcher
+    # (as a compatibility notice) instead of being required by the search engine.
+    slots = extract_product_slots(canonical_name, brand=brand)
+    anchor = slots.anchor
+    is_compound_anchor = bool(
+        anchor and re.match(r"^[A-Za-z]{2,3}[-_][A-Za-z]{2,3}[-_]?\d+", anchor)
+    )
+    if anchor and re.search(r"\d", anchor) and normalize_search_query(anchor) != normalize_search_query(model):
+        queries.append(anchor)
+    base_model = _capacity_led_base_model(slots, brand)
+    if (
+        base_model
+        and len(queries) < budget
+        and normalize_search_query(base_model) not in {normalize_search_query(q) for q in queries}
+    ):
+        queries.append(base_model)
+    for candidate in generate_search_patterns(canonical_name, brand=brand).get("tier_2", []):
+        clean = " ".join(brand_pattern.sub(" ", candidate).split())
+        if re.search(r"\d", clean) and normalize_search_query(clean) not in {
+            normalize_search_query(q) for q in queries
+        }:
+            if len(queries) < budget:
+                queries.append(clean)
+                break
+            if is_compound_anchor and len(queries) == budget and normalize_search_query(anchor) != normalize_search_query(model):
+                # Preserve compound anchor without brand wrapper + bare sub-stem within 3-query cap
+                queries = [queries[0], anchor, clean]
+                break
+    return tuple(queries[:budget])
