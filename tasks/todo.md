@@ -70,3 +70,19 @@
 - [x] Inspect all 401 controlled catalog probes and the one intended changed decision.
 - [x] Live-check Midea Titan 1/1.5-ton retrieval on AlfaMall and Samsung yellow suffix fallback on DigiMall.
 - [x] Final validation: 807 tests passed; 33 focused tests; Ruff passed; strict Mypy passed (17 source files); whitespace check passed; changed executable-line coverage 189/195 (96.92%).
+# Architecture consolidation — active 2026-11-17
+
+- [ ] 1. Contract, baseline evidence and dynamic regression scaffolding.
+- [ ] 2. Canonical capacity parsing and matching corrections.
+- [ ] 3. Shared safe series fallback without identity replacement.
+- [ ] 4. Structural model / measurement span protection.
+- [ ] 5. Shipping capacity normalization reuse.
+- [ ] 6. Shared ordered model-first query generation.
+- [ ] 7. Shared offer processing and synchronous finalization.
+- [ ] 8. Deterministic stock-aware identity-safe deduplication.
+- [ ] 9. Shared transport contracts and configuration.
+- [ ] 10. Acyclic transport dependencies and diagnostics.
+- [ ] 11. Differential audit, checkpoint versions, full gates and adversarial review.
+
+Cross-model review skipped by explicit user instruction. Existing completed checklist follows.
+

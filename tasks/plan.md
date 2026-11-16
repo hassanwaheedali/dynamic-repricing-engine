@@ -1,5 +1,9 @@
 # Master Specification & Implementation Plan: Generic Model Variants, Optional Specifications & Matching Accuracy
 
+## Active follow-up: architecture consolidation (2026-11-17)
+
+The approved eleven-milestone implementation contract is in [architecture-consolidation-contract.md](architecture-consolidation-contract.md). Earlier completed plans below are retained as history. Baseline commit: `6a66118`. No production upload or database mutation is authorized by this refactor.
+
 > [!IMPORTANT]
 > **ARCHITECTURAL SPECIFICATION IMPLEMENTED & VERIFIED (100% COMPLETE).**
 > Implemented incrementally across Slices A–H with fresh-context adversarial review (`doubt-driven-development`), 50 focused regression/adversarial tests (`REG-01`–`REG-25` + `test_adv_01`–`test_adv_06`), `557 passed, 0 failed` in full `pytest -v`, `0` Ruff errors, and `0` Mypy strict errors.
