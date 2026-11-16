@@ -11,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v4-bounded-series"
+MATCHER_POLICY_VERSION = "product-evidence-v5-structural-measurements"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -1368,6 +1368,23 @@ def _normalize_sku_separators(text: str) -> str:
 
 
 
+
+_MODEL_UNIT_SUFFIX_RE = re.compile(
+    r"\b(?P<prefix>[A-Za-z]{2,4})[-_\s]+(?P<number>\d{3,6})[-_\s]*(?P<suffix>[WL])\b", re.I
+)
+
+
+def _strip_category_measurements(text: str) -> str:
+    """Protect structurally prefixed model spans before category/unit removal."""
+    pattern = rf"(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})|(?:{CATEGORY_PATTERNS.pattern})"
+
+    def remove_or_preserve(match: re.Match[str]) -> str:
+        if match.group("model") and match.group("prefix").upper() not in NON_SKU_TOKENS:
+            return match.group("model")
+        return CATEGORY_PATTERNS.sub(" ", match.group(0))
+
+    return re.sub(pattern, remove_or_preserve, text, flags=re.I)
+
 def is_dimension_or_spec_token(token: str) -> bool:
     """Check if a token represents physical dimensions, capacity, or feature counts instead of a model code."""
     clean = token.strip("-_., \"'")
@@ -1580,7 +1597,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
         flags=re.IGNORECASE,
     )
     if m_desc and not re.search(r"\d", m_desc.group(1)):
-        series_candidate = CATEGORY_PATTERNS.sub(" ", m_desc.group(1)).strip(" -_,()")
+        series_candidate = _strip_category_measurements(m_desc.group(1)).strip(" -_,()")
         if series_candidate and series_candidate.upper() not in {
             "SPLIT",
             "SPLIT AC",
@@ -1629,7 +1646,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     all_ac_cap_codes = set(UNIVERSAL_CAPACITY_TO_TONNAGE.keys()).union(
         *(m.keys() for m in BRAND_CAPACITY_SYSTEMS.values())
     )
-    clean = CATEGORY_PATTERNS.sub(" ", clean).strip()
+    clean = _strip_category_measurements(clean).strip()
 
     # 3. Find model code:
     # Primary model token contains digits: e.g. DWT-1165, 100-316S6, HDG-201S, 12AITH21W-T3
@@ -1863,7 +1880,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     )
 
     remaining = MARKETPLACE_NOISE_RE.sub(" ", clean)
-    remaining = CATEGORY_PATTERNS.sub(" ", remaining).strip()
+    remaining = _strip_category_measurements(remaining).strip()
     remaining = re.sub(r"[()]", " ", remaining)  # Strip parentheses
     name_tokens = remaining.split()
 
@@ -2738,7 +2755,7 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             cap_code = tokens[cap_token_idx]
             series_tokens = tokens[:cap_token_idx] + tokens[cap_token_idx + 1 :]
 
-        source_without_units = CATEGORY_PATTERNS.sub(" ", clean_name)
+        source_without_units = _strip_category_measurements(clean_name)
         cap_in_source = bool(re.search(rf"\b{re.escape(cap_code)}\b", source_without_units))
 
         # Clean series tokens of non-sku tokens and punctuation
@@ -3879,7 +3896,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     sub = re.sub(r"\([^)]*\)", " ", sub)
     if detected_brand:
         sub = re.sub(rf"\b{re.escape(detected_brand)}\b", " ", sub, flags=re.IGNORECASE)
-    sub = CATEGORY_PATTERNS.sub(" ", sub)
+    sub = _strip_category_measurements(sub)
     sub = re.sub(r"\b(?:METAL\s+DOOR|STEEL\s+DOOR|VCM\s+DOOR)\b", " ", sub, flags=re.IGNORECASE)
     sub = re.sub(
         r"\b(?:\d+(?:\.\d+)?\s*(?:CU\s*FT|CU\.FT|CFT|CU|LITRES?|LITERS?|LTRS?|LTR|L|KG|TON))\b",
