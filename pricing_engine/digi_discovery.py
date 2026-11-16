@@ -3,7 +3,7 @@
 import asyncio
 import json
 from dataclasses import asdict, dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from curl_cffi.requests import AsyncSession
 
@@ -16,6 +16,8 @@ from config import (
 from config import (
     DIGI_QUERY_BUDGET as DIGI_QUERY_BUDGET,
 )
+from config import DIGIMALL_CONFIG
+from pricing_engine.digi_transport import DigiDiscoveryContext, required_pages
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
     MatchDecision,
@@ -26,6 +28,7 @@ from pricing_engine.matcher import (
 from pricing_engine.models import (
     DISCOVERY_PAGINATION_INCOMPLETE,
     DISCOVERY_SEARCH_FAILED,
+    PlatformConfig,
     RejectedCandidate,
     ScrapedOffer,
     ScrapeResult,
@@ -40,10 +43,7 @@ from pricing_engine.offer_processing import (
 from pricing_engine.offer_processing import (
     parse_offers_with_tiers as _parse_offers_with_tiers,
 )
-
-if TYPE_CHECKING:
-    from pricing_engine.digi_transport import DigiDiscoveryContext
-    from pricing_engine.scraper import PlatformConfig
+from pricing_engine.series_fallback import build_series_search, has_active_model_offers
 
 DIGI_DISCOVERY_POLICY_VERSION = "model-first-v4"
 normalize_query = normalize_search_query
@@ -127,7 +127,6 @@ async def _fetch_query(
     series_fallback: bool = False,
 ) -> ScrapeResult:
     """Fetch a query's entire page budget before evaluating offer eligibility."""
-    from pricing_engine.digi_transport import required_pages
 
     first = await context.fetch(config, session, query, 1, timeout, max_retries)
     required = required_pages(first.total) if first.success else (1,)
@@ -240,10 +239,6 @@ async def discover_digimall(
     context: "DigiDiscoveryContext | None" = None,
 ) -> ScrapeResult:
     """Run adaptive plans or explicit legacy queries, preserving matcher tier semantics."""
-    from pricing_engine.digi_transport import DigiDiscoveryContext
-    from pricing_engine.scraper import (
-        DIGIMALL_CONFIG,
-    )
 
     planned = isinstance(query, DigiQueryPlan)
     if (planned or brand) and brand.strip().casefold() in INVALID_BRAND_VALUES:
@@ -296,7 +291,6 @@ async def discover_digimall(
             if planned and (result.coverage_status in {"FAILED", "INCOMPLETE"} or branch_exact):
                 break
         if planned or group_index == len(groups) - 1:
-            from pricing_engine.series_fallback import build_series_search, has_active_model_offers
 
             observed = results[branch_start:]
             model_found = any(

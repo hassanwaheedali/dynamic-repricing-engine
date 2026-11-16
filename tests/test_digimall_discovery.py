@@ -602,9 +602,8 @@ def test_later_total_alone_still_detects_impossible_extra_pages() -> None:
 
 def test_timeouts_show_all_retry_attempts_before_exhaustion(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    notices: list[str] = []
-    monkeypatch.setattr("pricing_engine.scraper._safe_console_print", notices.append)
     monkeypatch.setattr("pricing_engine.digi_transport.retry_delay", lambda *args: 0)
 
     async def run() -> None:
@@ -613,6 +612,7 @@ def test_timeouts_show_all_retry_attempts_before_exhaustion(
         result = await scrape_digimall(session, "120-316S6", "120-316S6", max_retries=3)
         assert session.get.call_count == 3
         assert [c.kwargs["timeout"] for c in session.get.call_args_list] == [15, 20, 25]
+        notices = [record.message for record in caplog.records]
         assert any("Retry 2/3" in notice for notice in notices)
         assert any("Retry 3/3" in notice for notice in notices)
         assert "Page retrieval failed" in notices[-1]

@@ -6,11 +6,7 @@ import random
 import sys
 from collections.abc import Callable, Coroutine
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pricing_engine.digi_discovery import DigiQueryPlan
-    from pricing_engine.digi_transport import DigiDiscoveryContext
+from typing import Any
 
 from curl_cffi.requests import AsyncSession
 from rich.console import Console
@@ -31,6 +27,8 @@ from config import (
     DIGIMALL_CONFIG as DIGIMALL_CONFIG,
 )
 from pricing_engine import offer_processing as _processing
+from pricing_engine.digi_discovery import DigiQueryPlan, discover_digimall
+from pricing_engine.digi_transport import DigiDiscoveryContext
 from pricing_engine.models import (
     DISCOVERY_SEARCH_FAILED,
     RejectedCandidate,
@@ -42,6 +40,7 @@ from pricing_engine.models import (
 from pricing_engine.models import (
     PlatformConfig as PlatformConfig,
 )
+from pricing_engine.series_fallback import build_series_search, has_active_model_offers
 
 _offer_dedupe_key = _processing.offer_dedupe_key
 _parse_offers_with_tiers = _processing.parse_offers_with_tiers
@@ -182,13 +181,12 @@ async def _execute_waterfall(
 
     executed_lower: set[str] = set()
     for tier_name in all_tiers:
-        if tier_name == "series_fallback":
-            from pricing_engine.series_fallback import has_active_model_offers
-
-            if any_failure or has_active_model_offers(
+        if tier_name == "series_fallback" and (
+            any_failure or has_active_model_offers(
                 collected_offers, collected_base_offers, collected_sibling_offers, collected_own_offers
-            ):
-                continue
+            )
+        ):
+            continue
         tier_queries = patterns[tier_name]
         before_count = len(deduplicate_offers(collected_offers))
         tier_offers_count = 0
@@ -963,7 +961,6 @@ async def scrape_alfamall(
                 target_desc=target_desc,
             )
         query = {"tier_1": [query]}
-    from pricing_engine.series_fallback import build_series_search
 
     fallback = build_series_search(target_desc, brand)
     if fallback is not None:
@@ -1036,7 +1033,6 @@ async def scrape_digimall(
     Returns:
         ScrapeResult containing verified offers and explicit success/failure flags.
     """
-    from pricing_engine.digi_discovery import discover_digimall
 
     return await discover_digimall(
         session,

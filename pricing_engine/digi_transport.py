@@ -2,16 +2,18 @@
 
 import asyncio
 import copy
+import logging
 import random
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from curl_cffi.requests import AsyncSession
 
-from pricing_engine.digi_discovery import DIGI_MAX_PAGES, DIGI_PAGE_SIZE, normalize_query
+from config import DIGI_MAX_PAGES, DIGI_PAGE_SIZE
+from pricing_engine.matcher import normalize_search_query as normalize_query
+from pricing_engine.models import PlatformConfig
 
-if TYPE_CHECKING:
-    from pricing_engine.scraper import PlatformConfig
+logger = logging.getLogger(__name__)
 
 PageKey = tuple[str, str, tuple[tuple[str, str], ...]]
 
@@ -165,16 +167,14 @@ class DigiDiscoveryContext:
                 break
             if attempt + 1 < max_retries:
                 delay = retry_delay(attempt, error, status)
-                from pricing_engine.scraper import _safe_console_print
 
-                _safe_console_print(
-                    f"[yellow][DigiMall] Page {page}: {error}. "
-                    f"Retry {attempt + 2}/{max_retries} in {delay:.1f}s...[/]"
+                logger.warning(
+                    f"[DigiMall] Page {page}: {error}. "
+                    f"Retry {attempt + 2}/{max_retries} in {delay:.1f}s..."
                 )
                 await asyncio.sleep(delay)
-        from pricing_engine.scraper import _safe_console_print
 
-        _safe_console_print(
-            f"[yellow][DigiMall] Page {page}: {error}. Page retrieval failed; see search coverage summary.[/]"
+        logger.warning(
+            f"[DigiMall] Page {page}: {error}. Page retrieval failed; see search coverage summary."
         )
         return DigiPage(page, status_code=status, error=f"Page {page}: {error}")
