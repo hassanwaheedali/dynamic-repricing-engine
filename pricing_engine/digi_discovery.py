@@ -27,18 +27,15 @@ from pricing_engine.models import (
     DISCOVERY_PAGINATION_INCOMPLETE,
     DISCOVERY_SEARCH_FAILED,
     RejectedCandidate,
+    ScrapedOffer,
     ScrapeResult,
     format_rejection_summary,
     merge_rejected_examples,
 )
 from pricing_engine.offer_processing import (
-    OfferKey,
     deduplicate_offers,
     deduplicate_own_offers,
     finalize_offers,
-)
-from pricing_engine.offer_processing import (
-    offer_dedupe_key as _offer_dedupe_key,
 )
 from pricing_engine.offer_processing import (
     parse_offers_with_tiers as _parse_offers_with_tiers,
@@ -339,13 +336,11 @@ async def discover_digimall(
             error_detail="No usable DigiMall query",
             pagination_complete=False,
         )
-    seen_exact: set[OfferKey] = set()
+    observed_exact: list[ScrapedOffer] = []
     for tier, result in zip(query_tiers, results, strict=True):
-        for offer in result.offers:
-            key = _offer_dedupe_key(offer)
-            if key not in seen_exact:
-                seen_exact.add(key)
-                tier_summary[tier] += 1
+        before_count = len(deduplicate_offers(observed_exact))
+        observed_exact.extend(result.offers)
+        tier_summary[tier] += max(0, len(deduplicate_offers(observed_exact)) - before_count)
     pools = {
         name: (
             deduplicate_own_offers([offer for result in results for offer in getattr(result, name)])

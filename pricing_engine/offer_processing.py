@@ -6,7 +6,12 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-from pricing_engine.matcher import MatchDecision, normalize_model_identity, referee_match
+from pricing_engine.matcher import (
+    MatchDecision,
+    model_identity_parts,
+    normalize_model_identity,
+    referee_match,
+)
 from pricing_engine.models import (
     DISCOVERY_CANDIDATES_REJECTED,
     DISCOVERY_COMPLETE_NO_COMPETITORS,
@@ -33,6 +38,8 @@ OfferKey = tuple[str, float, str, str, str]
 def offer_dedupe_key(off: ScrapedOffer) -> OfferKey:
     """Build deduplication key, preserving distinct color/variant listings even from the same vendor."""
     v_norm = off.vendor_name.lower().strip()
+    if off.vendor_handle:
+        v_norm = f"handle::{off.vendor_handle.casefold().strip()}"
     if not v_norm or v_norm == "unknown vendor":
         fallback_id = (off.product_handle or off.raw_title).lower().strip()
         v_norm = f"unknown::{fallback_id}"
@@ -121,11 +128,27 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     """Deduplicate offers by vendor key, price, color family, and variant, tracking duplicate counts and preserving metadata."""
     counts: dict[OfferKey, int] = {}
     first_seen: dict[OfferKey, ScrapedOffer] = {}
+    # Bare/optional-prefix spellings merge only when this pool has one possible
+    # explicit prefix for that core. Conflicting prefixes never bridge via a bare SKU.
+    prefixes: dict[tuple[str, float, str, str, str, str], set[str]] = {}
+    for off in offers:
+        prefix, core = model_identity_parts(off.scraped_model or "", off.brand_name)
+        group = (*offer_dedupe_key(off)[:4], off.brand_name.casefold(), core)
+        if prefix:
+            prefixes.setdefault(group, set()).add(prefix)
     for off in offers:
         key = offer_dedupe_key(off)
+        prefix, core = model_identity_parts(off.scraped_model or "", off.brand_name)
+        group = (*key[:4], off.brand_name.casefold(), core)
+        alternatives = prefixes.get(group, set())
+        if core and len(alternatives) == 1:
+            prefix = next(iter(alternatives))
+        key = (*key[:4], f"{off.brand_name.casefold()}:{prefix}:{core}")
         counts[key] = counts.get(key, 0) + (off.duplicate_count or 1)
 
-        def preference(offer: ScrapedOffer) -> tuple[bool, bool, bool, bool, str, str]:
+        def preference(
+            offer: ScrapedOffer,
+        ) -> tuple[bool, bool, bool, bool, str, str, str, str, str]:
             return (
                 offer.is_sold_out,
                 offer.match_basis == "series",
@@ -133,6 +156,9 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
                 offer.compatibility_notice is not None,
                 offer.raw_title.casefold(),
                 offer.product_handle or "",
+                offer.missing_modifier or "",
+                offer.compatibility_notice or "",
+                offer.modifier_source,
             )
 
         if key not in first_seen or preference(off) < preference(first_seen[key]):

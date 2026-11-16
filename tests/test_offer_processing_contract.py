@@ -14,6 +14,92 @@ from pricing_engine.offer_processing import (
 )
 
 
+def test_equivalent_prefixed_spellings_do_not_inflate_offers() -> None:
+    target = "Haier HWM 120-316S6 Washing Machine"
+    raw = [
+        {
+            "title": title,
+            "vendor": {"name": "Seller"},
+            "variant_detail": {"discounted_price": "100000"},
+        }
+        for title in [target, "Haier HWM120-316S6 Washing Machine"]
+    ]
+    exact, *_ = parse_offers_with_tiers(raw, "120-316S6", "Haier", target)
+    assert len(exact) == 2
+    assert len(deduplicate_offers(exact)) == 1
+
+
+def test_distinct_verified_seller_handles_are_not_merged() -> None:
+    offers = [
+        ScrapedOffer("Seller", 100, False, "Same model", vendor_handle=handle)
+        for handle in ["seller-a", "seller-b"]
+    ]
+    assert len(deduplicate_offers(offers)) == 2
+
+
+def test_warning_representative_is_independent_of_arrival_order() -> None:
+    from dataclasses import replace
+
+    original = ScrapedOffer(
+        "Seller", 100, False, "Same", product_handle="same", compatibility_notice="Missing color"
+    )
+    alternate = replace(original, compatibility_notice="Missing capacity", modifier_source="market")
+    outcomes = [deduplicate_offers(list(order)) for order in permutations([original, alternate])]
+    assert outcomes[0] == outcomes[1]
+
+
+def test_conflicting_prefixes_never_merge_through_a_bare_model() -> None:
+    offers = [
+        ScrapedOffer("Seller", 100, False, model, scraped_model=model)
+        for model in ["AX-900", "BX-900", "900"]
+    ]
+    for order in permutations(offers):
+        assert len(deduplicate_offers(list(order))) == 3
+
+
+@pytest.mark.parametrize("platform", ["alfa", "digi"])
+def test_alias_duplicates_never_satisfy_two_offer_early_exit(platform: str) -> None:
+    from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
+
+    async def run() -> None:
+        clear_scraper_cache()
+        session = AsyncMock()
+
+        async def get(*args: object, **kwargs: object) -> MagicMock:
+            first = kwargs["params"]["q"] == "first"
+            titles = (
+                ["Haier HWM 120-316S6 Washer", "Haier HWM120-316S6 Washer"]
+                if first
+                else ["Haier HWM 120-316S6 Washer"]
+            )
+            raw = [
+                {
+                    "title": title,
+                    "vendor": {"name": "Seller" if first else "Other Seller"},
+                    "variant_detail": {"discounted_price": "100000"},
+                }
+                for title in titles
+            ]
+            response = MagicMock(status_code=200)
+            response.json.return_value = {"count": len(raw), "results": raw}
+            return response
+
+        session.get.side_effect = get
+        scraper = scrape_alfamall if platform == "alfa" else scrape_digimall
+        result = await scraper(
+            session,
+            {"tier_1": ["first"], "tier_2": ["second"]},
+            "120-316S6",
+            brand="Haier",
+            target_desc="Haier HWM 120-316S6 Washer",
+            exhaustive=False,
+        )
+        assert result.executed_queries == ["first", "second"]
+        assert result.tier_summary == {"tier_1": 1, "tier_2": 1}
+
+    asyncio.run(run())
+
+
 def test_verified_distinct_models_survive_identical_seller_price() -> None:
     offers = [
         ScrapedOffer("Seller", 100, False, model, scraped_model=model)

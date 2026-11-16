@@ -348,4 +348,3 @@ class PlatformConfig:
     search_url: str
     base_params: dict[str, str]
     headers: dict[str, str]
-

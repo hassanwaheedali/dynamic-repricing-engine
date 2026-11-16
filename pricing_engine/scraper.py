@@ -152,7 +152,6 @@ async def _execute_waterfall(
     collected_base_offers: list[ScrapedOffer] = []
     collected_sibling_offers: list[ScrapedOffer] = []
     collected_own_offers: list[ScrapedOffer] = []
-    seen_offers: set[_processing.OfferKey] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
     any_success = False
@@ -191,6 +190,7 @@ async def _execute_waterfall(
             ):
                 continue
         tier_queries = patterns[tier_name]
+        before_count = len(deduplicate_offers(collected_offers))
         tier_offers_count = 0
         unique_tier_queries: list[str] = []
         for q in tier_queries:
@@ -252,12 +252,7 @@ async def _execute_waterfall(
                 if sub_res.extended_model_designation and not collected_extended_designation:
                     collected_extended_designation = sub_res.extended_model_designation
 
-                for off in sub_res.offers:
-                    dedupe_key = _offer_dedupe_key(off)
-                    if dedupe_key not in seen_offers:
-                        seen_offers.add(dedupe_key)
-                        tier_offers_count += 1
-                    collected_offers.append(off)
+                collected_offers.extend(sub_res.offers)
 
                 for off in sub_res.base_offers:
                     collected_base_offers.append(off)
@@ -270,6 +265,7 @@ async def _execute_waterfall(
                     detected_missing_modifier = sub_res.active_modifier_fallback
                     detected_missing_source = sub_res.active_modifier_source
 
+        tier_offers_count = max(0, len(deduplicate_offers(collected_offers)) - before_count)
         tier_summary[tier_name] = tier_offers_count
         if tier_offers_count > 0 and matched_tier is None:
             matched_tier = tier_name

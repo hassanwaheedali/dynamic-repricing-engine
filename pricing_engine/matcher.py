@@ -6004,3 +6004,8 @@ def generate_model_first_queries(canonical_name: str, brand: str, budget: int = 
 def normalize_model_identity(model: str) -> str:
     """Lossless alphanumeric SKU key; never erase a manufacturer/family prefix."""
     return re.sub(r"[^A-Z0-9]", "", model.upper())
+
+
+def model_identity_parts(model: str, brand: str = "") -> tuple[str, str]:
+    """Expose the referee's structural prefix/core split, without declaring equivalence."""
+    return _strip_leading_sku_prefix(normalize_model_identity(model), model, brand)
