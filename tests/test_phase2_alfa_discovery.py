@@ -494,18 +494,19 @@ def test_technical_electrical_slash_preserved() -> None:
 
 
 # ==============================================================================
-# 12. 1.0T <-> 1.25T Equivalence on 14k BTU
+# 12. Explicit capacity conflicts remain conflicts even with a shared SKU
 # ==============================================================================
 
 
-def test_14k_btu_1_ton_vs_1_25_ton_equivalence() -> None:
-    """Ensure identical 14k BTU model is accepted between 1.0T and 1.25T."""
+def test_14k_btu_explicit_unequal_capacities_reject() -> None:
+    """Approved correction: model evidence does not override unequal stated capacity."""
     res = referee_match(
         "Haier 1.25 Ton Inverter AC 14HFT",
         "Haier 1.0 Ton Inverter AC HSU-14HFT",
         brand="Haier",
     )
-    assert res.is_match is True
+    assert not res.is_match and not res.is_base_match
+    assert res.reason_code == "FACET_CONFLICT"
 
 
 # ==============================================================================

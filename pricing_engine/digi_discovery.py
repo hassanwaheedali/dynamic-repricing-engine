@@ -12,8 +12,6 @@ from pricing_engine.matcher import (
     MatchDecision,
     expand_cartesian_branches,
     generate_model_first_queries,
-)
-from pricing_engine.matcher import (
     normalize_search_query,
 )
 from pricing_engine.models import (
@@ -24,6 +22,17 @@ from pricing_engine.models import (
     ScrapeResult,
     format_rejection_summary,
     merge_rejected_examples,
+)
+from pricing_engine.offer_processing import (
+    deduplicate_offers,
+    deduplicate_own_offers,
+    finalize_offers,
+)
+from pricing_engine.offer_processing import (
+    offer_dedupe_key as _offer_dedupe_key,
+)
+from pricing_engine.offer_processing import (
+    parse_offers_with_tiers as _parse_offers_with_tiers,
 )
 
 if TYPE_CHECKING:
@@ -104,7 +113,6 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
 
 def _dedupe_available(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     """Prefer in-stock copies before applying the canonical metadata deduplicator."""
-    from pricing_engine.scraper import _offer_dedupe_key, deduplicate_offers
 
     available_keys = {_offer_dedupe_key(o) for o in offers if not o.is_sold_out}
     preferred = [
@@ -132,7 +140,6 @@ async def _fetch_query(
 ) -> ScrapeResult:
     """Fetch a query's entire page budget before evaluating offer eligibility."""
     from pricing_engine.digi_transport import required_pages
-    from pricing_engine.scraper import _parse_offers_with_tiers
 
     first = await context.fetch(config, session, query, 1, timeout, max_retries)
     required = required_pages(first.total) if first.success else (1,)
@@ -248,9 +255,6 @@ async def discover_digimall(
     from pricing_engine.digi_transport import DigiDiscoveryContext
     from pricing_engine.scraper import (
         DIGIMALL_CONFIG,
-        _execute_waterfall,
-        _offer_dedupe_key,
-        deduplicate_own_offers,
     )
 
     planned = isinstance(query, DigiQueryPlan)
@@ -382,20 +386,7 @@ async def discover_digimall(
         ),
     )
 
-    async def collected(**kwargs: Any) -> ScrapeResult:
-        return combined
-
-    merged = await _execute_waterfall(
-        collected,
-        session,
-        {"tier_1": [names[0]]},
-        target_model,
-        timeout,
-        max_retries,
-        floor_price=floor_price,
-        brand=brand,
-        target_desc=target_desc,
-    )
+    merged = finalize_offers(combined, target_model, floor_price)
     statuses = {r.coverage_status for r in results}
     coverage = next((s for s in ("INCOMPLETE", "UNKNOWN", "CAPPED") if s in statuses), "COMPLETE")
     if "FAILED" in statuses:

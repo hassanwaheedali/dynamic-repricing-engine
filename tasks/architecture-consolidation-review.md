@@ -15,6 +15,10 @@ Cross-model review was explicitly skipped by the user. Fresh-context subagents r
 
 `test_different_model_same_verified_series_is_warned_not_exact` now rejects the explicit different SKU. Synthetic generic-series and full-pipeline export fixtures now omit the candidate SKU when demonstrating valid series fallback. This implements the user's selected stricter policy; separate negative tests retain explicit different-SKU coverage.
 
+The former `test_14k_btu_1_ton_vs_1_25_ton_equivalence` now rejects unequal explicit capacities. This directly implements the user's choice to remove that tolerance; synthetic cross-brand regressions cover the same invariant.
+
+The parser monkeypatch test now patches its canonical `offer_processing.referee_match` owner; its metadata assertion is unchanged. Original scraper parser imports remain delegating compatibility aliases.
+
 ## Milestone adjustment
 
 Availability/basis representative preference moved forward from milestone 8 because series priority cannot be correct without it. Milestone 8 still owns distinct identity keys, deterministic ordering and removal of the Digi-only workaround.

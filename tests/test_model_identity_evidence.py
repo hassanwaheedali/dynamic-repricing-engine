@@ -189,14 +189,14 @@ def test_diagnostic_classification_does_not_depend_on_reason_wording() -> None:
 def test_market_variant_metadata_survives_readable_reason_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pricing_engine.scraper as scraper
+    import pricing_engine.offer_processing as processing
 
     decision = referee_match("Dawlance DWT-260", "Dawlance DWT-260 S", "Dawlance")
     assert decision.is_base_match
     decision.reason = "Localized compatibility explanation"
-    monkeypatch.setattr(scraper, "referee_match", lambda *args, **kwargs: decision)
+    monkeypatch.setattr(processing, "referee_match", lambda *args, **kwargs: decision)
     raw = {"title": "Dawlance DWT-260 S", "variant_detail": {"discounted_price": "80000"}}
-    parsed = scraper._parse_offers_with_tiers([raw], "DWT-260", brand="Dawlance")
+    parsed = processing.parse_offers_with_tiers([raw], "DWT-260", brand="Dawlance")
     assert parsed[1][0].detected_variant == "S"
 
 
