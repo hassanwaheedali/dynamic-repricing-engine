@@ -1,0 +1,96 @@
+[
+  {
+    "platform": "alfa",
+    "target": "Midea MSEZ1C-18HRFN1-QC2 1.5 Ton Titan Series Inverter Wall Mounted Split Air Conditioner",
+    "success": true,
+    "queries": [
+      "Midea MSEZ1C-18HRFN1-QC2",
+      "Midea MSEZ1C-18HRFN1",
+      "MSEZ1C-18HRFN1-QC2",
+      "MSEZ1C-18HRFN1",
+      "MSEZ1C18HRFN1-QC2",
+      "MSEZ1C 18HRFN1",
+      "MSEZ1C18HRFN1",
+      "Midea Titan 1.5 Ton"
+    ],
+    "coverage": "",
+    "notice": null,
+    "offers": [
+      {
+        "title": "Midea Titan DC Inverter Heat And Cool 1.5 Ton Split Air Conditioner (MSEZ1C-18 HRFN1-QC2) - Best Price - With FREE SURPRISE GIFT - HomeCart",
+        "price": 215599.0,
+        "tier": 1
+      },
+      {
+        "title": "Midea | 1.5 Ton | MSEZ1C-18 HRFN1-QC2 | Titan | DC Inverter | Heat And Cool | Split | Air Conditioner - On Installment Upto 36 Months - ElectroEase",
+        "price": 217149.0,
+        "tier": 1
+      },
+      {
+        "title": "Midea Titan DC Inverter Heat And Cool 1.5 Ton Split Air Conditioner (MSEZ1C-18 HRFN1-QC2) - Best Price - With FREE SURPRISE GIFT - HomeCart",
+        "price": 221799.0,
+        "tier": 1
+      },
+      {
+        "title": "Midea | 1.5 Ton | MSEZ1C-18 HRFN1-QC2 | Titan | DC Inverter | Heat And Cool | Split | Air Conditioner - On Installment Upto 36 Months - ElectroEase",
+        "price": 223349.0,
+        "tier": 1
+      }
+    ],
+    "error": null
+  },
+  {
+    "platform": "alfa",
+    "target": "Samsung 55Q7FAA 55 Inch Qled Smart Led TV",
+    "success": true,
+    "queries": [
+      "55Q7FAA",
+      "Samsung 55Q7FAA",
+      "Q7FAA",
+      "55Q7F",
+      "Samsung 55Q7F",
+      "55 Q7FAA",
+      "Samsung Q7FAA"
+    ],
+    "coverage": "",
+    "notice": null,
+    "offers": [
+      {
+        "title": "SAMSUNG 55 inches QLED TV | 55Q7FAA",
+        "price": 197758.0,
+        "tier": 1
+      }
+    ],
+    "error": null
+  },
+  {
+    "platform": "digi",
+    "target": "Samsung 55Q7FAA 55 Inch Qled Smart Led TV",
+    "success": true,
+    "queries": [
+      "55Q7FAA",
+      "55Q7F",
+      "Q7FAA"
+    ],
+    "coverage": "COMPLETE",
+    "notice": "\u26a0\ufe0f [FALLBACK MODEL: Target specified 'Model suffix AA', but market listing omitted 'Model suffix AA']",
+    "offers": [
+      {
+        "title": "Samsung LED 55 Inch QLED 4K Vision AI Smart TV 55Q7F",
+        "price": 210000.0,
+        "tier": 2
+      },
+      {
+        "title": "Samsung 55 Inch 4K QLED Vision AI Smart LED TV (55Q7F)",
+        "price": 219099.0,
+        "tier": 2
+      },
+      {
+        "title": "Samsung 55\" QLED 4K Vision AI Smart LED TV (55Q7F)",
+        "price": 210199.0,
+        "tier": 2
+      }
+    ],
+    "error": null
+  }
+]

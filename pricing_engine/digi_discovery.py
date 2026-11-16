@@ -3,7 +3,7 @@
 import asyncio
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from curl_cffi.requests import AsyncSession
@@ -11,6 +11,7 @@ from curl_cffi.requests import AsyncSession
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
     MatchDecision,
+    _capacity_led_base_model,
     expand_cartesian_branches,
     extract_product_slots,
     extract_search_query_and_model,
@@ -19,8 +20,11 @@ from pricing_engine.matcher import (
 from pricing_engine.models import (
     DISCOVERY_PAGINATION_INCOMPLETE,
     DISCOVERY_SEARCH_FAILED,
+    RejectedCandidate,
     ScrapedOffer,
     ScrapeResult,
+    format_rejection_summary,
+    merge_rejected_examples,
 )
 
 if TYPE_CHECKING:
@@ -59,10 +63,9 @@ def is_definitive_digi_rejection(decision: MatchDecision) -> bool:
     With a known catalog anchor, an absent candidate model is rejected rather
     than guessed from brand/capacity. No product/brand-specific exceptions are used.
     """
-    category = decision.reason.split(":", 1)[0].casefold()
-    if category == "anchor model mismatch":
+    if decision.reason_code == "MODEL_CONFLICT":
         return bool(decision.target_slots and decision.target_slots.anchor)
-    return bool(re.search(r"\b(?:collision|mismatch)\b", category))
+    return decision.is_definitive_rejection
 
 
 def format_digimall_summary(result: ScrapeResult) -> str:
@@ -77,10 +80,13 @@ def format_digimall_summary(result: ScrapeResult) -> str:
     required = sum(len(a.get("required_pages", [])) for a in result.query_audit)
     successful = sum(len(a.get("successful_pages", [])) for a in result.query_audit)
     offers = sum(not o.is_sold_out for o in result.offers)
-    return (
+    summary = (
         f"{len(result.query_audit)} searches | {successful}/{required} pages checked | "
         f"{offers} compatible sellers | {labels.get(result.coverage_status, 'Needs review')}"
     )
+    if not offers and result.rejected_examples:
+        summary += " | " + format_rejection_summary(result)
+    return summary
 
 
 def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
@@ -105,16 +111,32 @@ def generate_digimall_plan(description: str, brand: str) -> DigiQueryPlan:
         # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
         # Always schedule the bare anchor stem so the suffix is verified by the matcher
         # (as a compatibility notice) instead of being required by the search engine.
-        anchor = extract_product_slots(branch, brand=brand).anchor
+        slots = extract_product_slots(branch, brand=brand)
+        anchor = slots.anchor
+        is_compound_anchor = bool(
+            anchor and re.match(r"^[A-Za-z]{2,3}[-_][A-Za-z]{2,3}[-_]?\d+", anchor)
+        )
         if anchor and re.search(r"\d", anchor) and normalize_query(anchor) != normalize_query(model):
             queries.append(anchor)
+        base_model = _capacity_led_base_model(slots, brand)
+        if (
+            base_model
+            and len(queries) < 3
+            and normalize_query(base_model) not in {normalize_query(q) for q in queries}
+        ):
+            queries.append(base_model)
         for candidate in generate_search_patterns(branch, brand=brand).get("tier_2", []):
             clean = " ".join(brand_pattern.sub(" ", candidate).split())
-            if len(queries) < 3 and re.search(r"\d", clean) and normalize_query(clean) not in {
+            if re.search(r"\d", clean) and normalize_query(clean) not in {
                 normalize_query(q) for q in queries
             }:
-                queries.append(clean)
-                break
+                if len(queries) < 3:
+                    queries.append(clean)
+                    break
+                if is_compound_anchor and len(queries) == 3 and normalize_query(anchor) != normalize_query(model):
+                    # Preserve compound anchor without brand wrapper + bare sub-stem within 3-query cap
+                    queries = [queries[0], anchor, clean]
+                    break
         branches.append(DigiQueryBranch(branch, model, tuple(queries)))
     if not branches:
         raise ValueError("No usable model found for DigiMall discovery")
@@ -147,6 +169,7 @@ async def _fetch_query(
     brand: str,
     timeout: float,
     max_retries: int,
+    series_fallback: bool = False,
 ) -> ScrapeResult:
     """Fetch a query's entire page budget before evaluating offer eligibility."""
     from pricing_engine.digi_transport import required_pages
@@ -201,9 +224,11 @@ async def _fetch_query(
     elif first.total > DIGI_PAGE_SIZE * DIGI_MAX_PAGES:
         coverage = "CAPPED"
     raw = [item for page in successful for item in page.items]
+    examples: list[RejectedCandidate] = []
     exact, base, sibling, mod, own, count, rejected, reasons, suspicious, extended = (
         _parse_offers_with_tiers(raw, model, brand=brand, target_desc=description,
-                                definitive_rejection=is_definitive_digi_rejection)
+                                definitive_rejection=is_definitive_digi_rejection,
+                                rejected_examples=examples, query=query, series_fallback=series_fallback)
     )
     audit: dict[str, Any] = {
         "query": query,
@@ -213,6 +238,7 @@ async def _fetch_query(
         "total": first.total,
         "coverage": coverage,
         "errors": problems,
+        "rejected_examples": [asdict(example) for example in examples],
     }
     detail = (
         f"{query!r}: required={list(required)}, successful={audit['successful_pages']}, "
@@ -220,6 +246,9 @@ async def _fetch_query(
     )
     if problems:
         detail += "; " + "; ".join(problems)
+    if examples and not (exact or base or sibling):
+        example = examples[0]
+        detail += f"; rejected {example.model or example.title[:100]!r}: {example.reason_code} ({example.reason})"
     return ScrapeResult(
         offers=exact,
         base_offers=base,
@@ -232,6 +261,7 @@ async def _fetch_query(
         raw_candidate_count=count,
         rejected_count=rejected,
         rejection_reasons=reasons,
+        rejected_examples=examples,
         suspicious_rejected_count=suspicious,
         pages_fetched=len(successful),
         total_available=first.total,
@@ -257,7 +287,12 @@ async def discover_digimall(
 ) -> ScrapeResult:
     """Run adaptive plans or explicit legacy queries, preserving matcher tier semantics."""
     from pricing_engine.digi_transport import DigiDiscoveryContext
-    from pricing_engine.scraper import DIGIMALL_CONFIG, _execute_waterfall, _offer_dedupe_key
+    from pricing_engine.scraper import (
+        DIGIMALL_CONFIG,
+        _execute_waterfall,
+        _offer_dedupe_key,
+        deduplicate_own_offers,
+    )
 
     planned = isinstance(query, DigiQueryPlan)
     if (planned or brand) and brand.strip().casefold() in INVALID_BRAND_VALUES:
@@ -286,7 +321,8 @@ async def discover_digimall(
     query_tiers: list[str] = []
     tier_summary: dict[str, int] = {}
     explicit_seen: set[str] = set()
-    for description, model, queries, group_tier in groups:
+    for group_index, (description, model, queries, group_tier) in enumerate(groups):
+        branch_start = len(results) if planned else 0
         if not planned:
             tier_summary.setdefault(group_tier, 0)
         branch_exact = False
@@ -308,6 +344,28 @@ async def discover_digimall(
             branch_exact = branch_exact or any(not o.is_sold_out for o in result.offers)
             if planned and (result.coverage_status in {"FAILED", "INCOMPLETE"} or branch_exact):
                 break
+        if planned or group_index == len(groups) - 1:
+            from pricing_engine.series_fallback import build_series_search, has_active_model_offers
+
+            observed = results[branch_start:]
+            model_found = any(
+                has_active_model_offers(r.offers, r.base_offers, r.sibling_offers, r.own_offers)
+                for r in observed
+            )
+            healthy = bool(observed) and all(
+                r.is_success and r.coverage_status not in {"FAILED", "INCOMPLETE"}
+                for r in observed
+            )
+            fallback = build_series_search(description, brand)
+            if healthy and not model_found and fallback is not None:
+                result = await _fetch_query(
+                    DIGIMALL_CONFIG, session, ctx, fallback.query, model, description,
+                    brand, timeout, max_retries, series_fallback=True,
+                )
+                results.append(result)
+                names.append(fallback.query)
+                query_tiers.append("series_fallback")
+                tier_summary.setdefault("series_fallback", 0)
         if (
             not planned
             and not exhaustive
@@ -335,7 +393,11 @@ async def discover_digimall(
                 seen_exact.add(key)
                 tier_summary[tier] += 1
     pools = {
-        name: _dedupe_available([offer for result in results for offer in getattr(result, name)])
+        name: (
+            deduplicate_own_offers([offer for result in results for offer in getattr(result, name)])
+            if name == "own_offers"
+            else _dedupe_available([offer for result in results for offer in getattr(result, name)])
+        )
         for name in ("offers", "base_offers", "sibling_offers", "own_offers")
     }
     reasons: dict[str, int] = {}
@@ -352,6 +414,9 @@ async def discover_digimall(
         raw_candidate_count=sum(r.raw_candidate_count for r in results),
         rejected_count=sum(r.rejected_count for r in results),
         rejection_reasons=reasons,
+        rejected_examples=merge_rejected_examples(
+            example for result in results for example in result.rejected_examples
+        ),
         suspicious_rejected_count=sum(r.suspicious_rejected_count for r in results),
         extended_model_designation=next(
             (r.extended_model_designation for r in results if r.extended_model_designation), None

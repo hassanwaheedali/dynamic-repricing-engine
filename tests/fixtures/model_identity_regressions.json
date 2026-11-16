@@ -1,0 +1,37 @@
+[
+  {
+    "brand": "Dawlance",
+    "target": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron",
+    "offers": [
+      {"id": "90226164614068741", "title": "Dawlance Dwsi 2322 CX Steam Iron Fast and efficient ironing", "sold_out": false, "variant_detail": {"discounted_price": "8,700"}, "vendor": {"name": "AYS Online"}},
+      {"id": "200126145852266550", "title": "Dawlance DWSI 2322 CX Steam ON INSTALLMENTS-UE001", "sold_out": false, "variant_detail": {"discounted_price": "9,999"}, "vendor": {"name": "Umar Electronics"}}
+    ]
+  },
+  {
+    "brand": "Samsung",
+    "target": "Samsung WA80CK4240BWRT 8 KG WA4000C Series Inverter Top Load Fully Automatic Washing Machine",
+    "offers": [
+      {"id": "samsung-alfa-motor", "title": "Samsung Automatic Washing Machine 8kg WA80CK4240BWRT Digital Inverter Motor |Official Brand warranty | Free delivery | On Installments (0% Markup) - ET", "sold_out": false, "variant_detail": {"discounted_price": "90,000"}, "vendor": {"name": "Ezzi traders"}},
+      {"id": "samsung-alfa-dit", "title": "Samsung | 8 KG | WA80CK4240BWRT | Automatic | Top Load | DIT Wash | White - On Installment Upto 36 Months - ElectroEase", "sold_out": false, "variant_detail": {"discounted_price": "96,349"}, "vendor": {"name": "Electro Ease"}},
+      {"id": "samsung-digi-dit", "title": "SAMSUNG 8KG WASHING MACHINE WA80CK4240BWRT DIT", "sold_out": false, "variant_detail": {"discounted_price": "86,500"}, "vendor": {"name": "Electronics World"}},
+      {"id": "samsung-digi-mac", "title": "Samsung Automatic Top Load Washing Machine With DIT Wash Mac (WA80CK4240BWRT)", "sold_out": false, "variant_detail": {"discounted_price": "97,499"}, "vendor": {"name": "Home Cart"}}
+    ]
+  },
+  {
+    "brand": "Gree",
+    "target": "Gree GS-18PITH17G-T3 1.5 Ton Pular-T3 Series Inverter Wall Mounted Split Air Conditioner Grey",
+    "offers": [
+      {"id": "gree-home-1", "title": "Gree GS-18PITH17G-T3 Pular Inverter Split Air Conditioner Heat & Cool", "sold_out": false, "variant_detail": {"discounted_price": "180,899"}, "vendor": {"name": "Home Cart"}},
+      {"id": "gree-ishopping", "title": "Gree Pular T3 Inverter Split Air Conditioner Heat & Cool 1.5 Ton (GS-18PITH17G-T3)", "sold_out": false, "variant_detail": {"discounted_price": "173,799"}, "vendor": {"name": "iShopping Team"}},
+      {"id": "gree-own", "title": "Gree GS-18PITH17G-T3 1.5 Ton Pular T3 Split Air Conditioner", "sold_out": false, "variant_detail": {"discounted_price": "179,499"}, "vendor": {"name": "KiaChahiye PVT LTD"}}
+    ]
+  },
+  {
+    "brand": "Dawlance",
+    "target": "Dawlance DWMM 6001 W 600 W Electric Meat Mincer",
+    "offers": [
+      {"id": "mincer-sns38", "title": "Dawlance - Meat Mincer DWMM - 6001W - (SNS38)", "sold_out": false, "variant_detail": {"discounted_price": "16,499"}, "vendor": {"name": "ScrolnShop"}},
+      {"id": "mincer-sns37", "title": "Dawlance - Meat Mincer DWMM - 6001W - (SNS37)", "sold_out": false, "variant_detail": {"discounted_price": "16,499"}, "vendor": {"name": "ScrolnShop"}}
+    ]
+  }
+]

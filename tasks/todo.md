@@ -40,3 +40,33 @@
   - [x] 5.3 Implement all 25 permanent regression scenarios (`REG-01` to `REG-25`) plus 6 fresh-context adversarial regression tests (`test_adv_01` to `test_adv_06`) in `tests/test_generic_variants_and_polarity.py` (50 focused tests)
   - [x] 5.4 Run full test suite `pytest -v` (`557 passed, 0 failed`)
   - [x] 5.5 Run `ruff check .` (`0` errors) and `mypy pricing_engine tests/test_generic_variants_and_polarity.py` (`0` errors)
+
+
+---
+
+## 2026-11-16 — Model identity and marketing contamination
+
+- [x] Capture the reported API titles and reproduce the four model failures before fixing them.
+- [x] Repair separator/tracking-code parsing and context-dependent measurement classification.
+- [x] Bound model-adjacent variants; preserve genuine hardware and capacity conflicts.
+- [x] Normalize all referee evidence; correct descriptive series and inferred color rejection.
+- [x] Add explicit API brand evidence, structured diagnostics, and all-platform checkpoint invalidation.
+- [x] Verify scraper -> range/pricing paths, stock exclusions, deduplication, own stores, legacy matching, and learning.
+- [x] Audit 400 controlled comparisons across the 100-product catalog; inspect all 139 changed decisions.
+- [x] Final validation: 769 tests passed; Ruff passed; strict Mypy passed (16 source files); git diff whitespace check passed.
+- [x] Bounded live checks: AlfaMall DWSI 4 offers, Samsung 9, mincer 1 deduplicated offer; DigiMall Samsung 2 and Gree 4 external offers plus 1 own-store listing.
+- [x] Changed executable-line coverage: 399/441 (90.5%); full suite remained 769 passed under instrumentation.
+
+## 2026-11-16 — Model-first fallback follow-up
+
+- [x] Reproduce Samsung missing-AA suffix rejection and absent Midea named-series retrieval.
+- [x] Share a generic capacity-led omission rule between base-query generation and matching.
+- [x] Add one final series query only after healthy model discovery finds no active compatible model, including own stores.
+- [x] Preserve brand, capacity, series, category, mounting, color, hardware, negation and marketplace coverage guards.
+- [x] Separate strict/series evaluation modes while reusing raw HTTP responses; order all model tiers before widening.
+- [x] Verify exact-model priority, explicit API-title brand evidence and all-platform checkpoint invalidation.
+- [x] Run actual offline pricing/range pipelines through CSV/XLSX exports, yellow warnings and learner exclusion.
+- [x] Simplify duplicated guards and complete the five-axis review without delegated review agents.
+- [x] Inspect all 401 controlled catalog probes and the one intended changed decision.
+- [x] Live-check Midea Titan 1/1.5-ton retrieval on AlfaMall and Samsung yellow suffix fallback on DigiMall.
+- [x] Final validation: 807 tests passed; 33 focused tests; Ruff passed; strict Mypy passed (17 source files); whitespace check passed; changed executable-line coverage 189/195 (96.92%).

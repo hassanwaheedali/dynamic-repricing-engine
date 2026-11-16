@@ -24,10 +24,14 @@ from pricing_engine.models import (
     DISCOVERY_INCOMPLETE,
     DISCOVERY_PAGINATION_INCOMPLETE,
     DISCOVERY_SEARCH_FAILED,
+    REJECTION_EXAMPLE_LIMIT,
     AmbiguousVariantConflict,
+    RejectedCandidate,
     ScrapedOffer,
     ScrapeResult,
     is_non_competitor_vendor,
+    merge_rejected_examples,
+    resolve_non_competitor_kind,
 )
 
 # Configure UTF-8 encoding safely for Windows CLI terminals
@@ -248,6 +252,69 @@ def deduplicate_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
     return unique_offers
 
 
+def _own_offer_identity_key(off: ScrapedOffer) -> tuple[str, ...]:
+    """Build canonical listing identity key for own-store and official-store offers.
+
+    Prioritizes stable marketplace product handle/ID so repeated appearances of the
+    same listing across search tiers/queries collapse into one unique listing, while
+    genuine distinct listings (different handles) remain separate.
+    """
+    v_norm = off.vendor_name.lower().strip()
+    kind = resolve_non_competitor_kind(off) or "NON_COMP"
+    handle = (off.product_handle or "").lower().strip()
+    if handle:
+        return ("handle", kind, v_norm, handle)
+    norm_title = " ".join(off.raw_title.lower().split())
+    col = (off.color_family or "").lower().strip()
+    var = (off.detected_variant or "").lower().strip()
+    return ("fallback", kind, v_norm, f"{round(off.price, 2):.2f}", norm_title, col, var)
+
+
+def deduplicate_own_offers(offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
+    """Deduplicate own/official store offers by canonical listing identity and tier priority."""
+    by_key: dict[tuple[str, ...], ScrapedOffer] = {}
+    for off in offers:
+        key = _own_offer_identity_key(off)
+        clean_off = replace(off, duplicate_count=1) if off.duplicate_count != 1 else off
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = clean_off
+            continue
+        # Prefer in-stock over sold-out, and exact (Tier 1) over base fallback when stock status is equal
+        existing_rank = (
+            1 if existing.is_sold_out else 0,
+            existing.match_tier or 1,
+            1 if existing.missing_modifier is not None else 0,
+        )
+        new_rank = (
+            1 if clean_off.is_sold_out else 0,
+            clean_off.match_tier or 1,
+            1 if clean_off.missing_modifier is not None else 0,
+        )
+        if new_rank < existing_rank:
+            by_key[key] = clean_off
+
+    unique = list(by_key.values())
+    if not unique:
+        return []
+
+    # Per non-competitor vendor kind (OWN_STORE vs OFFICIAL_STORE), if any offer is an exact
+    # Tier 1 match (with in-stock priority), discard lower-tier base fallback matches.
+    filtered: list[ScrapedOffer] = []
+    for kind in ("OWN_STORE", "OFFICIAL_STORE"):
+        group = [o for o in unique if (resolve_non_competitor_kind(o) or "OWN_STORE") == kind]
+        if not group:
+            continue
+        has_instock_any = any(not o.is_sold_out for o in group)
+        exact_group = [o for o in group if (o.match_tier in (1, None))]
+        has_instock_exact = any(not o.is_sold_out for o in exact_group)
+        if exact_group and (has_instock_exact or not has_instock_any):
+            filtered.extend(exact_group)
+        else:
+            filtered.extend(group)
+    return filtered
+
+
 async def _execute_waterfall(
     single_scraper_fn: Callable[..., Coroutine[Any, Any, ScrapeResult]],
     session: AsyncSession[Any],
@@ -274,7 +341,6 @@ async def _execute_waterfall(
     seen_offers: set[tuple[str, float, str, str]] = set()
     seen_base_offers: set[tuple[str, float, str, str]] = set()
     seen_sibling_offers: set[tuple[str, float, str, str]] = set()
-    seen_own_offers: set[tuple[str, float, str, str]] = set()
     detected_missing_modifier: str | None = None
     detected_missing_source: str = "target"
     any_success = False
@@ -289,6 +355,7 @@ async def _execute_waterfall(
     total_raw_count = 0
     total_rejected_count = 0
     merged_rejection_reasons: dict[str, int] = {}
+    merged_examples: list[RejectedCandidate] = []
     total_suspicious_rejected = 0
     max_pages_fetched = 1
     max_total_available: int | None = None
@@ -297,11 +364,20 @@ async def _execute_waterfall(
 
     tier_order = ["tier_1", "tier_2", "tier_3"]
     all_tiers = [t for t in tier_order if t in patterns] + [
-        t for t in patterns if t not in tier_order
+        t for t in patterns if t not in tier_order and t != "series_fallback"
     ]
+    if "series_fallback" in patterns:
+        all_tiers.append("series_fallback")
 
     executed_lower: set[str] = set()
     for tier_name in all_tiers:
+        if tier_name == "series_fallback":
+            from pricing_engine.series_fallback import has_active_model_offers
+
+            if any_failure or has_active_model_offers(
+                collected_offers, collected_base_offers, collected_sibling_offers, collected_own_offers
+            ):
+                continue
         tier_queries = patterns[tier_name]
         tier_offers_count = 0
         unique_tier_queries: list[str] = []
@@ -309,9 +385,12 @@ async def _execute_waterfall(
             q_str = str(q).strip()
             if not q_str:
                 continue
-            if q_str.lower() in executed_lower:
+            execution_key = q_str.lower() + (
+                "|SERIES_FALLBACK" if tier_name == "series_fallback" else ""
+            )
+            if execution_key in executed_lower:
                 continue
-            executed_lower.add(q_str.lower())
+            executed_lower.add(execution_key)
             executed_queries.append(q_str)
             unique_tier_queries.append(q_str)
 
@@ -327,6 +406,7 @@ async def _execute_waterfall(
                         floor_price=floor_price,
                         brand=brand,
                         target_desc=target_desc,
+                        **({"series_fallback": True} if tier_name == "series_fallback" else {}),
                     )
                     for q_str in unique_tier_queries
                 ]
@@ -346,6 +426,9 @@ async def _execute_waterfall(
 
                 total_raw_count += sub_res.raw_candidate_count
                 total_rejected_count += sub_res.rejected_count
+                merged_examples = merge_rejected_examples([
+                    *merged_examples, *getattr(sub_res, "rejected_examples", [])
+                ])
                 for r_k, r_v in sub_res.rejection_reasons.items():
                     merged_rejection_reasons[r_k] = merged_rejection_reasons.get(r_k, 0) + r_v
                 total_suspicious_rejected += sub_res.suspicious_rejected_count
@@ -376,11 +459,7 @@ async def _execute_waterfall(
                         seen_sibling_offers.add(dedupe_key)
                         collected_sibling_offers.append(off)
 
-                for off in sub_res.own_offers:
-                    dedupe_key = _offer_dedupe_key(off)
-                    if dedupe_key not in seen_own_offers:
-                        seen_own_offers.add(dedupe_key)
-                        collected_own_offers.append(off)
+                collected_own_offers.extend(sub_res.own_offers)
 
                 if sub_res.active_modifier_fallback and not detected_missing_modifier:
                     detected_missing_modifier = sub_res.active_modifier_fallback
@@ -449,6 +528,8 @@ async def _execute_waterfall(
         final_offers, floor_price=floor_price
     )
 
+    collected_own_offers = deduplicate_own_offers(collected_own_offers)
+
     # AUD-CRIT-06: During partial waterfall outages (any_failure=True), own-store listings and
     # sold-out/sub-floor listings do NOT prove healthy external competitor discovery.
     min_int_floor = math.ceil(floor_price) if floor_price is not None else None
@@ -505,6 +586,7 @@ async def _execute_waterfall(
         raw_candidate_count=total_raw_count,
         rejected_count=total_rejected_count,
         rejection_reasons=merged_rejection_reasons,
+        rejected_examples=merged_examples,
         suspicious_rejected_count=total_suspicious_rejected,
         pages_fetched=max_pages_fetched,
         total_available=max_total_available,
@@ -536,20 +618,6 @@ def parse_price_value(price_raw: object) -> float:
 
 MAX_SEARCH_PAGES: int = 3
 
-DEFINITIVE_REJECTION_PREFIXES: tuple[str, ...] = (
-    "Appliance category collision",
-    "AC form-factor collision",
-    "Capacity / screen size mismatch",
-    "SKU prefix collision",
-    "Variant tag collision",
-    "Generation series collision",
-    "Inverter mode collision",
-    "Operating mode collision",
-    "Single-letter variant suffix collision",
-    "Foreign brand mismatch",
-)
-
-
 def _has_viable_above_floor_offer(offers: list[ScrapedOffer], floor_price: float | None) -> bool:
     """Return True if any active external in-stock offer exceeds floor price."""
     if floor_price is None:
@@ -561,6 +629,19 @@ def _has_viable_above_floor_offer(offers: list[ScrapedOffer], floor_price: float
     )
 
 
+def _listing_brands(item: dict[str, Any]) -> set[str]:
+    """Read explicit API brand metadata without guessing from product prose."""
+    raw = item.get("brand") or []
+    values = raw if isinstance(raw, list) else [raw]
+    names: set[str] = set()
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("title") or value.get("name") or ""
+        if isinstance(value, str) and value.strip():
+            names.add(re.sub(r"[^a-z0-9]", "", value.casefold()))
+    return names
+
+
 def _parse_offers_with_tiers(
     raw_items: list[dict[str, Any]],
     target_model: str,
@@ -568,6 +649,9 @@ def _parse_offers_with_tiers(
     target_desc: str = "",
     *,
     definitive_rejection: Callable[[MatchDecision], bool] | None = None,
+    rejected_examples: list[RejectedCandidate] | None = None,
+    query: str = "",
+    series_fallback: bool = False,
 ) -> tuple[
     list[ScrapedOffer],
     list[ScrapedOffer],
@@ -592,10 +676,20 @@ def _parse_offers_with_tiers(
     rejection_reasons: dict[str, int] = {}
     suspicious_rejected_count: int = 0
     match_target = target_desc.strip() if target_desc and target_desc.strip() else target_model
+    from pricing_engine.series_fallback import build_series_search, referee_series_match
+
+    series_search = build_series_search(match_target, brand) if series_fallback else None
 
     for item in raw_items:
         title = str(item.get("title", ""))
-        decision = referee_match(match_target, title, brand=brand)
+        declared_brands = _listing_brands(item)
+        brand_key = re.sub(r"[^a-z0-9]", "", brand.casefold())
+        candidate_brand = brand if brand_key in declared_brands else next(iter(sorted(declared_brands)), "")
+        decision = referee_match(match_target, title, brand=brand, candidate_brand=candidate_brand)
+        if series_search and not (
+            decision.is_match or decision.is_base_match or decision.match_tier == 3
+        ):
+            decision = referee_series_match(series_search, title, brand)
         effective_tier = decision.match_tier
         if effective_tier is None:
             if decision.is_match:
@@ -623,11 +717,19 @@ def _parse_offers_with_tiers(
             rejected_count += 1
             reason_category = decision.reason.split(":")[0].strip()
             rejection_reasons[reason_category] = rejection_reasons.get(reason_category, 0) + 1
+            if rejected_examples is not None:
+                example = RejectedCandidate(
+                    title=title,
+                    model=decision.candidate_slots.anchor if decision.candidate_slots else "",
+                    reason_code=decision.reason_code,
+                    reason=decision.reason,
+                    query=query,
+                )
+                if len(rejected_examples) < REJECTION_EXAMPLE_LIMIT and example not in rejected_examples:
+                    rejected_examples.append(example)
 
             if price > 0 and not sold_out and not is_non_comp:
-                is_definitive = any(
-                    reason_category.startswith(p) for p in DEFINITIVE_REJECTION_PREFIXES
-                )
+                is_definitive = decision.is_definitive_rejection
                 if definitive_rejection is not None:
                     is_definitive = definitive_rejection(decision)
                 if not is_definitive:
@@ -670,20 +772,7 @@ def _parse_offers_with_tiers(
             str(item.get("handle") or item.get("slug") or item.get("id") or "").strip() or None
         )
 
-        cand_var: str | None = None
-        if (
-            is_base
-            and decision.missing_modifier
-            and "candidate has variant suffix" in decision.reason.lower()
-        ):
-            raw_mod = decision.missing_modifier.strip()
-            upper_mod = raw_mod.upper()
-            if upper_mod.startswith("MARKET VARIANT "):
-                cand_var = upper_mod.replace("MARKET VARIANT ", "").strip()
-            elif upper_mod.startswith("VARIANT "):
-                cand_var = upper_mod.replace("VARIANT ", "").strip()
-            else:
-                cand_var = upper_mod
+        cand_var = decision.detected_variant if is_base else None
 
         if decision.missing_modifier and "Extended Edition (" in decision.missing_modifier:
             m_ext = re.search(r"Extended Edition \(([^)]+)\)", decision.missing_modifier)
@@ -698,6 +787,7 @@ def _parse_offers_with_tiers(
         )
 
         offer = ScrapedOffer(
+            brand_name=brand.strip() or candidate_brand,
             vendor_name=str(vendor),
             price=price,
             is_sold_out=sold_out,
@@ -710,9 +800,11 @@ def _parse_offers_with_tiers(
             color_family=color_family_val,
             match_tier=effective_tier,
             compatibility_notice=decision.compatibility_notice,
+            vendor_handle=vendor_handle or None,
         )
         if is_non_comp:
-            own_offers.append(offer)
+            if not is_sibling:
+                own_offers.append(offer)
         elif is_exact:
             exact_offers.append(offer)
         elif is_base:
@@ -808,6 +900,7 @@ async def _scrape_platform_single_query(
     floor_price: float | None = None,
     brand: str = "",
     target_desc: str = "",
+    series_fallback: bool = False,
 ) -> ScrapeResult:
     """Generic single-query scraper for e-commerce storefront search APIs.
 
@@ -819,11 +912,13 @@ async def _scrape_platform_single_query(
     - Live terminal telemetry badges on retries/stalls.
     - Conditional sub-floor page 2 probing.
     """
+    rejected_examples: list[RejectedCandidate] = []
     raw_cache_key = (config.platform_name, query.strip().upper())
     cache_key = (
         config.platform_name,
         query.strip().upper(),
-        (target_desc.strip() or target_model).upper(),
+        (target_desc.strip() or target_model).upper()
+        + ("|SERIES_FALLBACK" if series_fallback else ""),
     )
     if raw_cache_key in _raw_items_cache:
         raw_cached = list(_raw_items_cache[raw_cache_key])
@@ -839,7 +934,13 @@ async def _scrape_platform_single_query(
             susp_cnt_c,
             ext_des_c,
         ) = _parse_offers_with_tiers(
-            raw_cached, target_model, brand=brand, target_desc=target_desc
+            raw_cached,
+            target_model,
+            brand=brand,
+            target_desc=target_desc,
+            rejected_examples=rejected_examples,
+            query=query,
+            series_fallback=series_fallback,
         )
         cached_meta = _raw_items_meta_cache.get(raw_cache_key)
         cached_total = cached_meta[0] if cached_meta else None
@@ -891,7 +992,13 @@ async def _scrape_platform_single_query(
                                 susp_p,
                                 ext_p,
                             ) = _parse_offers_with_tiers(
-                                raw_p, target_model, brand=brand, target_desc=target_desc
+                                raw_p,
+                                target_model,
+                                brand=brand,
+                                target_desc=target_desc,
+                                rejected_examples=rejected_examples,
+                                query=query,
+                                series_fallback=series_fallback,
                             )
                             e_cached.extend(e_p)
                             b_cached.extend(b_p)
@@ -941,7 +1048,7 @@ async def _scrape_platform_single_query(
         e_cached = deduplicate_offers(e_cached)
         b_cached = deduplicate_offers(b_cached)
         s_cached = deduplicate_offers(s_cached)
-        o_cached = deduplicate_offers(o_cached)
+        o_cached = deduplicate_own_offers(o_cached)
         d_src_cached = "target"
         if b_cached:
             d_cached, d_src_cached = _select_winning_modifier_meta(
@@ -955,6 +1062,7 @@ async def _scrape_platform_single_query(
             _select_active_tier_pool(e_cached, b_cached, s_cached), floor_price=floor_price
         )
         return ScrapeResult(
+            rejected_examples=list(rejected_examples),
             offers=e_cached,
             base_offers=b_cached,
             sibling_offers=s_cached,
@@ -977,6 +1085,7 @@ async def _scrape_platform_single_query(
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         return ScrapeResult(
+            rejected_examples=list(cached.rejected_examples),
             offers=[replace(o) for o in cached.offers],
             base_offers=[replace(o) for o in cached.base_offers],
             sibling_offers=[replace(o) for o in cached.sibling_offers],
@@ -1054,7 +1163,13 @@ async def _scrape_platform_single_query(
                     susp_cnt,
                     ext_des,
                 ) = _parse_offers_with_tiers(
-                    raw_items, target_model, brand=brand, target_desc=target_desc
+                    raw_items,
+                    target_model,
+                    brand=brand,
+                    target_desc=target_desc,
+                    rejected_examples=rejected_examples,
+                    query=query,
+                    series_fallback=series_fallback,
                 )
                 exact_offers.extend(e_items)
                 base_offers.extend(b_items)
@@ -1128,7 +1243,13 @@ async def _scrape_platform_single_query(
                                         susp_p,
                                         ext_p,
                                     ) = _parse_offers_with_tiers(
-                                        raw_next, target_model, brand=brand, target_desc=target_desc
+                                        raw_next,
+                                        target_model,
+                                        brand=brand,
+                                        target_desc=target_desc,
+                                        rejected_examples=rejected_examples,
+                                        query=query,
+                                        series_fallback=series_fallback,
                                     )
                                     exact_offers.extend(e_p)
                                     base_offers.extend(b_p)
@@ -1188,7 +1309,7 @@ async def _scrape_platform_single_query(
                 exact_offers = deduplicate_offers(exact_offers)
                 base_offers = deduplicate_offers(base_offers)
                 sibling_offers = deduplicate_offers(sibling_offers)
-                own_offers = deduplicate_offers(own_offers)
+                own_offers = deduplicate_own_offers(own_offers)
                 detected_source = "target"
                 if base_offers:
                     detected_modifier, detected_source = _select_winning_modifier_meta(
@@ -1205,6 +1326,7 @@ async def _scrape_platform_single_query(
 
                 # Strict Cache Guard: Only cache when response is valid and offers exist
                 result = ScrapeResult(
+                    rejected_examples=list(rejected_examples),
                     offers=exact_offers,
                     base_offers=base_offers,
                     sibling_offers=sibling_offers,
@@ -1224,16 +1346,12 @@ async def _scrape_platform_single_query(
                     extended_model_designation=active_extended_designation,
                     compatibility_notice=compat_single,
                 )
-                if exact_offers or base_offers or sibling_offers or own_offers:
+                # Raw responses are target/mode independent, even when every
+                # current candidate was rejected. Revalidate them for later stages.
+                _raw_items_cache[raw_cache_key] = list(combined_raw_items)
+                _raw_items_meta_cache[raw_cache_key] = (total_count, pagination_complete)
+                if exact_offers or base_offers or sibling_offers or own_offers or not raw_items:
                     _query_cache[cache_key] = result
-                    if combined_raw_items:
-                        _raw_items_cache[raw_cache_key] = combined_raw_items
-                        _raw_items_meta_cache[raw_cache_key] = (total_count, pagination_complete)
-                elif raw_items is not None and not raw_items:
-                    _query_cache[cache_key] = result
-                    _raw_items_cache[raw_cache_key] = []
-                    _raw_items_meta_cache[raw_cache_key] = (0, True)
-
                 return result
 
             elif resp.status_code in (429, 500, 502, 503, 504):
@@ -1298,6 +1416,7 @@ async def _scrape_platform_single_query(
                 )
 
     return ScrapeResult(
+        rejected_examples=list(rejected_examples),
         offers=[],
         is_success=False,
         status_code=last_status,
@@ -1316,6 +1435,7 @@ async def _scrape_alfamall_single_query(
     floor_price: float | None = None,
     brand: str = "",
     target_desc: str = "",
+    series_fallback: bool = False,
 ) -> ScrapeResult:
     """Internal single-query scraper for AlfaMall storefront search API."""
     return await _scrape_platform_single_query(
@@ -1328,6 +1448,7 @@ async def _scrape_alfamall_single_query(
         floor_price=floor_price,
         brand=brand,
         target_desc=target_desc,
+        series_fallback=series_fallback,
     )
 
 
@@ -1372,6 +1493,11 @@ async def scrape_alfamall(
                 target_desc=target_desc,
             )
         query = {"tier_1": [query]}
+    from pricing_engine.series_fallback import build_series_search
+
+    fallback = build_series_search(target_desc, brand)
+    if fallback is not None:
+        query = {**query, "series_fallback": [fallback.query]}
     return await _execute_waterfall(
         single_scraper_fn=_scrape_alfamall_single_query,
         session=session,

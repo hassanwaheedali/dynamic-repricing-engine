@@ -1,0 +1,43 @@
+{
+  "method": "stdlib line trace; unstaged source changes versus index plus new series module",
+  "total": 195,
+  "covered": 189,
+  "percentage": 96.92,
+  "files": {
+    "pricing_engine/checkpoint.py": {
+      "covered": 2,
+      "executable_changed_lines": 2,
+      "missing": []
+    },
+    "pricing_engine/digi_discovery.py": {
+      "covered": 28,
+      "executable_changed_lines": 29,
+      "missing": [
+        172
+      ]
+    },
+    "pricing_engine/matcher.py": {
+      "covered": 41,
+      "executable_changed_lines": 43,
+      "missing": [
+        4144,
+        4931
+      ]
+    },
+    "pricing_engine/scraper.py": {
+      "covered": 34,
+      "executable_changed_lines": 36,
+      "missing": [
+        903,
+        1438
+      ]
+    },
+    "pricing_engine/series_fallback.py": {
+      "covered": 84,
+      "executable_changed_lines": 85,
+      "missing": [
+        50
+      ]
+    }
+  }
+}

@@ -485,3 +485,31 @@ All architectural decisions have been reviewed and formally signed off by the us
   - `pytest -v`: **`557 passed, 0 failed in 30.40s`**.
   - `ruff check .`: **`All checks passed!`** (`0` errors).
   - `mypy pricing_engine tests/test_generic_variants_and_polarity.py`: **`Success: no issues found in 15 source files`**.
+
+
+---
+
+## 2026-11-16 — Model identity, hardware evidence, and marketing contamination
+
+Implemented the approved six-task plan without replacing the completed work above.
+
+1. Freeze the four reported models as offline marketplace payload fixtures, with adversarial wrong-brand, wrong-SKU, capacity, stock, duplicate, and own-store cases.
+2. Normalize SKU separators and merchant tracking codes before ambiguous W/L unit classification. Keep primary model identity distinct from secondary family codes.
+3. Limit inferred variant extraction to the contiguous model code sequence. Ordinary categories, measurements, prose, and seller delimiters end that sequence. Preserve explicit hardware polarity and established numeric-stem edition fallbacks.
+4. Make all referee guards consume one normalized product title. Use specific matching SKU evidence for descriptive optionality, retaining series identity for incomplete numeric stems. Track named colors, independent color codes, and inferred SKU colors. A generic color translation cannot contradict the same encoded SKU; independent opposing colors still block.
+5. Use structured rejection codes and variant metadata rather than parsing display reasons. Preserve bounded rejected-listing examples with their actual query. Propagate explicit API brand evidence into learning. Include the shared matching policy in checkpoints for every platform.
+6. Verify both marketplace paths, range calculations, pricing floors, legacy interfaces, own-store isolation, learning, and outputs; audit the 100-product catalog and document the rules.
+
+Dependencies: 1 -> 2 -> 3 -> 4 -> 5 -> 6. Full-suite checkpoints follow matching and integration changes.
+
+The current DigiMall monopoly fallback, page/query budgets, pricing and shipping formulas, and existing input/export schemas remain in effect. No product-specific exception or brand color map was added. Review agents were skipped at the user's request; regression and quality checks remain required.
+
+See `docs/model-identity-evidence.md` for evidence precedence and interfaces, and `docs/model-identity-catalog-audit.md` for every changed controlled-catalog decision.
+
+## 2026-11-16 — Model-first fallback follow-up completed
+
+Implemented the subsequent Samsung missing-suffix and Midea named-series fallback request. Model queries precede one conditional brand/series/capacity query. Correct models, including active own-store models, suppress widening; failed model requests do not authorize it. Exact SKUs found through series retrieval retain priority. Approximate matches retain yellow notices and cannot train the learner.
+
+The shared typed series policy and suffix-omission rule contain no brand/model exceptions. Normalized leading title-brand evidence now outranks contradictory API tags. Raw responses can be reused across strict/series modes with separate evaluation keys. Source simplification and the five-axis review are complete.
+
+Final validation: 807 tests passed, Ruff passed, strict Mypy passed for 17 source files, and changed executable-line coverage is 96.92%. Real pricing and range pipelines passed through temporary CSV/XLSX exports on both marketplaces. All 401 catalog probes were inspected; only the intended Samsung base-model decision changed. See `tasks/series-fallback-review.md` and the linked machine-readable evidence there. Completed history above remains unchanged.

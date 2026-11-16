@@ -12,6 +12,7 @@ import pandas as pd
 from curl_cffi.requests import AsyncSession
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -66,9 +67,6 @@ from pricing_engine.matcher import (
     referee_match,
 )
 from pricing_engine.models import (
-    DISCOVERY_CANDIDATES_REJECTED,
-    DISCOVERY_INCOMPLETE,
-    DISCOVERY_PAGINATION_INCOMPLETE,
     PROVISIONAL_COVERAGES,
     STATUS_CANDIDATES_REJECTED,
     STATUS_INCOMPLETE_DISCOVERY,
@@ -80,11 +78,12 @@ from pricing_engine.models import (
     ProductInput,
     ScrapedOffer,
     ScrapeResult,
-    classify_non_competitor_vendor,
     discovery_coverage_alert,
     format_comm_pct_label,
     get_winning_comm_goals,
+    group_offers_by_vendor,
     has_compatibility_or_fallback_notice,
+    resolve_non_competitor_kind,
 )
 from pricing_engine.registry import InMemoryRegistry
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
@@ -799,21 +798,84 @@ def _render_platform_offers_to_table(
         if res.own_offers
         else (list(offers.own_offers) if isinstance(offers, ScrapeResult) else [])
     )
-    for o in own_offers:
-        kind = classify_non_competitor_vendor(o.vendor_name)
-        dupe_tag = _format_dupe_tag(o.duplicate_count)
-        if kind == "OFFICIAL_STORE":
+    own_store_list = [
+        o for o in own_offers if resolve_non_competitor_kind(o) != "OFFICIAL_STORE"
+    ]
+    official_store_list = [
+        o for o in own_offers if resolve_non_competitor_kind(o) == "OFFICIAL_STORE"
+    ]
+
+    for v_name, v_offs in group_offers_by_vendor(own_store_list):
+        if len(v_offs) == 1:
+            o = v_offs[0]
+            fb_note = (
+                f" [yellow](Base Fallback: {o.missing_modifier})[/]"
+                if o.match_tier == 2 and o.missing_modifier
+                else ""
+            )
             status_badge = (
-                "[dim magenta]Official Flagship (Out of Stock)[/]"
+                f"[dim cyan]★ Our Store (Out of Stock){fb_note}[/]"
                 if o.is_sold_out
-                else "[bold magenta]Official Flagship (Excluded)[/]"
+                else f"[bold cyan]★ Our Store (Active Listing){fb_note}[/]"
+            )
+            tbl.add_row(
+                platform_tag,
+                v_name[:21],
+                f"Rs. {o.price:,.0f}",
+                status_badge,
             )
         else:
-            status_badge = (
-                "[dim cyan]★ Our Store (Out of Stock)[/]"
-                if o.is_sold_out
-                else "[bold cyan]★ Our Store (Active Listing)[/]"
+            active_v_offs = [o for o in v_offs if not o.is_sold_out]
+            price_pool = active_v_offs if active_v_offs else v_offs
+            min_p = min(o.price for o in price_pool)
+            max_p = max(o.price for o in price_pool)
+            price_str = (
+                f"Rs. {min_p:,.0f}–{max_p:,.0f}"
+                if round(min_p) != round(max_p)
+                else f"Rs. {min_p:,.0f}"
             )
+            fb_mods = list(
+                dict.fromkeys(
+                    str(o.missing_modifier).strip()
+                    for o in price_pool
+                    if o.match_tier == 2 and o.missing_modifier
+                )
+            )
+            fb_note = (
+                f" [yellow](Base Fallback: {', '.join(fb_mods)})[/]"
+                if fb_mods and all(o.match_tier == 2 and o.missing_modifier for o in price_pool)
+                else ""
+            )
+            if not active_v_offs:
+                status_badge = (
+                    f"[dim cyan]★ Our Store: {len(v_offs)} distinct verified listings "
+                    f"(Out of Stock) | {price_str}{fb_note}[/]"
+                )
+            elif len(active_v_offs) < len(v_offs):
+                oos_cnt = len(v_offs) - len(active_v_offs)
+                status_badge = (
+                    f"[bold cyan]★ Our Store: {len(active_v_offs)} active ({oos_cnt} OOS) "
+                    f"| {price_str}{fb_note}[/]"
+                )
+            else:
+                status_badge = (
+                    f"[bold cyan]★ Our Store: {len(v_offs)} distinct verified listings "
+                    f"| {price_str}{fb_note}[/]"
+                )
+            tbl.add_row(
+                platform_tag,
+                v_name[:21],
+                price_str,
+                status_badge,
+            )
+
+    for o in official_store_list:
+        dupe_tag = _format_dupe_tag(o.duplicate_count)
+        status_badge = (
+            "[dim magenta]Official Flagship (Out of Stock)[/]"
+            if o.is_sold_out
+            else "[bold magenta]Official Flagship (Excluded)[/]"
+        )
         tbl.add_row(
             platform_tag,
             o.vendor_name[:21],
@@ -1351,7 +1413,7 @@ def render_audit_card(
         if isinstance(offers_res, ScrapeResult) and offers_res.coverage_status:
             color = "green" if offers_res.coverage_status == "COMPLETE" else "yellow"
             return (
-                f"[{p_color}]{p_name}:[/] [{color}]{format_digimall_summary(offers_res)}[/]"
+                f"[{p_color}]{p_name}:[/] [{color}]{escape(format_digimall_summary(offers_res))}[/]"
             )
         if isinstance(offers_res, ScrapeResult) and offers_res.compatibility_notice and (
             "[SIBLING SUB-MODEL FALLBACK:" in offers_res.compatibility_notice
@@ -1374,51 +1436,20 @@ def render_audit_card(
                 f"[bold green]Matched {count} base model offer{'s' if count != 1 else ''} (DO CROSS-CHECK)[/]"
             )
         if isinstance(offers_res, ScrapeResult) and offers_res.executed_queries:
-            q_list = offers_res.executed_queries
-            t_sum = offers_res.tier_summary
-            if t_sum.get("tier_1", 0) > 0:
-                q_disp = q_list[0] if q_list else target_model
-                count = t_sum["tier_1"]
-                return (
-                    f"[{p_color}]{p_name}:[/] [bold white]'{q_disp}'[/] "
-                    f"[green](Exact Query -> {count} verified offer{'s' if count > 1 else ''})[/]"
-                )
-            elif t_sum.get("tier_2", 0) > 0:
-                t1_q = q_list[0] if q_list else ""
-                t2_q = q_list[1] if len(q_list) > 1 else (q_list[0] if q_list else target_model)
-                count = t_sum["tier_2"]
-                return (
-                    f"[{p_color}]{p_name}:[/] [dim]'{t1_q}' (0 found)[/] -> "
-                    f"[bold yellow]Fallback Stem:[/] [bold white]'{t2_q}'[/] "
-                    f"[green]({count} offer{'s' if count > 1 else ''} strictly verified)[/]"
-                )
-            elif t_sum.get("tier_3", 0) > 0:
-                tier3_q = q_list[-1] if q_list else target_model
-                count = t_sum["tier_3"]
-                return (
-                    f"[{p_color}]{p_name}:[/] [dim]Tiers 1 & 2 (0 found)[/] -> "
-                    f"[bold yellow]Permutation Fallback:[/] [bold white]'{tier3_q}'[/] "
-                    f"[green]({count} offer{'s' if count > 1 else ''} verified)[/]"
-                )
-            else:
-                tried_str = ", ".join(f"'{q}'" for q in q_list[:2])
-                if offers_res.discovery_status == DISCOVERY_CANDIDATES_REJECTED:
-                    return (
-                        f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str}[/] -> "
-                        f"[bold yellow]{offers_res.rejected_count} candidate(s) rejected by referee[/]"
-                    )
-                elif offers_res.discovery_status in (
-                    DISCOVERY_INCOMPLETE,
-                    DISCOVERY_PAGINATION_INCOMPLETE,
-                ):
-                    return (
-                        f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str}[/] -> "
-                        f"[bold red]Discovery Incomplete (Pagination/Network Failure)[/]"
-                    )
-                return (
-                    f"[{p_color}]{p_name}:[/] [dim]Queried {tried_str} (0 offers found in market)[/] -> "
-                    f"[bold cyan]Monopoly Price Applied[/]"
-                )
+            from pricing_engine.models import format_rejection_summary
+
+            queries = offers_res.executed_queries
+            shown = ", ".join(repr(query) for query in queries[:2])
+            if len(queries) > 2:
+                shown += f" (+{len(queries) - 2} more)"
+            prefix = f"[{p_color}]{p_name}:[/] [dim]{len(queries)} searches: {escape(shown)}[/]"
+            if offers_res.offers:
+                count = sum(not offer.is_sold_out for offer in offers_res.offers)
+                return f"{prefix} -> [green]{count} compatible in-stock offers[/]"
+            rejection = format_rejection_summary(offers_res)
+            if rejection:
+                return f"{prefix} -> [yellow]{escape(rejection)}[/]"
+            return f"{prefix} -> [dim]{escape(offers_res.discovery_status)}[/]"
         return f"[{p_color}]{p_name}:[/] [dim]Target: '{target_model}'[/]"
 
     query_grid = Table.grid(padding=(0, 2), expand=True)
@@ -1681,18 +1712,26 @@ async def process_item_async(
             v = selected_variant
             if isinstance(alfa_offers, ScrapeResult):
                 a_filt = [o for o in alfa_offers.offers if o.detected_variant == v]
+                a_own_filt = [
+                    o for o in alfa_offers.own_offers if o.detected_variant in (None, v)
+                ]
                 alfa_offers = dataclasses.replace(
                     alfa_offers,
                     offers=a_filt,
                     base_offers=a_filt,
+                    own_offers=a_own_filt,
                     ambiguity_conflict=None,
                 )
             if isinstance(digi_offers, ScrapeResult):
                 d_filt = [o for o in digi_offers.offers if o.detected_variant == v]
+                d_own_filt = [
+                    o for o in digi_offers.own_offers if o.detected_variant in (None, v)
+                ]
                 digi_offers = dataclasses.replace(
                     digi_offers,
                     offers=d_filt,
                     base_offers=d_filt,
+                    own_offers=d_own_filt,
                     ambiguity_conflict=None,
                 )
 
@@ -1759,7 +1798,9 @@ async def process_item_async(
     for offer in all_raw_offers:
         if offer.is_sold_out:
             continue
-        match_dec = referee_match(target_slots, offer.raw_title, brand=product.brand)
+        match_dec = referee_match(
+            target_slots, offer.raw_title, brand=product.brand, candidate_brand=offer.brand_name
+        )
         if (
             match_dec.is_match
             and target_slots.residuals

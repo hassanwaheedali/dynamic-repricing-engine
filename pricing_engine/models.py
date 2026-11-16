@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -152,6 +152,27 @@ class ScrapedOffer:
     color_family: str | None = None
     match_tier: int | None = None
     compatibility_notice: str | None = None
+    vendor_handle: str | None = None
+    brand_name: str = ""
+
+
+def resolve_non_competitor_kind(offer: ScrapedOffer) -> str | None:
+    """Resolve non-competitor vendor classification from vendor name or fallback handle."""
+    return classify_non_competitor_vendor(offer.vendor_name) or classify_non_competitor_vendor(
+        offer.vendor_handle
+    )
+
+
+def group_offers_by_vendor(offers: list[ScrapedOffer]) -> list[tuple[str, list[ScrapedOffer]]]:
+    """Group offers case-insensitively by stripped vendor name while preserving encounter order."""
+    grouped: dict[str, tuple[str, list[ScrapedOffer]]] = {}
+    for offer in offers:
+        display_name = offer.vendor_name.strip() or offer.vendor_name
+        key = display_name.lower()
+        if key not in grouped:
+            grouped[key] = (display_name, [])
+        grouped[key][1].append(offer)
+    return list(grouped.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +182,34 @@ class AmbiguousVariantConflict:
     stem_model: str
     detected_variants: list[str] = field(default_factory=list)
     variant_offers: dict[str, list[ScrapedOffer]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RejectedCandidate:
+    """Bounded audit evidence for one rejected listing; never used for pricing."""
+
+    title: str
+    model: str
+    reason_code: str
+    reason: str
+    query: str = ""
+
+
+REJECTION_EXAMPLE_LIMIT = 5
+
+
+def merge_rejected_examples(examples: Iterable[RejectedCandidate]) -> list[RejectedCandidate]:
+    """Keep a bounded, stable set of rejected listings across pages and queries."""
+    merged: list[RejectedCandidate] = []
+    seen: set[tuple[str, str, str]] = set()
+    for example in examples:
+        key = (example.title, example.model, example.reason_code)
+        if key not in seen:
+            merged.append(example)
+            seen.add(key)
+        if len(merged) == REJECTION_EXAMPLE_LIMIT:
+            break
+    return merged
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +243,7 @@ class ScrapeResult:
     coverage_detail: str = ""
     query_audit: list[dict[str, Any]] = field(default_factory=list)
     lowest_offers: list[ScrapedOffer] = field(default_factory=list)
+    rejected_examples: list[RejectedCandidate] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.discovery_status:
@@ -214,6 +264,15 @@ class ScrapeResult:
 
     def __getitem__(self, index: int) -> ScrapedOffer:
         return self.offers[index]
+
+
+def format_rejection_summary(result: ScrapeResult) -> str:
+    """Render one representative rejection without changing discovery policy."""
+    if not result.rejected_examples:
+        return ""
+    example = result.rejected_examples[0]
+    identity = example.model or example.title[:60]
+    return f"{result.rejected_count} rejected | {example.reason_code} [{identity}]: {example.reason[:160]}"
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,29 @@
+{
+  "baseline": "staged matcher before series fallback changes",
+  "catalog_count": 100,
+  "probe_counts": {
+    "self": 100,
+    "cash": 100,
+    "marketing": 100,
+    "foreign-brand": 100,
+    "omitted-suffix": 1
+  },
+  "changed_decisions": [
+    {
+      "probe": "omitted-suffix",
+      "target": "Samsung 55Q7FAA 55 Inch Qled Smart Led TV",
+      "candidate": "Samsung 55Q7F 55 Inch Qled Smart Led TV",
+      "before": {
+        "accepted": false,
+        "tier": null,
+        "code": "MODEL_CONFLICT"
+      },
+      "after": {
+        "accepted": true,
+        "tier": 2,
+        "code": "BASE_MATCH"
+      }
+    }
+  ],
+  "unexpected_failures": []
+}

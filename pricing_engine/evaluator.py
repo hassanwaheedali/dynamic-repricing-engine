@@ -26,8 +26,9 @@ from pricing_engine.models import (
     PlatformPricingResult,
     ScrapedOffer,
     ScrapeResult,
-    classify_non_competitor_vendor,
+    group_offers_by_vendor,
     is_non_competitor_vendor,
+    resolve_non_competitor_kind,
 )
 
 
@@ -173,6 +174,50 @@ def _annotate_fallback_reason(
     return res
 
 
+def _format_store_offer_fallback_suffix(offers_pool: list[ScrapedOffer]) -> str:
+    """Return compact Tier 2 base-fallback label when all offers in pool lack an exact match."""
+    if not offers_pool or not all(o.match_tier == 2 and o.missing_modifier for o in offers_pool):
+        return ""
+    mods = list(dict.fromkeys(str(o.missing_modifier).strip() for o in offers_pool if o.missing_modifier))
+    return f" [Base Fallback: {', '.join(mods)}]" if mods else ""
+
+
+def _format_store_group_tags(offers_group: list[ScrapedOffer]) -> list[str]:
+    """Format non-competitor store listings concisely without repeating vendor names."""
+    if not offers_group:
+        return []
+    if len(offers_group) == 1:
+        o = offers_group[0]
+        status_suffix = " (OUT OF STOCK)" if o.is_sold_out else ""
+        fb_suffix = _format_store_offer_fallback_suffix([o])
+        return [f"{o.vendor_name}{status_suffix}{fb_suffix} @ Rs. {o.price:,.0f}"]
+
+    tags: list[str] = []
+    for v_name, v_offs in group_offers_by_vendor(offers_group):
+        if len(v_offs) == 1:
+            o = v_offs[0]
+            status_suffix = " (OUT OF STOCK)" if o.is_sold_out else ""
+            fb_suffix = _format_store_offer_fallback_suffix([o])
+            tags.append(f"{v_name}{status_suffix}{fb_suffix} @ Rs. {o.price:,.0f}")
+        else:
+            active_v_offs = [x for x in v_offs if not x.is_sold_out]
+            price_pool = active_v_offs if active_v_offs else v_offs
+            min_p = min(x.price for x in price_pool)
+            max_p = max(x.price for x in price_pool)
+            all_oos = not active_v_offs
+            status_suffix = " (OUT OF STOCK)" if all_oos else ""
+            fb_suffix = _format_store_offer_fallback_suffix(price_pool)
+            price_str = (
+                f"Rs. {min_p:,.0f}–{max_p:,.0f}"
+                if round(min_p) != round(max_p)
+                else f"Rs. {min_p:,.0f}"
+            )
+            tags.append(
+                f"{v_name}{status_suffix}{fb_suffix} ({len(v_offs)} distinct listings: {price_str})"
+            )
+    return tags
+
+
 def _annotate_non_competitor_reason(
     res: PlatformPricingResult, own_offers: list[ScrapedOffer]
 ) -> PlatformPricingResult:
@@ -180,17 +225,18 @@ def _annotate_non_competitor_reason(
     if not own_offers or res.status == STATUS_SERVER_DOWN:
         return res
 
-    own_tags: list[str] = []
-    official_tags: list[str] = []
+    own_group: list[ScrapedOffer] = []
+    official_group: list[ScrapedOffer] = []
 
     for o in own_offers:
-        kind = classify_non_competitor_vendor(o.vendor_name)
-        status_suffix = " (OUT OF STOCK)" if o.is_sold_out else ""
-        tag_str = f"{o.vendor_name}{status_suffix} @ Rs. {o.price:,.0f}"
+        kind = resolve_non_competitor_kind(o)
         if kind == "OFFICIAL_STORE":
-            official_tags.append(tag_str)
+            official_group.append(o)
         else:
-            own_tags.append(tag_str)
+            own_group.append(o)
+
+    own_tags = _format_store_group_tags(own_group)
+    official_tags = _format_store_group_tags(official_group)
 
     prefix_parts: list[str] = []
     if own_tags:
