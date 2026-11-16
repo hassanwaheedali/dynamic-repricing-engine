@@ -25,6 +25,8 @@ from pricing_engine.pipeline import (
 )
 from tests.conftest import (
     get_configured_ac_rate,
+    get_configured_bracket_rate,
+    get_configured_category_default,
     get_configured_global_shipping_default,
     get_configured_refrigerator_rate,
     get_configured_washer_rate,
@@ -124,7 +126,156 @@ class TestResolveFallbackShipping:
         assert rate == get_configured_refrigerator_rate(expected_sub)
         assert expected_sub in label
 
-    # 7. General Appliance Default
+    @pytest.mark.parametrize(
+        ("name", "cuft"),
+        [
+            ("Dawlance Refrigerator 6 cu.ft", 6.0),
+            ("Haier Refrigerator 8 cubic feet", 8.0),
+            ("Dawlance Refrigerator 9 cu ft", 9.0),
+            ("Haier Deep Freezer 12 cubic", 12.0),
+            ("Dawlance Refrigerator 14 cu.ft", 14.0),
+            ("Haier Refrigerator 16 cft", 16.0),
+            ("Dawlance Refrigerator 18 cuft", 18.0),
+            ("Haier Refrigerator 20 cubic feet", 20.0),
+        ],
+    )
+    def test_refrigerator_cubic_brackets(self, name: str, cuft: float) -> None:
+        rate, label = resolve_fallback_shipping(name, brand="Dawlance")
+        assert rate == get_configured_bracket_rate("refrigerator", capacity_value=cuft)
+        assert "Refrigerator" in label
+
+    # 7. Water Dispensers
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Dawlance Water Dispenser 1051",
+            "DAW W/D 1051 CLOUD WHITE",
+            "DAW W/D DBD-1034 BOTTOM LOAD",
+            "Haier Water Dispenser Glass Door Black",
+        ],
+    )
+    def test_water_dispenser_fallback(self, name: str) -> None:
+        rate, label = resolve_fallback_shipping(name, brand="Dawlance")
+        assert rate == get_configured_category_default("water_dispenser")
+        assert "Water Dispenser" in label
+
+    # 8. Microwave Ovens
+    @pytest.mark.parametrize(
+        ("name", "liters"),
+        [
+            ("Dawlance Microwave Oven 20L", 20.0),
+            ("Haier Microwave 25 Liter Black", 25.0),
+            ("Dawlance Microwave Oven 30L", 30.0),
+            ("Westpoint Microwave 40 Litres", 40.0),
+            ("Dawlance Baking Oven 45L", 45.0),
+            ("Dawlance Mini Oven 60L", 60.0),
+            ("DAW M/O 128G", None),
+        ],
+    )
+    def test_microwave_brackets(self, name: str, liters: float | None) -> None:
+        rate, label = resolve_fallback_shipping(name, brand="Dawlance")
+        assert rate == get_configured_bracket_rate("microwave", capacity_value=liters)
+        assert "Microwave" in label
+
+    # 9. LED TVs
+    @pytest.mark.parametrize(
+        ("name", "inches"),
+        [
+            ('HAIER LED 32" 32K85FX', 32.0),
+            ('DAW LED 40" KORE GOOGLE TV', 40.0),
+            ("TCL 43 Inch 4K Smart Google TV LED Black", 43.0),
+            ("Haier 32K85FX Smart LED TV", 32.0),
+            ('DAW LED 50" CANVAS X SERIES 4K UHD SMART TV', 50.0),
+            ("Samsung 55 Inch QLED 4K TV", 55.0),
+            ('DAW LED 65" APOLLO 144HZ QLED GOOGLE', 65.0),
+            ("TCL 75 Inch 4K QLED Google TV", 75.0),
+        ],
+    )
+    def test_led_tv_brackets(self, name: str, inches: float) -> None:
+        rate, label = resolve_fallback_shipping(name, brand="TCL")
+        assert rate == get_configured_bracket_rate("led_tv", capacity_value=inches)
+        assert "LED TV" in label
+
+    # 9b. Air Fryers (by name and by category fallback)
+    @pytest.mark.parametrize(
+        ("name", "category"),
+        [
+            ("Dawlance DWAF 6321 L XL 5.5 L Manual Air Fryer", ""),
+            ("Haier HAF50DB Digital Airfryer 5L", ""),
+            ("Philips Air-Fryer 9270", ""),
+            ("DWAF 6321 L XL 5.5 L", "Kitchen Appliances > Air Fryer"),
+        ],
+    )
+    def test_air_fryer_fallback(self, name: str, category: str) -> None:
+        rate, label = resolve_fallback_shipping(name, brand="Dawlance", category=category)
+        assert rate == get_configured_category_default("air_fryer")
+        assert "Air Fryer" in label
+
+    def test_category_collision_guards(self) -> None:
+        # "cooled" contains "led"/"oled", must NOT hit LED TV
+        rate, label = resolve_fallback_shipping("Dawlance Water Cooled Refrigerator", brand="Dawlance")
+        assert "Refrigerator" in label
+        assert rate == get_configured_category_default("refrigerator")
+
+        # "12CF" AC must hit Air Conditioner (1.0 Ton), NOT Refrigerator cubic feet
+        rate, label = resolve_fallback_shipping(
+            "Haier 1 Ton 12CF Split Air Conditioner", brand="Haier"
+        )
+        assert "Air Conditioner (1.0 Ton)" in label
+        assert rate == get_configured_ac_rate("1.0 Ton")
+
+        # "Single Tub Semi-Automatic" must hit Single Tub, NOT Twin Tub
+        rate, label = resolve_fallback_shipping(
+            "Kenwood KWM-899 8 KG Non-Inverter Single Tub Semi-Automatic Washing Machine",
+            brand="Kenwood",
+        )
+        assert "Single Tub" in label
+        assert rate == get_configured_washer_rate("Single Tub", 8.0)
+
+        # "Top Load Bottle Water Dispenser" must hit Water Dispenser, NOT Automatic Washer
+        rate, label = resolve_fallback_shipping(
+            "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black",
+            brand="Orient",
+        )
+        assert "Water Dispenser" in label
+        assert rate == get_configured_category_default("water_dispenser")
+
+        # 6 Cu Ft Single Door Refrigerator must hit 6-8 cuft bracket, NOT Mini Bar
+        rate, label = resolve_fallback_shipping(
+            "Dawlance REF 9106 6 Cu Ft Non-Inverter Single Door Refrigerator Silver",
+            brand="Dawlance",
+        )
+        assert "6cuft" in label
+        assert rate == get_configured_bracket_rate("refrigerator", capacity_value=6.0)
+
+        # AC / Fridge / Air Fryer with "LED Display/Lighting" must NOT hit LED TV
+        rate, label = resolve_fallback_shipping(
+            "Haier 1.5 Ton Inverter Split AC with Hidden LED Display", brand="Haier"
+        )
+        assert "Air Conditioner (1.5 Ton)" in label
+        assert rate == get_configured_ac_rate("1.5 Ton")
+
+        rate, label = resolve_fallback_shipping(
+            "Dawlance 9178 LF Inverter Refrigerator with LED Lighting", brand="Dawlance"
+        )
+        assert "Refrigerator" in label
+
+        rate, label = resolve_fallback_shipping(
+            "Dawlance Digital LED Air Fryer 5.5L", brand="Dawlance"
+        )
+        assert "Air Fryer" in label
+        assert rate == get_configured_category_default("air_fryer")
+
+        # 3-digit TV size (100 Inch) and quote-only TV titles ('43" E3A', '65" M90 4K')
+        rate, label = resolve_fallback_shipping("TCL 100 Inch QLED TV", brand="TCL")
+        assert "100inch" in label
+        assert rate == get_configured_bracket_rate("led_tv", capacity_value=100.0)
+
+        rate, label = resolve_fallback_shipping('43" E3A', brand="Dawlance")
+        assert "43inch" in label
+        assert rate == get_configured_bracket_rate("led_tv", capacity_value=43.0)
+
+    # 10. General Appliance Default
     def test_general_default(self) -> None:
         rate, label = resolve_fallback_shipping("Philips Electric Kettle", brand="Philips")
         assert rate == get_configured_global_shipping_default()

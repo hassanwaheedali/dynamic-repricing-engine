@@ -252,7 +252,7 @@ def export_excel_workbook(
                     row_vals.append(val)
             elif col_name == "S.NO":
                 row_vals.append(format_export_sno(val))
-            elif col_name in ("Commision", "Digi Effective Commision"):
+            elif col_name in ("Commision", "Digi Effective Commision", "Insurance"):
                 try:
                     clean = str(val).replace("%", "").strip()
                     row_vals.append(float(clean) / 100.0 if clean else None)
@@ -279,6 +279,10 @@ def export_excel_workbook(
         final_digi = col_map.get("Final Price Digi")
         prof_alfa = col_map.get("Alfa Real Profit")
         prof_digi = col_map.get("Digi Real Profit")
+        ins_col = col_map.get("Insurance")
+        # Insurance % is added on the cost: (Net + Shipping) x (1 + ins), BEFORE commission/profit
+        ins_factor = f"(1+{_excel_comm_expr(f'{ins_col}{r}', 0.0)})" if ins_col else ""
+        ins_mul = f"*{ins_factor}" if ins_col else ""
 
         vol_divisor = (
             int(config.VOLUMETRIC_DIVISOR)
@@ -312,29 +316,29 @@ def export_excel_workbook(
         if twop and net and ship:
             if eff_comm:
                 payout_expr = _excel_payout_expr(f"{eff_comm}{r}", alfa_payout)
-                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/{payout_expr}, 0)"
+                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r}){ins_mul}/{payout_expr}, 0)"
             else:
-                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r})/{alfa_payout:.2f}, 0)"
+                ws[f"{twop}{r}"] = f"=ROUND(({net}{r}+{ship}{r}){ins_mul}/{alfa_payout:.2f}, 0)"
 
         # 3. Dynamic Calculation (Referencing Commission Cell)
         if calc and net and ship:
             p_expr = f"IF(ISBLANK({p_col}{r}), {min_profit_val}, {p_col}{r})" if p_col else str(min_profit_val)
             if comm_col:
                 comm_expr = _excel_comm_expr(f"{comm_col}{r}", alfa_comm_dec)
-                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/(1-{comm_expr}), 0)"
+                ws[f"{calc}{r}"] = f"=ROUND((({net}{r}+{ship}{r}){ins_mul}+{p_expr})/(1-{comm_expr}), 0)"
             else:
-                ws[f"{calc}{r}"] = f"=ROUND(({net}{r}+{ship}{r}+{p_expr})/{alfa_payout:.2f}, 0)"
+                ws[f"{calc}{r}"] = f"=ROUND((({net}{r}+{ship}{r}){ins_mul}+{p_expr})/{alfa_payout:.2f}, 0)"
 
         # 4. Alfa Real Profit
         if prof_alfa and final_alfa and net and ship:
             if comm_col:
                 alfa_payout_expr = _excel_payout_expr(f"{comm_col}{r}", alfa_payout)
                 ws[f"{prof_alfa}{r}"] = (
-                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout_expr})-({net}{r}+{ship}{r}), 0))'
+                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout_expr})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
                 )
             else:
                 ws[f"{prof_alfa}{r}"] = (
-                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout:.2f})-({net}{r}+{ship}{r}), 0))'
+                    f'=IF(ISBLANK({final_alfa}{r}), "", ROUND(({final_alfa}{r}*{alfa_payout:.2f})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
                 )
 
         # 7. Digi Real Profit
@@ -343,11 +347,11 @@ def export_excel_workbook(
             if digi_comm_col:
                 digi_payout_expr = _excel_payout_expr(f"{digi_comm_col}{r}", digi_lev_payout)
                 ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_payout_expr})-({net}{r}+{ship}{r}), 0))'
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_payout_expr})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
                 )
             else:
                 ws[f"{prof_digi}{r}"] = (
-                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_lev_payout:.2f})-({net}{r}+{ship}{r}), 0))'
+                    f'=IF(ISBLANK({final_digi}{r}), "", ROUND(({final_digi}{r}*{digi_lev_payout:.2f})-(({net}{r}+{ship}{r}){ins_mul}), 0))'
                 )
 
         # 8. Personal Commission & Company Profit Breakdown
@@ -399,7 +403,7 @@ def export_excel_workbook(
             if col_name in price_cols_set or is_price_int_column(col_name):
                 cell.number_format = currency_format
                 cell.alignment = Alignment(horizontal="right")
-            elif col_name in ("Commision", "Digi Effective Commision"):
+            elif col_name in ("Commision", "Digi Effective Commision", "Insurance"):
                 cell.number_format = "0.00%"
                 cell.alignment = Alignment(horizontal="center")
             elif (
@@ -599,6 +603,17 @@ def export_results(
     ]
     if unnamed_cols:
         export_df = export_df.drop(columns=unnamed_cols)
+    risk_cols = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in export_df.columns]
+    if risk_cols:
+        export_df = export_df[[c for c in export_df.columns if c not in risk_cols] + risk_cols]
+    if "Insurance" in export_df.columns:
+        cols_wo_ins = [c for c in export_df.columns if c != "Insurance"]
+        anchor = next(
+            (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
+        )
+        if anchor is not None:
+            pos = cols_wo_ins.index(anchor) + 1
+            export_df = export_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
     plat_key = platform.lower().strip()
     if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)
@@ -785,6 +800,17 @@ def export_winning_5pct_results(
     ]
     if unnamed_cols:
         export_df = export_df.drop(columns=unnamed_cols)
+    risk_cols = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in export_df.columns]
+    if risk_cols:
+        export_df = export_df[[c for c in export_df.columns if c not in risk_cols] + risk_cols]
+    if "Insurance" in export_df.columns:
+        cols_wo_ins = [c for c in export_df.columns if c != "Insurance"]
+        anchor = next(
+            (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
+        )
+        if anchor is not None:
+            pos = cols_wo_ins.index(anchor) + 1
+            export_df = export_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
     plat_key = platform.lower().strip()
     if plat_key == "alfa":
         export_df = filter_alfa_only_columns(export_df)

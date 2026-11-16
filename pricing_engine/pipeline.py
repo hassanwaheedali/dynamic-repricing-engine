@@ -24,6 +24,7 @@ from pricing_engine.calculator import (
     calculate_shipping_estimate,
     calculate_volumetric_weight,
     resolve_fallback_shipping,
+    resolve_insurance_pct,
     split_real_profit,
 )
 from pricing_engine.checkpoint import (
@@ -210,6 +211,15 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _extract_product_category(product: ProductInput) -> str:
+    """Extract optional category string from raw catalog row (Category or Categories)."""
+    for key in ("Category", "Categories", "category", "categories"):
+        val = product.raw_row.get(key)
+        if val is not None and pd.notna(val) and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
 def resolve_shipping_estimate(product: ProductInput) -> tuple[float, bool]:
     """Resolve shipping estimate from CSV if provided, from dimensions, or from category fallback.
 
@@ -224,7 +234,9 @@ def resolve_shipping_estimate(product: ProductInput) -> tuple[float, bool]:
             product.length, product.width, product.height, divisor=DIVISOR
         )
         return calculate_shipping_estimate(vol_weight, rate_per_kg=ZONE_PRICE), False
-    fallback_rate, _ = resolve_fallback_shipping(product.name, brand=product.brand)
+    fallback_rate, _ = resolve_fallback_shipping(
+        product.name, brand=product.brand, category=_extract_product_category(product)
+    )
     return fallback_rate, True
 
 
@@ -466,6 +478,7 @@ def build_output_record(
             or not k_str
             or k_str
             in {
+                "Insurance",
                 "Digi Discovery Coverage",
                 "Digi Discovery Detail",
                 "Alfa Risk Alert",
@@ -492,6 +505,9 @@ def build_output_record(
     out_record["Digi Effective Commision"] = (
         digi_res.effective_comm if digi_res.status != "SKIPPED" else ""
     )
+    # Category-driven insurance (% on Net + Shipping before commission); column only appears when > 0
+    if floors.insurance_pct > 0:
+        out_record["Insurance"] = f"{floors.insurance_pct:.2f}%"
 
     # Total Without Profit: If Digi uses leverage commission, record leverage breakeven
     if digi_res.status != "SKIPPED" and digi_res.effective_comm == digi_lev_comm:
@@ -606,13 +622,17 @@ def process_product_with_offers(
         Repriced output dictionary.
     """
     shipping, _ = resolve_shipping_estimate(product)
+    insurance_pct = resolve_insurance_pct(
+        product.name, brand=product.brand, category=_extract_product_category(product)
+    )
 
-    cost_base = calculate_cost_base(product.net_price, shipping)
+    cost_base = calculate_cost_base(product.net_price, shipping, insurance_pct=insurance_pct)
     floors = calculate_floors(
         cost_base,
         min_profit=config.COMPANY_MIN_PROFIT_PKR,
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
+        insurance_pct=insurance_pct,
     )
     effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
     baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
@@ -1288,6 +1308,23 @@ def render_audit_card(
         ),
         f"[bold #229693]Rs. {floors.floor_digi_8:,.0f}[/]",
     )
+    if floors.insurance_pct > 0:
+        ins_g = f"{floors.insurance_pct:g}"
+        ins_base = product.net_price + shipping
+        ins_amount = ins_base * floors.insurance_pct / 100.0
+
+        specs.add_row(
+            "Insurance:",
+            f"[bold magenta]+{ins_g}% on Net + Shipping[/]",
+            "[dim]Floors & final price include:[/]",
+            "[bold magenta]Insurance in cost, then commission[/]",
+        )
+        specs.add_row(
+            "Net + Shipping:",
+            f"Rs. {ins_base:,.2f}",
+            "Insurance Amount:",
+            f"[magenta]Rs. {ins_amount:,.2f}[/]",
+        )
 
     # 2. Competitor Sellers Table
     sellers_tbl = build_scraped_sellers_table(
@@ -1523,13 +1560,17 @@ async def process_item_async(
     patterns = generate_search_patterns(product.name, brand=product.brand)
 
     shipping, is_shipping_fallback = resolve_shipping_estimate(product)
+    insurance_pct = resolve_insurance_pct(
+        product.name, brand=product.brand, category=_extract_product_category(product)
+    )
 
-    cost_base = calculate_cost_base(product.net_price, shipping)
+    cost_base = calculate_cost_base(product.net_price, shipping, insurance_pct=insurance_pct)
     floors = calculate_floors(
         cost_base,
         min_profit=config.COMPANY_MIN_PROFIT_PKR,
         net_price=product.net_price,
         personal_comm_pct=personal_comm_pct,
+        insurance_pct=insurance_pct,
     )
     effective_target_profit = calculate_effective_target_profit(product.profit, personal_comm_pct)
     baseline_calc = calculate_baseline(cost_base, target_profit=effective_target_profit)
@@ -1904,7 +1945,9 @@ def render_summary_table(records: list[dict[str, Any]]) -> None:
 
         net_val = _safe_float(rec.get("Net Price", 0))
         ship_val = _safe_float(rec.get("Shipping Estimate", 0))
-        real_cost_str = f"{(net_val + ship_val):,.0f}"
+        ins_raw = rec.get("Insurance")
+        ins_val = _safe_float(str(ins_raw).replace("%", "")) if pd.notna(ins_raw) else 0.0
+        real_cost_str = f"{((net_val + ship_val) * (1.0 + ins_val / 100.0)):,.0f}"
 
         alfa_p_val = rec.get("Final Price Alfa")
         alfa_min_val = rec.get("Minimum Price Alfa")
@@ -2319,6 +2362,15 @@ async def run_pipeline(
         # Mixed/ambiguous rows can introduce columns after the first record.
         risk_columns = [c for c in ("Alfa Risk Alert", "Digi Risk Alert") if c in out_df.columns]
         out_df = out_df[[c for c in out_df.columns if c not in risk_columns] + risk_columns]
+        # Insurance column (only present when a category defines it) sits right after commission cols
+        if "Insurance" in out_df.columns:
+            cols_wo_ins = [c for c in out_df.columns if c != "Insurance"]
+            anchor = next(
+                (c for c in ("Digi Effective Commision", "Commision") if c in cols_wo_ins), None
+            )
+            if anchor is not None:
+                pos = cols_wo_ins.index(anchor) + 1
+                out_df = out_df[cols_wo_ins[:pos] + ["Insurance"] + cols_wo_ins[pos:]]
 
         if "Shipping Estimate" in out_df.columns:
             out_df["Shipping Estimate"] = out_df["Shipping Estimate"].apply(format_export_shipping)

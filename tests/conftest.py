@@ -16,7 +16,7 @@ from pricing_engine.models import CostFloors
 
 
 @pytest.fixture
-def app_config():
+def app_config() -> Any:
     """Fixture providing active configuration module."""
     return config
 
@@ -59,6 +59,54 @@ def get_configured_ac_rate(ton_label: str) -> float:
     return float(ac_cat.get("default", 3500.0))
 
 
+def get_configured_bracket_rate(
+    category_id: str,
+    capacity_value: float | None = None,
+    sub_type_name: str | None = None,
+) -> float:
+    """Dynamically extract configured rate for any category/sub-type/capacity from config.py.
+
+    Args:
+        category_id: Category id in config.DEFAULT_CATEGORY_SHIPPING['categories'].
+        capacity_value: Optional numeric capacity (kg, liters, cuft, inches) for bracket lookup.
+        sub_type_name: Optional sub-type name substring to match.
+
+    Returns:
+        Configured float shipping rate in PKR.
+    """
+    categories = config.DEFAULT_CATEGORY_SHIPPING.get("categories", [])
+    cat = next((c for c in categories if c.get("id") == category_id), None)
+    if not cat:
+        return float(config.DEFAULT_CATEGORY_SHIPPING.get("default", 3000.0))
+
+    sub_types = cat.get("sub_types", [])
+    matched_sub: dict[str, Any] | None = None
+    default_sub: dict[str, Any] | None = None
+
+    for sub in sub_types:
+        if sub.get("is_default"):
+            default_sub = sub
+        if sub_type_name and sub_type_name.lower() in sub.get("name", "").lower():
+            matched_sub = sub
+            break
+
+    target_sub = matched_sub or default_sub
+    if not target_sub:
+        return float(cat.get("default", 3500.0))
+
+    if "rate" in target_sub:
+        return float(target_sub["rate"])
+
+    if capacity_value is not None:
+        unit = cat.get("capacity_unit", "kg")
+        for b in target_sub.get("brackets", []):
+            max_limit = b.get("max", b.get(f"max_{unit}", b.get("max_kg", 999.0)))
+            if capacity_value <= max_limit:
+                return float(b.get("rate", cat.get("default", 3500.0)))
+
+    return float(target_sub.get("default", cat.get("default", 3500.0)))
+
+
 def get_configured_washer_rate(sub_type_name: str, capacity_kg: float) -> float:
     """Extract configured rate for Washing Machine sub-type & capacity bracket.
 
@@ -69,36 +117,9 @@ def get_configured_washer_rate(sub_type_name: str, capacity_kg: float) -> float:
     Returns:
         Configured float shipping rate in PKR.
     """
-    categories = config.DEFAULT_CATEGORY_SHIPPING.get("categories", [])
-    wm_cat = next((c for c in categories if c.get("id") == "washing_machine"), None)
-    if not wm_cat:
-        return float(config.DEFAULT_CATEGORY_SHIPPING.get("default", 3000.0))
-
-    sub_types = wm_cat.get("sub_types", [])
-    matched_sub: dict[str, Any] | None = None
-    default_sub: dict[str, Any] | None = None
-
-    for sub in sub_types:
-        if sub.get("is_default"):
-            default_sub = sub
-        if sub_type_name.lower() in sub.get("name", "").lower():
-            matched_sub = sub
-            break
-
-    target_sub = matched_sub or default_sub
-    if not target_sub:
-        return float(wm_cat.get("default", 3500.0))
-
-    if "rate" in target_sub:
-        return float(target_sub["rate"])
-
-    brackets = target_sub.get("brackets", [])
-    for b in brackets:
-        max_kg = b.get("max_kg", b.get("max", 999.0))
-        if capacity_kg <= max_kg:
-            return float(b.get("rate", wm_cat.get("default", 3500.0)))
-
-    return float(target_sub.get("default", wm_cat.get("default", 3500.0)))
+    return get_configured_bracket_rate(
+        "washing_machine", capacity_value=capacity_kg, sub_type_name=sub_type_name
+    )
 
 
 def get_configured_refrigerator_rate(sub_type_name: str) -> float:
@@ -119,12 +140,7 @@ def get_configured_refrigerator_rate(sub_type_name: str) -> float:
     if sub_type_name.strip().lower() in ("refrigerator", "fridge", "default"):
         return float(rf_cat.get("default", 5500.0))
 
-    for sub in rf_cat.get("sub_types", []):
-        sub_name = sub.get("name", "").lower()
-        if sub_type_name.lower() in sub_name:
-            return float(sub["rate"])
-
-    return float(rf_cat.get("default", 5500.0))
+    return get_configured_bracket_rate("refrigerator", sub_type_name=sub_type_name)
 
 
 def get_configured_global_shipping_default() -> float:

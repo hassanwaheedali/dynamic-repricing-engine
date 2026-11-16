@@ -10,38 +10,90 @@ from pricing_engine.models import CostFloors
 PSYCHOLOGICAL_ENDINGS: tuple[int, ...] = (999, 899, 799, 499, 299, 199, 99)
 
 
-def _extract_numeric_capacity(text: str, unit: str = "kg") -> float | None:
-    """Extract numeric capacity or size from title or model code."""
-    if unit == "kg":
-        kg_match = re.search(r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b", text)
-        if kg_match:
-            with contextlib.suppress(ValueError, TypeError):
-                return float(kg_match.group(1))
-        # Model code stem extraction (e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg, 150- -> 15kg)
-        model_match = re.search(r"\b[a-z]{0,4}[- ]?(\d{2,3})(?:[- ]|\b)", text)
-        if model_match:
-            with contextlib.suppress(ValueError, TypeError):
-                raw_num = float(model_match.group(1))
-                if 50 <= raw_num <= 250:
-                    return raw_num / 10.0
+def _extract_numeric_capacity(
+    text: str,
+    unit: str = "kg",
+    capacity_rules: list[dict[str, Any]] | None = None,
+) -> float | None:
+    """Extract numeric capacity or size dynamically using declarative rules from config."""
+    rules = (
+        capacity_rules
+        if capacity_rules is not None
+        else getattr(config, "DEFAULT_CAPACITY_RULES", {}).get(unit, [])
+    )
+    for rule in rules:
+        pattern = rule.get("pattern")
+        if not pattern:
+            continue
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        with contextlib.suppress(ValueError, TypeError, IndexError):
+            val = float(match.group(1))
+            min_val = rule.get("min")
+            max_val = rule.get("max")
+            if min_val is not None and val < float(min_val):
+                continue
+            if max_val is not None and val > float(max_val):
+                continue
+            scale = float(rule.get("scale", 1.0))
+            divisor = float(rule.get("divisor", 1.0))
+            return (val * scale) / divisor
     return None
+
+
+def _find_matching_category(text: str, table: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the first category (declared order) whose keywords/pattern match the lowercase text."""
+    categories: list[dict[str, Any]] = table.get("categories", [])
+    for cat in categories:
+        cat_keywords: list[str] = cat.get("keywords", [])
+        cat_pattern: str | None = cat.get("pattern")
+        if (cat_pattern and re.search(cat_pattern, text)) or any(kw in text for kw in cat_keywords):
+            return cat
+    return None
+
+
+def resolve_insurance_pct(
+    product_name: str,
+    brand: str = "",
+    config_table: dict[str, Any] | None = None,
+    category: str = "",
+) -> float:
+    """Resolve category-driven insurance percentage (on Net + Shipping before commission) from config.
+
+    Uses the same category matching as shipping fallback. Categories without an
+    `insurance_pct` key (or with a non-positive value) return 0.0.
+    """
+    table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
+    text = f"{brand} {product_name}".lower()
+    cat = _find_matching_category(text, table)
+    if cat is None and category:
+        cat = _find_matching_category(category.lower(), table)
+    if cat is None:
+        return 0.0
+    with contextlib.suppress(TypeError, ValueError):
+        pct = float(cat.get("insurance_pct", 0.0) or 0.0)
+        return pct if pct > 0 else 0.0
+    return 0.0
 
 
 def resolve_fallback_shipping(
     product_name: str,
     brand: str = "",
     config_table: dict[str, Any] | None = None,
+    category: str = "",
 ) -> tuple[float, str]:
     """Dynamically resolve default fallback shipping from config without hardcoded category logic.
 
     Inspects config.DEFAULT_CATEGORY_SHIPPING['categories'] rules in declared order.
-    Matches keywords or patterns, resolves sub-types and capacity brackets, and returns
-    the matched shipping rate and display label.
+    Matches keywords or patterns on brand+name (or fallback category column), resolves
+    sub-types and capacity brackets, and returns the matched shipping rate and display label.
 
     Args:
         product_name: Product title or description from input catalog.
         brand: Brand name.
         config_table: Optional custom configuration dictionary (defaults to config.DEFAULT_CATEGORY_SHIPPING).
+        category: Optional category column string from catalog CSV.
 
     Returns:
         Tuple of (shipping_amount: float, fallback_label: str).
@@ -49,17 +101,11 @@ def resolve_fallback_shipping(
     table = config.DEFAULT_CATEGORY_SHIPPING if config_table is None else config_table
     text = f"{brand} {product_name}".lower()
 
-    for cat in table.get("categories", []):
-        cat_keywords: list[str] = cat.get("keywords", [])
-        cat_pattern: str | None = cat.get("pattern")
+    cat = _find_matching_category(text, table)
+    if cat is None and category:
+        cat = _find_matching_category(category.lower(), table)
+    if cat is not None:
         cat_name: str = cat.get("name", cat.get("id", "Appliance"))
-
-        is_match = bool(
-            (cat_pattern and re.search(cat_pattern, text)) or any(kw in text for kw in cat_keywords)
-        )
-
-        if not is_match:
-            continue
 
         # Category matched! Check sub-types
         sub_types = cat.get("sub_types", [])
@@ -89,10 +135,14 @@ def resolve_fallback_shipping(
             brackets = sub_to_use.get("brackets", [])
             if brackets:
                 unit = cat.get("capacity_unit", "kg")
-                cap_val = _extract_numeric_capacity(text, unit=unit)
+                cap_val = _extract_numeric_capacity(
+                    text,
+                    unit=unit,
+                    capacity_rules=cat.get("capacity_rules"),
+                )
                 if cap_val is not None:
                     for b in brackets:
-                        max_limit = b.get("max", b.get("max_kg", 999.0))
+                        max_limit = b.get("max", b.get(f"max_{unit}", b.get("max_kg", 999.0)))
                         if cap_val <= max_limit:
                             rate = float(b.get("rate", cat.get("default", 3500.0)))
                             return rate, f"{sub_label} ({cap_val:g}{unit})"
@@ -152,17 +202,21 @@ def calculate_shipping_estimate(
     return math.ceil(raw_cost * 100.0) / 100.0
 
 
-def calculate_cost_base(net_price: float, shipping: float) -> float:
+def calculate_cost_base(net_price: float, shipping: float, insurance_pct: float = 0.0) -> float:
     """Calculate the base landed cost before marketplace commission or profit.
+
+    Insurance (category-driven, e.g. LED TV) is added on the cost itself, BEFORE commission:
+        cost_base = (net_price + shipping) * (1 + insurance_pct / 100)
 
     Args:
         net_price: Vendor wholesale/purchase price.
         shipping: Courier delivery cost estimate.
+        insurance_pct: Category insurance % applied on (net + shipping). Default 0.
 
     Returns:
         Total base cost.
     """
-    return round(net_price + shipping, 2)
+    return round((net_price + shipping) * (1.0 + insurance_pct / 100.0), 2)
 
 
 def calculate_personal_commission(amount: float, personal_comm_pct: float | None = None) -> int:
@@ -261,8 +315,12 @@ def calculate_floors(
     min_profit: float | None = None,
     net_price: float = 0.0,
     personal_comm_pct: float = 0.0,
+    insurance_pct: float = 0.0,
 ) -> CostFloors:
     """Calculate breakeven costs and absolute minimum profit floors.
+
+    cost_base must already include category insurance (see calculate_cost_base);
+    insurance_pct is only recorded on the result for display/export.
 
     When personal_comm_pct > 0, the hard floor guarantees that the company receives at least
     min_profit (default config.COMPANY_MIN_PROFIT_PKR) as its (100 - personal_comm_pct)% share
@@ -329,6 +387,7 @@ def calculate_floors(
         personal_comm=personal_comm,
         alfa_personal_comm=alfa_personal_comm,
         digi_personal_comm=digi_personal_comm,
+        insurance_pct=insurance_pct,
     )
 
 
@@ -340,7 +399,7 @@ def calculate_baseline(
     """Calculate standard baseline price for comparison.
 
     Args:
-        cost_base: Landed cost base.
+        cost_base: Landed cost base (already includes category insurance, if any).
         target_profit: Target profit margin from input catalog.
         payout_rate: Bank payout rate multiplier (default: config.get_alfa_payout_rate() -> 0.90).
 

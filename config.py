@@ -66,15 +66,61 @@ VOLUMETRIC_DIVISOR: float = 5000.0
 # ==============================================================================
 # 5. DEFAULT FALLBACK SHIPPING ESTIMATES (PKR)
 # Used when Length x Width x Height dimensions are not provided or 0 in catalog CSV
-# Fully data-driven: add any new category or edit brackets directly here without
-# touching engine code!
+# Fully data-driven: add any new category, capacity extractor, or edit brackets
+# directly here without touching engine code!
 # ==============================================================================
+DEFAULT_CAPACITY_RULES: dict[str, list[dict[str, Any]]] = {
+    "kg": [
+        {"pattern": r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:kg|k\.g|kilo)\b"},
+        # Model code stem extraction (e.g. HWM-120 -> 12kg, HW 105 -> 10.5kg, 80-1217 -> 8kg)
+        {
+            "pattern": r"\b[a-z]{0,4}[- ]?(\d{2,3})(?:[- ]|\b)",
+            "min": 50.0,
+            "max": 250.0,
+            "divisor": 10.0,
+        },
+    ],
+    "l": [
+        {"pattern": r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:l|ltr|ltrs|liter|liters|litre|litres)\b"},
+    ],
+    "cuft": [
+        {
+            "pattern": (
+                r"(\d+(?:\.\d+)?)\s*[-]?\s*(?:cu\.?\s*ft\.?|cft|cuft|cubic\s*(?:feet|foot|ft)?)\b"
+            )
+        },
+    ],
+    "inch": [
+        {"pattern": r"\b(\d{2,3})\s*(?:\"|''|[-]?\s*(?:inch|inches|in\b))"},
+        {
+            "pattern": (
+                r"\b(24|32|39|40|42|43|48|49|50|55|58|60|65|70|75|85|98|100)"
+                r"(?!\s*hz\b)(?=[a-z]\w*\b)"
+            )
+        },
+    ],
+}
+
 DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
     # --------------------------------------------------------------------------
     # CATEGORIES LIST (Top-to-bottom evaluation order)
     # --------------------------------------------------------------------------
     "categories": [
-        # --- 1. WASHING MACHINES ---
+        # --- 1. WATER DISPENSERS --- (evaluated before washing_machine so "Top Load Water Dispenser" matches here)
+        {
+            "id": "water_dispenser",
+            "name": "Water Dispenser",
+            "keywords": [
+                "water dispenser",
+                "dispenser",
+                "w/d",
+                "bottom load",
+                "table top dispenser",
+            ],
+            "pattern": r"\bwd\b",
+            "default": 3500.0,
+        },
+        # --- 2. WASHING MACHINES ---
         {
             "id": "washing_machine",
             "name": "Washing Machine",
@@ -87,7 +133,8 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 "dryer",
                 "hwm",
                 "dwt",
-                "wm",
+                "w/m",
+                "awm",
                 "front load",
                 "top load",
                 "automatic",
@@ -97,8 +144,19 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 "semi auto",
                 "semi-auto",
             ],
+            "pattern": r"\bwm\b",
             "capacity_unit": "kg",
+            "capacity_rules": DEFAULT_CAPACITY_RULES["kg"],
             "sub_types": [
+                {
+                    "name": "Single Tub Washer",
+                    "keywords": ["single tub", "single-tub", "washer only"],
+                    "brackets": [
+                        {"max_kg": 8.5, "rate": 2500.0},
+                        {"max_kg": 11.0, "rate": 3000.0},
+                        {"max_kg": 999.0, "rate": 3500.0},
+                    ],
+                },
                 {
                     "name": "Twin Tub Washer",
                     "keywords": [
@@ -115,15 +173,6 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                         {"max_kg": 11.0, "rate": 3500.0},
                         {"max_kg": 13.5, "rate": 3800.0},
                         {"max_kg": 999.0, "rate": 4500.0},
-                    ],
-                },
-                {
-                    "name": "Single Tub Washer",
-                    "keywords": ["single tub", "single-tub", "single", "washer only"],
-                    "brackets": [
-                        {"max_kg": 8.5, "rate": 2500.0},
-                        {"max_kg": 11.0, "rate": 3000.0},
-                        {"max_kg": 999.0, "rate": 3500.0},
                     ],
                 },
                 {
@@ -144,13 +193,51 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
             ],
             "default": 3500.0,
         },
-        # --- 2. AIR CONDITIONERS ---
+        # --- 3. MICROWAVE OVENS ---
+        {
+            "id": "microwave",
+            "name": "Microwave Oven",
+            "keywords": [
+                "microwave",
+                "microwave oven",
+                "m/o",
+                "mwo",
+                "built-in m/oven",
+                "baking oven",
+                "mini oven",
+            ],
+            "capacity_unit": "l",
+            "capacity_rules": DEFAULT_CAPACITY_RULES["l"],
+            "sub_types": [
+                {
+                    "name": "Microwave Oven",
+                    "is_default": True,
+                    "brackets": [
+                        {"max_l": 25.0, "rate": 1000.0},
+                        {"max_l": 40.0, "rate": 2000.0},
+                        {"max_l": 999.0, "rate": 2500.0},
+                    ],
+                },
+            ],
+            "default": 1500.0,
+        },
+        # --- 4. AIR FRYERS ---
+        {
+            "id": "air_fryer",
+            "name": "Air Fryer",
+            "keywords": [
+                "air fryer",
+                "airfryer",
+                "air-fryer",
+            ],
+            "default": 2500.0,
+        },
+        # --- 5. AIR CONDITIONERS ---
         {
             "id": "air_conditioner",
             "name": "Air Conditioner",
             "keywords": [
                 "split",
-                "ac",
                 "air conditioner",
                 "inverter ac",
                 "heat & cool",
@@ -158,7 +245,10 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 "aith",
                 "hfn",
                 "econo",
+                "floor standing",
+                "cassette",
             ],
+            "pattern": r"\bac\b",
             "sub_types": [
                 {
                     "name": "Air Conditioner (2.0 Ton)",
@@ -178,7 +268,7 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
             ],
             "default": 3500.0,
         },
-        # --- 3. REFRIGERATORS & FREEZERS ---
+        # --- 6. REFRIGERATORS & FREEZERS ---
         {
             "id": "refrigerator",
             "name": "Refrigerator",
@@ -188,14 +278,24 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                 "freezer",
                 "deep freezer",
                 "hrf",
-                "df",
+                "r/f",
+                "d/f",
                 "glass door",
                 "vertical freezer",
+                "minibar",
+                "mini bar",
+                "mini-bar",
+                "cubic",
+                "cuft",
+                "cft",
             ],
+            "pattern": r"\b(?:df|rf|ref)\b|\bcu\.?\s*ft\b",
+            "capacity_unit": "cuft",
+            "capacity_rules": DEFAULT_CAPACITY_RULES["cuft"],
             "sub_types": [
                 {
                     "name": "Refrigerator (Small / Mini Bar)",
-                    "keywords": ["mini bar", "mini-bar", "small", "single door", "bedside"],
+                    "keywords": ["mini bar", "mini-bar", "minibar", "small", "bedside"],
                     "rate": 4000.0,
                 },
                 {
@@ -208,10 +308,54 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
                         "large",
                         "500l",
                     ],
-                    "rate": 7500.0,
+                    "rate": 13000.0,
+                },
+                {
+                    "name": "Refrigerator / Deep Freezer",
+                    "is_default": True,
+                    "brackets": [
+                        {"max_cuft": 5.5, "rate": 4000.0},
+                        {"max_cuft": 8.5, "rate": 7000.0},
+                        {"max_cuft": 12.0, "rate": 8500.0},
+                        {"max_cuft": 16.0, "rate": 10000.0},
+                        {"max_cuft": 20.0, "rate": 13000.0},
+                    ],
                 },
             ],
-            "default": 5500.0,
+            "default": 4500.0,
+        },
+        # --- 7. LED TVs --- (evaluated after AC/Refrigerator/Washer/Air Fryer so "LED Display" on those appliances never hits LED TV)
+        {
+            "id": "led_tv",
+            "name": "LED TV",
+            "keywords": [
+                "led tv",
+                "smart tv",
+                "google tv",
+                "android tv",
+                "uhd tv",
+                "4k tv",
+                "television",
+            ],
+            "pattern": r"\b(?:led|tv|qled|oled)\b|\b(?:24|32|39|40|42|43|48|49|50|55|58|60|65|70|75|85|98|100)\s*\"",
+            # Insurance: % added on the COST (Net Price + Shipping), BEFORE commission and profit:
+            #   cost = (net + shipping) * (1 + pct/100); price = (cost + profit) / (1 - commission)
+            # So Total Without Profit, floors, final price and real profit all include it.
+            # 0 / omitted = none.
+            "insurance_pct": 2,
+            "capacity_unit": "inch",
+            "capacity_rules": DEFAULT_CAPACITY_RULES["inch"],
+            "sub_types": [
+                {
+                    "name": "LED TV",
+                    "is_default": True,
+                    "brackets": [
+                        {"max_inch": 45.0, "rate": 2500.0},
+                        {"max_inch": 999.0, "rate": 3500.0},
+                    ],
+                },
+            ],
+            "default": 2500.0,
         },
         # ----------------------------------------------------------------------
         # HOW TO ADD NEW CATEGORIES (EXAMPLES):

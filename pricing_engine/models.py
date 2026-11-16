@@ -126,6 +126,7 @@ class CostFloors:
     personal_comm: int = 0
     alfa_personal_comm: int = 0
     digi_personal_comm: int = 0
+    insurance_pct: float = 0.0
 
     def __post_init__(self) -> None:
         if self.alfa_personal_comm == 0 and self.personal_comm > 0:
