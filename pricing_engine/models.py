@@ -118,11 +118,10 @@ class CostFloors:
     """Represents calculated margin thresholds and hard floors for a product."""
 
     cost_base: float
-    zero_margin_10: float
-    zero_margin_8: float
+    zero_margin_alfa: float
+    zero_margin_digi: float
     floor_alfa: float
-    floor_digi_10: float
-    floor_digi_8: float
+    floor_digi: float
     personal_comm: int = 0
     alfa_personal_comm: int = 0
     digi_personal_comm: int = 0
@@ -301,7 +300,7 @@ class PlatformPricingResult:
     reason: str = ""
     dropped: list[str] = field(default_factory=list)
     active_pool: list[str] = field(default_factory=list)
-    effective_comm: str = "10.00%"
+    effective_comm: str = ""
     own_offers: list[ScrapedOffer] = field(default_factory=list)
     discovery_status: str = ""
     compatibility_notice: str | None = None
@@ -348,3 +347,33 @@ class PlatformConfig:
     search_url: str
     base_params: dict[str, str]
     headers: dict[str, str]
+
+
+SNO_ALIASES: frozenset[str] = frozenset(
+    {"S.NO", "S.No", "S. No", "S.No.", "SNO", "sno", "Serial No", "Serial Number"}
+)
+SNO_ALIASES_LOWER: frozenset[str] = frozenset(alias.strip().lower() for alias in SNO_ALIASES)
+
+LEGACY_RAW_COLUMNS_LOWER: frozenset[str] = frozenset(
+    {
+        "commision",
+        "digi effective commision",
+        "total without profit",
+        "calculation",
+    }
+)
+
+GENERATED_RAW_EXCLUSIONS_LOWER: frozenset[str] = frozenset(
+    {
+        *LEGACY_RAW_COLUMNS_LOWER,
+        "alfa commission",
+        "digi commission",
+        "total without profit (alfa)",
+        "total without profit (digi)",
+        "insurance",
+        "digi discovery coverage",
+        "digi discovery detail",
+        "alfa risk alert",
+        "digi risk alert",
+    }
+)

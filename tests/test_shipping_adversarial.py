@@ -203,17 +203,17 @@ class TestCostMathIntegrityWithShippingFallback:
         expected_floor_alfa = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / config.get_alfa_payout_rate()
         assert round(floors.floor_alfa, 2) == round(expected_floor_alfa, 2)
 
-        # Floor Digi 8%: (cost_base + min_profit) / digi_lev_payout
-        expected_floor_digi_8 = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_leverage_payout_rate()
-        assert round(floors.floor_digi_8, 2) == round(expected_floor_digi_8, 2)
+        # Floor Digi: (cost_base + min_profit) / digi_payout
+        expected_floor_digi = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / config.get_digi_payout_rate()
+        assert round(floors.floor_digi, 2) == round(expected_floor_digi, 2)
 
         # Guaranteed profit check at Alfa floor price:
         alfa_payout = floors.floor_alfa * config.get_alfa_payout_rate()
         net_profit_alfa = alfa_payout - cost_base
         assert round(net_profit_alfa, 2) == config.COMPANY_MIN_PROFIT_PKR
 
-        # Guaranteed profit check at Digi 8% floor price:
-        digi_payout = floors.floor_digi_8 * config.get_digi_leverage_payout_rate()
+        # Guaranteed profit check at Digi floor price:
+        digi_payout = floors.floor_digi * config.get_digi_payout_rate()
         net_profit_digi = digi_payout - cost_base
         assert round(net_profit_digi, 2) == config.COMPANY_MIN_PROFIT_PKR
 

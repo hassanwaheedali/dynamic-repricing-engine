@@ -7,6 +7,7 @@ shipping rates from a single file.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from pricing_engine.capacity import explicit_capacity_pattern
@@ -15,14 +16,11 @@ from pricing_engine.models import PlatformConfig
 # ==============================================================================
 # 1. PLATFORM BANK COMMISSIONS (%)
 # ==============================================================================
-# AlfaMall standard marketplace commission percentage (Default: 10.0%)
+# AlfaMall fixed marketplace commission percentage (Default: 10.0%)
 ALFA_COMMISSION_PCT: float = 10.0
 
-# DigiMall standard marketplace commission tier (Default: 10.0%)
-DIGI_STANDARD_COMMISSION_PCT: float = 10.0
-
-# DigiMall Faysal Bank special leverage commission tier (Default: 8.0%)
-DIGI_LEVERAGE_COMMISSION_PCT: float = 8.0
+# DigiMall fixed marketplace commission percentage (Default: 8.0%)
+DIGI_COMMISSION_PCT: float = 8.0
 
 
 # ==============================================================================
@@ -389,19 +387,89 @@ DEFAULT_CATEGORY_SHIPPING: dict[str, Any] = {
 # ==============================================================================
 # HELPER FUNCTIONS (DO NOT EDIT)
 # ==============================================================================
+_MISSING: object = object()
+
+_VENDOR_COMMISSION_ATTRS: dict[str, tuple[str, str]] = {
+    "alfa": ("ALFA_COMMISSION_PCT", "AlfaMall"),
+    "digi": ("DIGI_COMMISSION_PCT", "DigiMall"),
+}
+
+
+def _validate_commission_pct(value: Any, vendor_label: str, attr_name: str) -> float:
+    """Validate a configured vendor commission percentage, failing fast on invalid values."""
+    if value is _MISSING:
+        raise ValueError(f"{vendor_label} commission configuration '{attr_name}' is missing.")
+    if value is None:
+        raise ValueError(f"{vendor_label} commission configuration '{attr_name}' cannot be None.")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            f"{vendor_label} commission configuration '{attr_name}' must be numeric, "
+            f"got {type(value).__name__}."
+        )
+    pct = float(value)
+    if not math.isfinite(pct):
+        raise ValueError(f"{vendor_label} commission configuration '{attr_name}' must be finite.")
+    if pct < 0.0 or pct >= 100.0:
+        raise ValueError(
+            f"{vendor_label} commission configuration '{attr_name}' must be >= 0 and < 100, "
+            f"got {pct}."
+        )
+    return 0.0 if pct == 0.0 else pct
+
+
+def format_commission_pct(pct: float) -> str:
+    """Format a validated commission percentage preserving >2-decimal precision cleanly."""
+    clean_pct = 0.0 if pct == 0.0 else float(pct)
+    if math.isclose(clean_pct, round(clean_pct, 2), rel_tol=0.0, abs_tol=1e-9):
+        return f"{round(clean_pct, 2):.2f}%"
+    return f"{round(clean_pct, 6):g}%"
+
+
+def normalize_platform(platform: Any, *, allow_all: bool = True, default_blank_to_all: bool = False) -> str:
+    """Validate and normalize target platform identifier cleanly."""
+    if not isinstance(platform, str):
+        raise ValueError(f"Unsupported platform: {platform!r}.")
+    plat = platform.strip().lower()
+    if not plat and default_blank_to_all:
+        plat = "all"
+    valid = {"all", "alfa", "digi"} if allow_all else {"alfa", "digi"}
+    if plat not in valid:
+        expected = ", ".join(sorted(valid))
+        raise ValueError(f"Unsupported platform: '{platform}'. Expected one of: {expected}.")
+    return plat
+
+
+def get_vendor_commission_pct(platform: str) -> float:
+    """Return validated commission percentage configured for the given vendor ('alfa' or 'digi')."""
+    plat = normalize_platform(platform, allow_all=False)
+    attr_name, vendor_label = _VENDOR_COMMISSION_ATTRS[plat]
+    raw_value = globals().get(attr_name, _MISSING)
+    return _validate_commission_pct(raw_value, vendor_label, attr_name)
+
+
+def get_vendor_payout_rate(platform: str) -> float:
+    """Return validated net payout multiplier (1 - commission/100) for 'alfa' or 'digi'."""
+    return 1.0 - (get_vendor_commission_pct(platform) / 100.0)
+
+
+def get_alfa_commission_pct() -> float:
+    """Return validated AlfaMall commission percentage from configuration."""
+    return get_vendor_commission_pct("alfa")
+
+
+def get_digi_commission_pct() -> float:
+    """Return validated DigiMall commission percentage from configuration."""
+    return get_vendor_commission_pct("digi")
+
+
 def get_alfa_payout_rate() -> float:
     """Return AlfaMall net payout multiplier (e.g. 0.90 for 10% commission)."""
-    return 1.0 - (ALFA_COMMISSION_PCT / 100.0)
+    return get_vendor_payout_rate("alfa")
 
 
-def get_digi_standard_payout_rate() -> float:
-    """Return DigiMall standard tier payout multiplier (e.g. 0.90 for 10% commission)."""
-    return 1.0 - (DIGI_STANDARD_COMMISSION_PCT / 100.0)
-
-
-def get_digi_leverage_payout_rate() -> float:
-    """Return DigiMall Faysal Bank tier payout multiplier (e.g. 0.92 for 8% commission)."""
-    return 1.0 - (DIGI_LEVERAGE_COMMISSION_PCT / 100.0)
+def get_digi_payout_rate() -> float:
+    """Return DigiMall net payout multiplier (e.g. 0.92 for 8% commission)."""
+    return get_vendor_payout_rate("digi")
 
 
 # Storefront protocol settings; retrieval policies remain platform-specific.

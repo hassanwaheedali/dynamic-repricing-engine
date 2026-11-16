@@ -38,11 +38,12 @@ def test_reusable_calculator_functions() -> None:
     assert round(eff_min, 2) == 526.32
     assert calculate_effective_min_profit(500.0, 0.0) == 500.0
 
-    # 2. calculate_effective_target_profit: ceil(500 / 0.95) = 527
-    assert calculate_effective_target_profit(500.0, 5.0) == 527
-    assert calculate_effective_target_profit(1000.0, 5.0) == 1000
-    assert calculate_effective_target_profit(None, 5.0) == 527
-    assert calculate_effective_target_profit(500.0, 0.0) == 500
+    # 2. calculate_effective_target_profit: ceil(500 / 0.95) = 527 under 500 company floor
+    with patch.object(config, "COMPANY_MIN_PROFIT_PKR", 500.0):
+        assert calculate_effective_target_profit(500.0, 5.0) == 527
+        assert calculate_effective_target_profit(1000.0, 5.0) == 1000
+        assert calculate_effective_target_profit(None, 5.0) == 527
+        assert calculate_effective_target_profit(500.0, 0.0) == 500
 
     # 3. split_real_profit: splits into (user_commission, company_profit)
     assert split_real_profit(1000.0, 5.0) == (50, 950)
@@ -70,8 +71,7 @@ def test_calculate_floors_with_5pct_personal_commission() -> None:
     )
     eff_min = calculate_effective_min_profit(config.COMPANY_MIN_PROFIT_PKR, 5.0)
     assert round(floors.floor_alfa) == round((102000.0 + eff_min) / config.get_alfa_payout_rate())
-    assert round(floors.floor_digi_10) == round((102000.0 + eff_min) / config.get_digi_standard_payout_rate())
-    assert round(floors.floor_digi_8) == round((102000.0 + eff_min) / config.get_digi_leverage_payout_rate())
+    assert round(floors.floor_digi) == round((102000.0 + eff_min) / config.get_digi_payout_rate())
 
 
 def test_process_product_5pct_win_and_columns() -> None:

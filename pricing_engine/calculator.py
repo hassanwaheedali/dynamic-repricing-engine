@@ -327,6 +327,7 @@ def calculate_floors(
     net_price: float = 0.0,
     personal_comm_pct: float = 0.0,
     insurance_pct: float = 0.0,
+    platform: str = "all",
 ) -> CostFloors:
     """Calculate breakeven costs and absolute minimum profit floors.
 
@@ -347,8 +348,9 @@ def calculate_floors(
         personal_comm_pct: Personal commission percentage on Real Net Profit (default 0.0).
 
     Returns:
-        CostFloors object with 0% margin and hard floors for Alfa and Digi.
+        CostFloors object with 0% margin and hard floors for the active vendor(s).
     """
+    plat = config.normalize_platform(platform, allow_all=True)
     base_min_profit = config.COMPANY_MIN_PROFIT_PKR if min_profit is None else min_profit
 
     if personal_comm_pct > 0:
@@ -368,8 +370,8 @@ def calculate_floors(
         digi_eff_profit = calculate_effective_min_profit(base_min_profit, digi_comm_pct)
         global_eff_profit = calculate_effective_min_profit(base_min_profit, eff_pct)
 
-        alfa_personal_comm = round(alfa_eff_profit - base_min_profit)
-        digi_personal_comm = round(digi_eff_profit - base_min_profit)
+        alfa_personal_comm = round(alfa_eff_profit - base_min_profit) if plat in {"all", "alfa"} else 0
+        digi_personal_comm = round(digi_eff_profit - base_min_profit) if plat in {"all", "digi"} else 0
         personal_comm = round(global_eff_profit - base_min_profit)
     else:
         alfa_eff_profit = base_min_profit
@@ -378,23 +380,29 @@ def calculate_floors(
         digi_personal_comm = 0
         personal_comm = 0
 
-    alfa_rate = config.get_alfa_payout_rate()
-    digi_std_rate = config.get_digi_standard_payout_rate()
-    digi_lev_rate = config.get_digi_leverage_payout_rate()
+    # Resolve only the active platform(s) so an invalid inactive vendor rate never breaks single-platform runs
+    if plat in {"all", "alfa"}:
+        alfa_rate = config.get_alfa_payout_rate()
+        zero_margin_alfa = cost_base / alfa_rate
+        floor_alfa = (cost_base + alfa_eff_profit) / alfa_rate
+    else:
+        zero_margin_alfa = 0.0
+        floor_alfa = 0.0
 
-    zero_margin_10 = cost_base / alfa_rate
-    zero_margin_8 = cost_base / digi_lev_rate
-    floor_alfa = (cost_base + alfa_eff_profit) / alfa_rate
-    floor_digi_10 = (cost_base + digi_eff_profit) / digi_std_rate
-    floor_digi_8 = (cost_base + digi_eff_profit) / digi_lev_rate
+    if plat in {"all", "digi"}:
+        digi_rate = config.get_digi_payout_rate()
+        zero_margin_digi = cost_base / digi_rate
+        floor_digi = (cost_base + digi_eff_profit) / digi_rate
+    else:
+        zero_margin_digi = 0.0
+        floor_digi = 0.0
 
     return CostFloors(
         cost_base=cost_base,
-        zero_margin_10=zero_margin_10,
-        zero_margin_8=zero_margin_8,
+        zero_margin_alfa=zero_margin_alfa,
+        zero_margin_digi=zero_margin_digi,
         floor_alfa=floor_alfa,
-        floor_digi_10=floor_digi_10,
-        floor_digi_8=floor_digi_8,
+        floor_digi=floor_digi,
         personal_comm=personal_comm,
         alfa_personal_comm=alfa_personal_comm,
         digi_personal_comm=digi_personal_comm,
@@ -412,10 +420,10 @@ def calculate_baseline(
     Args:
         cost_base: Landed cost base (already includes category insurance, if any).
         target_profit: Target profit margin from input catalog.
-        payout_rate: Bank payout rate multiplier (default: config.get_alfa_payout_rate() -> 0.90).
+        payout_rate: Bank payout rate multiplier (default: config.get_alfa_payout_rate()).
 
     Returns:
-        Baseline catalog price at given or standard platform commission payout rate.
+        Baseline catalog price at given or AlfaMall configured payout rate.
     """
     rate = config.get_alfa_payout_rate() if payout_rate is None else payout_rate
     return (cost_base + target_profit) / rate
@@ -508,7 +516,7 @@ def get_monopoly_psychological_price(raw_target: float) -> int:
     """Calculate attractive psychological price when 0 competitors exist.
 
     Args:
-        raw_target: Calculated target price (cost_base + monopoly_profit) / 0.90.
+        raw_target: Calculated target price (cost_base + monopoly_profit) / payout_rate.
 
     Returns:
         Psychological price ending in 999 or 499.
@@ -535,7 +543,7 @@ def get_fallback_psychological_price(
     Args:
         cost_base: Landed cost base.
         floor_min: Absolute minimum floor.
-        payout_rate: Bank payout rate (e.g. 0.92 for Digi, 0.90 for Alfa).
+        payout_rate: Configured vendor payout rate (1 - commission/100).
         profit_target: Minimum target profit (defaults to config.FALLBACK_PROFIT_PKR).
 
     Returns:
@@ -598,7 +606,6 @@ def calculate_adaptive_target_price(
     Returns:
         Target ceiling price before psychological rounding.
     """
-    eff_payout = config.get_alfa_payout_rate() if payout_rate is None else payout_rate
     eff_large_gap = (
         config.LARGE_GAP_PROFIT_CAP_PKR
         if large_gap_profit_target is None
@@ -632,6 +639,7 @@ def calculate_adaptive_target_price(
 
     # Tier 1: Gap >= 10,000 PKR (4 Zeros) -> Option A: Profit-targeted sweet spot (~10k)
     competitor_ceiling = competitor_price - undercut_buffer
+    eff_payout = config.get_alfa_payout_rate() if payout_rate is None else payout_rate
     if cost_base is not None and eff_payout > 0:
         target_profit_price = (cost_base + eff_large_gap) / eff_payout
         # Smooth continuity from Tier 2 (floor + 5,000) up to target_profit_price:

@@ -39,16 +39,14 @@ def test_calculate_floors() -> None:
     floors = calculate_floors(cost_base=cost_base)
 
     alfa_payout = config.get_alfa_payout_rate()
-    digi_std_payout = config.get_digi_standard_payout_rate()
-    digi_lev_payout = config.get_digi_leverage_payout_rate()
+    digi_payout = config.get_digi_payout_rate()
     min_profit = config.COMPANY_MIN_PROFIT_PKR
 
-    assert math.isclose(floors.zero_margin_10, cost_base / alfa_payout, rel_tol=1e-5)
-    assert math.isclose(floors.zero_margin_8, cost_base / digi_lev_payout, rel_tol=1e-4)
+    assert math.isclose(floors.zero_margin_alfa, cost_base / alfa_payout, rel_tol=1e-6)
+    assert math.isclose(floors.zero_margin_digi, cost_base / digi_payout, rel_tol=1e-6)
 
-    assert math.isclose(floors.floor_alfa, (cost_base + min_profit) / alfa_payout, rel_tol=1e-4)
-    assert math.isclose(floors.floor_digi_10, (cost_base + min_profit) / digi_std_payout, rel_tol=1e-4)
-    assert math.isclose(floors.floor_digi_8, (cost_base + min_profit) / digi_lev_payout, rel_tol=1e-4)
+    assert math.isclose(floors.floor_alfa, (cost_base + min_profit) / alfa_payout, rel_tol=1e-6)
+    assert math.isclose(floors.floor_digi, (cost_base + min_profit) / digi_payout, rel_tol=1e-6)
 
 
 def test_calculate_baseline() -> None:
@@ -169,9 +167,9 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     # Gap >= 10,000 PKR: Item #1 scenario
     # Landed Cost = 430,291
     cost_base = 430291.0
-    payout_rate = config.get_digi_leverage_payout_rate()
+    payout_rate = config.get_digi_payout_rate()
     profit_cap = config.LARGE_GAP_PROFIT_CAP_PKR
-    floor = calculate_floors(cost_base).floor_digi_10
+    floor = calculate_floors(cost_base).floor_digi
     competitor = 489999.0
     target = calculate_adaptive_target_price(
         floor_min=floor,
@@ -187,9 +185,9 @@ def test_adaptive_target_4_zeros_large_gap_item1() -> None:
     assert price is not None
     assert price < competitor
     assert price >= floor
-    # Profit at winning price on DigiMall: (price * payout_rate) - cost_base
+    # Profit at winning price on DigiMall is capped near profit_cap (within max 300 PKR psychological step)
     profit = round((price * payout_rate) - cost_base)
-    assert profit >= profit_cap
+    assert profit_cap - 300 <= profit <= profit_cap + 1
 
 
 def test_tier2_to_tier1_boundary_continuity_no_cliff() -> None:
@@ -239,14 +237,14 @@ def test_tier2_to_tier1_boundary_continuity_no_cliff() -> None:
     )
     p_25000 = find_winning_psychological_price(floor, comp_25000, max_ceiling=t_25000)
     assert p_25000 is not None
-    assert round((p_25000 * payout_rate) - cost_base) >= config.LARGE_GAP_PROFIT_CAP_PKR - 100
+    assert round((p_25000 * payout_rate) - cost_base) >= config.LARGE_GAP_PROFIT_CAP_PKR - 300
 
 
 def test_tight_margin_under_100_selects_round_50_item18() -> None:
     # Item #18 scenario: Gap < 100 PKR
     # System selects clean rounded price below competitor
     cost_base = 158663.0
-    payout_rate = config.get_digi_leverage_payout_rate()
+    payout_rate = config.get_digi_payout_rate()
     floor_min = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / payout_rate
     competitor = math.ceil(floor_min) + 95.0
 
@@ -270,7 +268,7 @@ def test_tight_margin_under_100_selects_round_50_item18() -> None:
 def test_undercut_gap_150_selects_round_50_when_no_psychological_price() -> None:
     # Gap = 150 PKR
     cost_base = 158663.0
-    payout_rate = config.get_digi_leverage_payout_rate()
+    payout_rate = config.get_digi_payout_rate()
     floor_min = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / payout_rate
     competitor = math.ceil(floor_min) + 150.0
 
@@ -331,7 +329,7 @@ def test_tight_gaps_roundoff_matrix() -> None:
 def test_fallback_psychological_price_always_ends_in_999() -> None:
     # Item #17 numbers: Cost base 137,125
     cost_base = 137125.0
-    payout_rate = config.get_digi_leverage_payout_rate()
+    payout_rate = config.get_digi_payout_rate()
     profit_target = config.FALLBACK_PROFIT_PKR
     floor_min = (cost_base + config.COMPANY_MIN_PROFIT_PKR) / payout_rate
     price = get_fallback_psychological_price(
