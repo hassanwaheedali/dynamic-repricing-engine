@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from pricing_engine.checkpoint import merge_records_in_order
 from pricing_engine.digi_discovery import generate_digimall_plan
 from pricing_engine.digi_transport import DigiDiscoveryContext
 from pricing_engine.evaluator import evaluate_market_range
@@ -51,6 +52,7 @@ from pricing_engine.models import (
     ScrapeResult,
 )
 from pricing_engine.pipeline import parse_product_input
+from pricing_engine.run_control import RerunMode, RunExecution, gather_workers
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 console = Console(legacy_windows=False)
@@ -460,6 +462,31 @@ async def run_range_pipeline(
     verbose: bool = True,
     export_dir: str | Path | None = None,
     platform: str = "all",
+    resume: bool = True,
+    rerun: RerunMode | None = None,
+) -> pd.DataFrame:
+    """Own shared resources for fresh or targeted market-range discovery."""
+    plat = platform.lower().strip()
+    if plat not in {"all", "alfa", "digi"}:
+        raise ValueError(f"Unsupported platform: '{platform}'. Must be 'all', 'alfa', or 'digi'.")
+    path = Path(input_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Input file not found at: {path}")
+    root = Path(export_dir) if export_dir is not None else resolve_option_output_dir(path, option=2)
+    with RunExecution(
+        path, "range", [root, root / "csv", root / "xlsx"],
+        platform=plat, resume=resume, rerun=rerun, verbose=verbose,
+    ) as execution:
+        return await _run_range_owned(path, concurrency, verbose, root, plat, execution=execution)
+
+
+async def _run_range_owned(
+    input_path: str | Path,
+    concurrency: int = 3,
+    verbose: bool = True,
+    export_dir: str | Path | None = None,
+    platform: str = "all",
+    *, execution: RunExecution,
 ) -> pd.DataFrame:
     """Run Market Range Mode on a Brand+Name catalog and export CSV + XLSX.
 
@@ -482,6 +509,7 @@ async def run_range_pipeline(
         raise FileNotFoundError(f"Input file not found at: {path}")
 
     products = load_range_products(path)
+    execution.prepare(products)
     clear_scraper_cache()
     start = time.perf_counter()
 
@@ -494,10 +522,10 @@ async def run_range_pipeline(
     tasks: list[asyncio.Task[dict[str, Any]]] = []
 
     async with AsyncSession(impersonate="chrome120") as session:
-        for i, product in enumerate(products):
-            if plat != "all":
+        try:
+            for run_idx, i in enumerate(execution.comparison.to_run):
                 coro = process_range_item_async(
-                    product,
+                    products[i],
                     session,
                     semaphore,
                     render_lock=render_lock,
@@ -507,22 +535,20 @@ async def run_range_pipeline(
                     platform=plat,
                     digi_context=digi_context,
                 )
-            else:
-                coro = process_range_item_async(
-                    product,
-                    session,
-                    semaphore,
-                    render_lock=render_lock,
-                    verbose=verbose,
-                    item_index=i + 1,
-                    total_items=len(products),
-                    digi_context=digi_context,
-                )
-            tasks.append(asyncio.create_task(coro))
-            if i < len(products) - 1 and RANGE_STAGGER_SECONDS > 0:
-                await asyncio.sleep(RANGE_STAGGER_SECONDS)
-        records = await asyncio.gather(*tasks)  # gather preserves submission order
+                tasks.append(asyncio.create_task(execution.worker(i, coro)))
+                if run_idx < len(execution.comparison.to_run) - 1 and RANGE_STAGGER_SECONDS > 0:
+                    await asyncio.sleep(RANGE_STAGGER_SECONDS)
+            resolved = await gather_workers(tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
+    records = merge_records_in_order(
+        execution.cached, dict(zip(execution.comparison.to_run, resolved, strict=True)), len(products),
+    )
+    execution.before_publication()
     out_df = pd.DataFrame(records)
     resolved_export_dir = (
         Path(export_dir) if export_dir is not None else resolve_option_output_dir(path, option=2)
@@ -530,6 +556,7 @@ async def run_range_pipeline(
     manifest = export_range_results(
         out_df, path, output_dir=resolved_export_dir, render_panel=False, platform=plat
     )
+    execution.finish()
 
     if verbose:
         render_range_summary(list(records))

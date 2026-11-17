@@ -121,7 +121,14 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Ignore any existing checkpoint and start processing fresh from row 1",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--rerun", choices=["targeted", "full"], default=None,
+        help="Target changed/new/pending rows, or refresh all rows (headless default: full)",
+    )
+    args = parser.parse_args()
+    if not args.resume and args.rerun == "targeted":
+        parser.error("--rerun targeted conflicts with --no-resume/--fresh")
+    return args
 
 
 ARTIFACT_FILENAME_PATTERN = re.compile(
@@ -293,6 +300,8 @@ async def main() -> int:
                     concurrency=args.concurrency,
                     verbose=not args.quiet,
                     platform=target_platform,
+                    resume=args.resume,
+                    rerun=args.rerun,
                 )
                 continue
             effective_out = output_path if len(target_catalogs) == 1 else None
@@ -305,6 +314,7 @@ async def main() -> int:
                 platform=target_platform,
                 personal_comm_pct=personal_comm_pct,
                 resume=args.resume,
+                rerun=args.rerun,
             )
         except Exception as exc:
             console.print(

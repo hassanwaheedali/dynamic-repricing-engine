@@ -53,6 +53,16 @@ class InMemoryRegistry:
     _is_initialized: bool = False
 
     @classmethod
+    def signature_data(cls) -> dict[str, Any]:
+        """Return deterministic public matching data, without clients or credentials."""
+        cls._ensure_initialized()
+        return {
+            "capacities": sorted((*key, value) for key, value in cls._capacity_cache.items()),
+            "aliases": sorted((*key, value) for key, value in cls._alias_to_tag.items()),
+            "tags": sorted((*key, sorted(value)) for key, value in cls._tag_to_aliases.items()),
+        }
+
+    @classmethod
     def _ensure_initialized(cls) -> None:
         if not cls._is_initialized:
             cls.reset_to_defaults()

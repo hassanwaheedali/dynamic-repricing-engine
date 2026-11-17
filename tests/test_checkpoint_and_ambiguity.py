@@ -343,6 +343,7 @@ def test_pipeline_end_to_end_checkpoint_and_resume(tmp_path: Path) -> None:
                 use_structured_export=True,
                 export_dir=export_dir,
                 resume=True,
+                rerun="targeted",
             )
 
         assert len(out_df2) == 2

@@ -282,6 +282,7 @@ def test_incomplete_pipeline_rows_retry_on_resume_and_capped_rows_do_not(
                 verbose=False,
                 platform="digi",
                 concurrency=1,
+                rerun="targeted",
             )
         assert digi.call_count == 3
         assert isinstance(digi.call_args_list[0].args[1], DigiQueryPlan)

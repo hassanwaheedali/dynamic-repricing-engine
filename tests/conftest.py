@@ -6,6 +6,7 @@ settings from config.py rather than duplicating hardcoded rates, fees, or thresh
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,6 +14,14 @@ import pytest
 import config
 from pricing_engine.calculator import calculate_floors
 from pricing_engine.models import CostFloors
+
+
+@pytest.fixture(autouse=True)
+def isolate_run_state(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """File-based tests must never leave persistent run state for real catalogs."""
+    if "tmp_path" in request.fixturenames:
+        temporary: Path = request.getfixturevalue("tmp_path")
+        monkeypatch.setattr("pricing_engine.checkpoint.DEFAULT_CHECKPOINT_DIR", temporary / "run-state")
 
 
 @pytest.fixture

@@ -21,6 +21,8 @@ import config
 from pricing_engine.digi_discovery import DIGI_DISCOVERY_POLICY_VERSION
 from pricing_engine.matcher import MATCHER_POLICY_VERSION
 from pricing_engine.models import CheckpointState
+from pricing_engine.run_lock import canonical_path
+from pricing_engine.state_io import atomic_json, digest
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +100,13 @@ def get_checkpoint_dir(base_dir: Path = DEFAULT_CHECKPOINT_DIR) -> Path:
     return base_dir
 
 
-def get_checkpoint_path(catalog_path: Path, checkpoint_dir: Path | None = None) -> Path:
+def get_checkpoint_path(
+    catalog_path: Path, checkpoint_dir: Path | None = None, *, mode: str = "reprice",
+) -> Path:
     """Get standard checkpoint JSON path for a given catalog file."""
     c_dir = get_checkpoint_dir(checkpoint_dir or DEFAULT_CHECKPOINT_DIR)
-    return c_dir / f"{catalog_path.stem}.checkpoint.json"
+    key = digest([canonical_path(catalog_path), mode])[:24]
+    return c_dir / f"{catalog_path.stem}.{key}.checkpoint.json"
 
 
 def save_checkpoint(
@@ -120,10 +125,7 @@ def save_checkpoint(
     raw_data["row_fingerprints"] = {str(k): v for k, v in state.row_fingerprints.items()}
     raw_data["pending_reasons"] = {str(k): v for k, v in state.pending_reasons.items()}
 
-    tmp_path = c_path.with_suffix(".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(raw_data, f, indent=2, ensure_ascii=False)
-    tmp_path.replace(c_path)
+    atomic_json(c_path, raw_data)
     return c_path
 
 
@@ -133,6 +135,8 @@ def load_checkpoint(
 ) -> CheckpointState | None:
     """Load and parse checkpoint state if valid file exists on disk."""
     c_path = get_checkpoint_path(catalog_path, checkpoint_dir)
+    if not c_path.is_file():
+        c_path = c_path.parent / f"{catalog_path.stem}.checkpoint.json"
     if not c_path.is_file():
         return None
 
@@ -230,6 +234,6 @@ def merge_records_in_order(
         if idx in all_merged:
             combined.append(all_merged[idx])
         else:
-            logger.warning("Row index %d missing during checkpoint merge", idx)
+            raise ValueError(f"Row index {idx} missing during checkpoint merge; export stopped")
 
     return combined

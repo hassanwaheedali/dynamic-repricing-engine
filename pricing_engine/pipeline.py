@@ -28,12 +28,7 @@ from pricing_engine.calculator import (
     split_real_profit,
 )
 from pricing_engine.checkpoint import (
-    compute_row_fingerprint,
-    delete_checkpoint,
-    detect_dirty_or_pending_rows,
-    load_checkpoint,
     merge_records_in_order,
-    save_checkpoint,
 )
 from pricing_engine.db import SupabaseClient
 from pricing_engine.digi_discovery import format_digimall_summary, generate_digimall_plan
@@ -75,7 +70,6 @@ from pricing_engine.models import (
     STATUS_INCOMPLETE_DISCOVERY,
     STATUS_SERVER_DOWN,
     WINNING_5PCT_GOALS,
-    CheckpointState,
     CostFloors,
     PlatformPricingResult,
     ProductInput,
@@ -89,6 +83,7 @@ from pricing_engine.models import (
     resolve_non_competitor_kind,
 )
 from pricing_engine.registry import InMemoryRegistry
+from pricing_engine.run_control import RerunMode, RunExecution, gather_workers
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 default_learner = AutonomousLearner()
@@ -2179,6 +2174,39 @@ async def run_pipeline(
     platform: str = "all",
     personal_comm_pct: float = 0.0,
     resume: bool = True,
+    rerun: RerunMode | None = None,
+) -> pd.DataFrame:
+    """Own shared resources for a fresh or explicitly targeted repricing run."""
+    plat = config.normalize_platform(platform, allow_all=True)
+    path = Path(input_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Input file not found at: {path}")
+    root = (
+        Path(output_path).parent if output_path is not None else
+        Path(export_dir) if export_dir is not None else
+        resolve_option_output_dir(path, option=3 if personal_comm_pct > 0 else 1)
+    )
+    directories = [root, root / "csv", root / "xlsx"]
+    with RunExecution(
+        path, "reprice", directories, platform=plat, personal_comm_pct=personal_comm_pct,
+        resume=resume, rerun=rerun, verbose=verbose,
+    ) as execution:
+        return await _run_pipeline_owned(
+            path, output_path, concurrency, verbose, use_structured_export, export_dir,
+            plat, personal_comm_pct, execution=execution,
+        )
+
+
+async def _run_pipeline_owned(
+    input_path: str | Path,
+    output_path: str | Path | None = None,
+    concurrency: int = 3,
+    verbose: bool = True,
+    use_structured_export: bool = False,
+    export_dir: str | Path | None = None,
+    platform: str = "all",
+    personal_comm_pct: float = 0.0,
+    *, execution: RunExecution,
 ) -> pd.DataFrame:
     """Run dynamic repricing pipeline on an input CSV and export results to output CSV.
 
@@ -2201,7 +2229,7 @@ async def run_pipeline(
         export_dir: Directory where structured outputs are saved (default: data/outputs).
         platform: Target e-commerce platform ('all', 'alfa', or 'digi', default: 'all').
         personal_comm_pct: Personal commission percentage on Net Price (default: 0.0).
-        resume: Whether to resume from existing checkpoint if available (default: True).
+        execution: Validated run owner and shared recovery lifecycle.
 
     Returns:
         Processed DataFrame with repriced data.
@@ -2241,28 +2269,10 @@ async def run_pipeline(
                 resolved_export_dir / "csv" / f"{input_path.stem}_repriced_latest.csv"
             )
 
-        checkpoint_state = load_checkpoint(input_path) if resume else None
-        rows_to_run: list[int] = []
-        cached_records: dict[int, dict[str, Any]] = {}
-        row_fingerprints: dict[int, str] = {}
-
-        for idx, row in df.iterrows():
-            i = int(idx)
-            row_fingerprints[i] = compute_row_fingerprint(
-                row, platform=plat, personal_comm_pct=personal_comm_pct
-            )
-
-        if checkpoint_state is not None:
-            rows_to_run, cached_records = detect_dirty_or_pending_rows(
-                df, checkpoint_state, platform=plat, personal_comm_pct=personal_comm_pct
-            )
-            if verbose and cached_records:
-                console.print(
-                    f"[bold green]⚡ Resumed from checkpoint:[/] Loaded {len(cached_records)} completed item(s) from cache; "
-                    f"executing {len(rows_to_run)} pending/modified item(s)."
-                )
-        else:
-            rows_to_run = [int(idx) for idx in df.index]
+        products = [parse_product_input(int(idx), row) for idx, row in df.iterrows()]
+        execution.prepare(products)
+        rows_to_run = execution.comparison.to_run
+        cached_records = execution.cached
 
         if verbose:
             render_start_banner(
@@ -2287,13 +2297,11 @@ async def run_pipeline(
         tasks: list[asyncio.Task[dict[str, Any]]] = []
 
         async with AsyncSession(impersonate="chrome120") as session:
-            for run_i, idx in enumerate(rows_to_run):
-                row = df.iloc[idx]
-                product = parse_product_input(idx, row)
-                task = asyncio.create_task(
-                    _process_item_worker(
+            try:
+                for run_i, idx in enumerate(rows_to_run):
+                    work = _process_item_worker(
                         idx=int(idx),
-                        product=product,
+                        product=products[idx],
                         session=session,
                         semaphore=semaphore,
                         render_lock=render_lock,
@@ -2303,22 +2311,19 @@ async def run_pipeline(
                         personal_comm_pct=personal_comm_pct,
                         digi_context=digi_context,
                     )
-                )
-                tasks.append(task)
-                if run_i < len(rows_to_run) - 1:
-                    # Micro-stagger launch by 400ms to eliminate burst wave against WAF
-                    await asyncio.sleep(0.4)
-
-            try:
-                raw_records = await asyncio.gather(*tasks) if tasks else []
+                    tasks.append(asyncio.create_task(execution.worker(idx, work)))
+                    if run_i < len(rows_to_run) - 1:
+                        await asyncio.sleep(0.4)
+                raw_records = await gather_workers(tasks)
             finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 if dispatcher is not None:
                     await dispatcher.flush()
 
-        newly_resolved_records: dict[int, dict[str, Any]] = {}
-        for r in raw_records:
-            orig_idx = int(r.pop("_original_idx", 0))
-            newly_resolved_records[orig_idx] = r
+        newly_resolved_records = dict(zip(rows_to_run, raw_records, strict=True))
 
         # Deterministically merge cached and newly resolved records in exact original 0..N-1 row order
         records = merge_records_in_order(
@@ -2327,48 +2332,7 @@ async def run_pipeline(
             total_items=len(df),
         )
 
-        # Persist or clean up checkpoint state
-        all_completed = {**cached_records, **newly_resolved_records}
-        pending_indices: list[int] = []
-        pending_reasons: dict[int, str] = {}
-
-        for i, rec in all_completed.items():
-            is_ambiguous = (
-                "AMBIGUOUS" in str(rec.get("Alfa Risk Alert", ""))
-                or "AMBIGUOUS" in str(rec.get("Digi Risk Alert", ""))
-                or "SKIPPED (Ambiguous" in str(rec.get("Alfa Reason", ""))
-                or "SKIPPED (Ambiguous" in str(rec.get("Digi Reason", ""))
-            )
-            retry_discovery = rec.get("Digi Discovery Coverage") in {
-                "FAILED",
-                "INCOMPLETE",
-                "UNKNOWN",
-            }
-            if is_ambiguous or retry_discovery:
-                pending_indices.append(i)
-                pending_reasons[i] = (
-                    str(rec.get("Digi Discovery Detail", ""))
-                    if retry_discovery
-                    else str(rec.get("Alfa Reason", "AMBIGUOUS_MULTI_VARIANT"))
-                )
-
-        if pending_indices:
-            clean_completed = {
-                i: rec for i, rec in all_completed.items() if i not in pending_indices
-            }
-            new_state = CheckpointState(
-                catalog_name=input_path.name,
-                catalog_path=str(input_path),
-                catalog_mtime=input_path.stat().st_mtime,
-                total_items=len(df),
-                completed_records=clean_completed,
-                row_fingerprints=row_fingerprints,
-                pending_indices=pending_indices,
-                pending_reasons=pending_reasons,
-            )
-            save_checkpoint(input_path, new_state)
-        else:
-            delete_checkpoint(input_path)
+        execution.before_publication()
 
         # Mixed/ambiguous rows can introduce columns after the first record; normalize schema once.
         out_df = normalize_export_dataframe(pd.DataFrame(records))
@@ -2423,6 +2387,8 @@ async def run_pipeline(
                     personal_comm_pct=personal_comm_pct,
                     platform=plat,
                 )
+
+        execution.finish()
 
         if supabase_client.is_configured and default_learner.buffer_size > 0:
             flushed_count = await default_learner.flush_observations(supabase_client)
