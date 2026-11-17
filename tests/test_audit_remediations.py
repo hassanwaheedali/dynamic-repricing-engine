@@ -728,15 +728,16 @@ def test_aud_med_02_multicolor_slash_and_crosscheck_badge() -> None:
     assert "CROSS-CHECK" in summary_cell
 
 
-def test_aud_med_03_iot_crosscheck_and_multimodifier_join() -> None:
-    """AUD-MED-03: Extra candidate IOT/WIFI on numeric stems requires cross-check; multi-modifiers join."""
-    # Candidate adds IOT on a pure-numeric refrigerator stem -> base match with market cross-check
+def test_aud_med_03_pg_m01_connectivity_is_inactive_and_multimodifier_join() -> None:
+    """PG-M01 disables connectivity prose; genuine omitted finish modifiers still join."""
+    # Extra IOT/Smart prose does not change identity, tier or notices.
     t_iot = extract_product_slots("Haier HRF-458 Refrigerator", brand="Haier")
     dec_iot = referee_match(t_iot, "Haier HRF-458 IOT Smart Refrigerator", brand="Haier")
-    assert dec_iot.is_match is False
-    assert dec_iot.is_base_match is True
-    assert dec_iot.modifier_source == "market"
-    assert dec_iot.missing_modifier is not None and "IOT" in dec_iot.missing_modifier
+    assert dec_iot.is_match is True
+    assert dec_iot.is_base_match is False
+    assert dec_iot.match_tier == 1
+    assert dec_iot.missing_modifier is None
+    assert dec_iot.compatibility_notice is None
 
     # Target has both Glass Door (GD) and Inverter, candidate omits both -> both reported in base match
     t_multi = extract_product_slots(

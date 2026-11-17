@@ -357,31 +357,37 @@ def test_reg_06_internal_ambiguity_t3_non_t3_rejected() -> None:
     assert "ambiguous specification conflict" in dec.reason.lower()
 
 
-def test_reg_07_internal_ambiguity_wifi_without_wifi_rejected() -> None:
-    """REG-07: Candidate claiming both 'WiFi' and 'Without-WiFi' -> Rule A 100% REJECT."""
+def test_reg_07_pg_m01_wifi_prose_does_not_create_internal_ambiguity() -> None:
+    """PG-M01: WiFi/Without-WiFi prose is inactive even when both occur."""
     cand_slots = extract_product_slots("Dawlance Inverter WiFi Without-WiFi AC", brand="Dawlance")
-    assert "WIFI" in cand_slots.guarded_facets.ambiguous_capabilities
+    assert "WIFI" not in cand_slots.guarded_facets.ambiguous_capabilities
+    assert "WIFI" not in cand_slots.guarded_facets.capabilities
+    assert "WIFI" not in cand_slots.guarded_facets.negative_capabilities
 
     dec = referee_match(
         "Dawlance 1.5 Ton Sprinter 30 Inverter AC",
         "Dawlance 1.5 Ton Sprinter 30 Inverter WiFi Without-WiFi AC",
         brand="Dawlance",
     )
-    assert dec.is_match is False
-    assert dec.match_tier is None
-    assert "ambiguous specification conflict" in dec.reason.lower()
+    assert dec.is_match is True
+    assert dec.match_tier == 1
+    assert dec.is_base_match is False
+    assert dec.missing_modifier is None
+    assert dec.compatibility_notice is None
 
 
-def test_reg_08_negated_wifi_contradiction_rejected() -> None:
-    """REG-08: Target(+WIFI) vs Candidate(Without-WiFi) -> Rule B 100% REJECT."""
+def test_reg_08_pg_m01_negated_wifi_prose_preserves_exact_identity() -> None:
+    """PG-M01: Target WiFi versus candidate Without-WiFi carries no identity constraint."""
     dec = referee_match(
         "Dawlance Sprinter 30 WiFi Inverter AC",
         "Dawlance Sprinter 30 Without-WiFi Inverter AC",
         brand="Dawlance",
     )
-    assert dec.is_match is False
-    assert dec.match_tier is None
-    assert "contradiction" in dec.reason.lower()
+    assert dec.is_match is True
+    assert dec.match_tier == 1
+    assert dec.is_base_match is False
+    assert dec.missing_modifier is None
+    assert dec.compatibility_notice is None
 
 
 def test_reg_09_optional_t3_prose_rule_c_notice() -> None:
@@ -1255,39 +1261,39 @@ def test_adv_04_tier_3_sibling_enforces_guarded_facet_invariance_and_tier_2_repo
     assert "T3" in dec_t2_co.compatibility_notice
 
 
-def test_adv_05_smart_polarity_contradiction_and_ambiguity_on_tvs_and_wifi_cooccurrence() -> None:
-    """Smart vs Non-Smart rejects on TVs (Rule B) and Smart+Non-Smart rejects even alongside WiFi (Rule A)."""
+def test_adv_05_pg_m01_smart_and_wifi_prose_is_inactive_including_tvs() -> None:
+    """PG-M01 disables Smart/Non-Smart ambiguity and opposition on TVs and ACs."""
     dec_tv_contra_1 = referee_match(
         "TCL 32 Inch Smart LED TV 32S5400",
         "TCL 32 Inch Non-Smart LED TV 32S5400",
         brand="TCL",
     )
-    assert dec_tv_contra_1.is_match is False
-    assert dec_tv_contra_1.match_tier is None
 
     dec_tv_contra_2 = referee_match(
         "TCL 32 Inch Non-Smart LED TV 32S5400",
         "TCL 32 Inch Smart LED TV 32S5400",
         brand="TCL",
     )
-    assert dec_tv_contra_2.is_match is False
-    assert dec_tv_contra_2.match_tier is None
 
     dec_tv_ambig = referee_match(
         "TCL 32 Inch Smart LED TV 32S5400",
         "TCL 32 Inch Smart Non-Smart LED TV 32S5400",
         brand="TCL",
     )
-    assert dec_tv_ambig.is_match is False
-    assert "Ambiguous" in dec_tv_ambig.reason
 
     dec_wifi_ambig = referee_match(
         "Haier 1.5 Ton WiFi Inverter AC HSU-18HFP",
         "Haier 1.5 Ton WiFi Smart Non-Smart Inverter AC HSU-18HFP",
         brand="Haier",
     )
-    assert dec_wifi_ambig.is_match is False
-    assert "Ambiguous" in dec_wifi_ambig.reason
+    for decision in (dec_tv_contra_1, dec_tv_contra_2, dec_tv_ambig, dec_wifi_ambig):
+        assert decision.is_match is True
+        assert decision.match_tier == 1
+        assert decision.is_base_match is False
+        assert decision.missing_modifier is None
+        assert decision.compatibility_notice is None
+        assert decision.candidate_slots is not None
+        assert not decision.candidate_slots.guarded_facets.ambiguous_capabilities
 
 
 def test_adv_06_non_exhaustive_waterfall_continues_past_sold_out_tier_1_to_instock_tier_2() -> None:

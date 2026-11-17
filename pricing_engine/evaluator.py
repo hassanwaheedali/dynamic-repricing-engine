@@ -316,7 +316,12 @@ def _apply_compatibility_and_fallback_annotations(
         return replace(res, compatibility_notice=raw_compat_notice)
 
     if raw_compat_notice:
-        return replace(res, compatibility_notice=raw_compat_notice)
+        # Exact advisories need the same reason marker consumed by CSV/XLSX
+        # and terminal summaries. Real fallbacks were already annotated above.
+        reason = res.reason
+        if not active_fallback and raw_compat_notice not in reason:
+            reason = f"{raw_compat_notice} {reason}"
+        return replace(res, reason=reason, compatibility_notice=raw_compat_notice)
     return res
 
 

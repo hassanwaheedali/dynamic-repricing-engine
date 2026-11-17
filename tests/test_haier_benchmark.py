@@ -179,7 +179,8 @@ def test_haier_referee_variant_tag_collision_guard() -> None:
     cand_conflicting = "Haier Air Fryer HAF-50DB Dark Brown"
     dec_rej = referee_match(target_mb, cand_conflicting, brand="Haier")
     assert dec_rej.is_match is False
-    assert "Variant tag collision" in dec_rej.reason
+    assert dec_rej.is_base_match is False
+    assert dec_rej.reason_code == "MODEL_CONFLICT"
 
 
 def test_haier_referee_operating_mode_collision_guard() -> None:

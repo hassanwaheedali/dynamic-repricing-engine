@@ -626,7 +626,7 @@ def test_category1_single_door_and_double_door_isolation() -> None:
 
 
 def test_category2_generic_hardware_capabilities_comprehensive() -> None:
-    """Category 2: Generic hardware capabilities (T3, ES8, ES, INVERTER, WIFI, IOT) with zero hardcoding."""
+    """Preserve real T3/ES constraints while PG-M01 disables WiFi/IOT/Smart prose."""
     from pricing_engine.matcher import referee_match
 
     # 1. T3 Target vs Omitted Candidate -> Base Match
@@ -657,13 +657,15 @@ def test_category2_generic_hardware_capabilities_comprehensive() -> None:
     assert dec_es_match.is_match is True
     assert dec_es_match.is_base_match is False
 
-    # 6. WiFi Target vs Omitted Candidate -> Base Match
+    # 6. PG-M01: WiFi prose omission leaves the model exact without a warning.
     dec_wifi = referee_match("18AITH24S WiFi", "Gree GS-18AITH24S Inverter AC", brand="Gree")
-    assert dec_wifi.is_match is False
-    assert dec_wifi.is_base_match is True
-    assert dec_wifi.missing_modifier == "WIFI"
+    assert dec_wifi.is_match is True
+    assert dec_wifi.is_base_match is False
+    assert dec_wifi.match_tier == 1
+    assert dec_wifi.missing_modifier is None
+    assert dec_wifi.compatibility_notice is None
 
-    # 7. IoT Target vs Smart Candidate -> Full Match
+    # 7. PG-M01: IoT/Smart prose does not constrain otherwise equal identity.
     dec_iot_smart = referee_match(
         "HRF-418 TIFG1U1 (IOT)",
         "Haier HRF-418 TIFG1U1 Glass Door Smart Refrigerator",
@@ -804,15 +806,20 @@ def test_dynamic_post_model_arbitrary_codes_category2() -> None:
     assert dec_fallback.is_base_match is True
     assert dec_fallback.missing_modifier == "IFGA"
 
-    # 4. 4907 Base Target vs 4907 IFGA Upgraded Candidate -> Hard Mismatch
+    # 4. PG-M01: candidate-only loose IFGA is advisory; it cannot prove an upgrade.
     dec_upgraded = referee_match(
         "Dawlance 4907 Refrigerator",
         "Dawlance 4907 IFGA Refrigerator",
         brand="Dawlance",
     )
-    assert dec_upgraded.is_match is False
+    assert dec_upgraded.is_match is True
     assert dec_upgraded.is_base_match is False
-    assert "Hardware capability mismatch" in dec_upgraded.reason
+    assert dec_upgraded.match_tier == 1
+    assert dec_upgraded.missing_modifier is None
+    assert dec_upgraded.detected_variant is None
+    assert dec_upgraded.compatibility_notice == (
+        "⚠️ [CROSS-CHECK NOTICE: Market listing includes 'IFGA' not specified in target catalog]"
+    )
 
     # 5. Gree 24 HDZ UV vs Gree 24 HDZ -> Fallback to Base Model with UV warning
     dec_hdz_uv_base = referee_match(

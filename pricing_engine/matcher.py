@@ -11,7 +11,7 @@ from pricing_engine.registry import (
 )
 
 OPT_TAG_RE = re.compile(r"\[(?:OPT|ALLOW|IGNORE):([^\]]+)\]", re.IGNORECASE)
-MATCHER_POLICY_VERSION = "product-evidence-v7-consolidated"
+MATCHER_POLICY_VERSION = "product-evidence-v8-model-tag-provenance"
 MatchReasonCode = Literal[
     "ACCEPTED", "BASE_MATCH", "SIBLING_MATCH", "BRAND_CONFLICT", "MODEL_CONFLICT",
     "FACET_CONFLICT", "SERIES_CONFLICT", "SERIES_UNCERTAIN", "MISSING_IDENTITY",
@@ -53,10 +53,10 @@ class GuardedFacets:
     is_inverter: bool | None = None  # True if Inverter, False if Non-Inverter / Fixed Speed
     capabilities: set[str] = field(
         default_factory=set
-    )  # Additive hardware capabilities: T3, INVERTER, WIFI, IOT, ES, UV, ADS+
+    )  # Explicit retained capabilities: T3/T4, UV, ADS/ADS+ (not loose model words)
     negative_capabilities: set[str] = field(
         default_factory=set
-    )  # Explicitly negated capabilities: Non-T3, Without-WiFi, Non-ADS+
+    )  # Explicitly negated retained capabilities: Non-T3, Non-ADS+
     ambiguous_capabilities: set[str] = field(
         default_factory=set
     )  # Quarantined contradictory capabilities within same title: T3 + Non-T3
@@ -64,6 +64,15 @@ class GuardedFacets:
         default_factory=set
     )  # Permitted optional hardware tags (e.g. T3, QC0)
     color_source: Literal["none", "explicit", "code", "sku"] = "none"
+
+
+@dataclass(frozen=True)
+class _ModelTag:
+    """One source-observed code, with original attachment and sequence intact."""
+
+    code: str
+    attached: bool
+    source_index: int
 
 
 @dataclass
@@ -78,6 +87,16 @@ class ProductSlots:
     base_stem: str = ""  # Decomposed 2-digit capacity + 3-letter AC core series stem (e.g. '18HFP')
     sub_model_tag: str = ""  # Optional 1-2 letter AC sub-edition tag (e.g. 'CA', 'E')
     normalized_title: str = ""
+    model_tags: tuple[_ModelTag, ...] = ()
+
+    @property
+    def bound_model_tags(self) -> set[str]:
+        return {tag.code for tag in self.model_tags if tag.attached}
+
+    @property
+    def model_designations(self) -> tuple[str, ...]:
+        # Catalog codes are declared constraints; listing codes are observations.
+        return tuple(tag.code for tag in self.model_tags if not tag.attached)
 
 
 @dataclass
@@ -105,6 +124,14 @@ class MatchDecision:
         return self.reason_code in {
             "BRAND_CONFLICT", "MODEL_CONFLICT", "FACET_CONFLICT", "SERIES_CONFLICT",
         }
+
+
+def _cross_check_notice(designation: str) -> str:
+    """Canonical existing sentence for observed market-added designations."""
+    return (
+        f"⚠️ [CROSS-CHECK NOTICE: Market listing includes '{designation}' "
+        "not specified in target catalog]"
+    )
 
 
 # ==============================================================================
@@ -328,7 +355,15 @@ SUBORDINATE_AC_SLASH_RE = re.compile(
 
 # Boundary-safe generic capability polarity scanner ((?!\w) preserves trailing '+' in ADS+)
 CAPABILITY_POLARITY_PATTERN = re.compile(
-    r"\b(?:(NON|NO|WITHOUT|NOT)[-_\s]*)?(T[-_\s]?[34]|UV|ADS\+?|WIFI|WI-FI|IOT|SMART)(?!\w)",
+    r"\b(?:(NON|NO|WITHOUT|NOT)[-_\s]*)?(T[-_\s]?[34]|UV|ADS\+?)(?!\w)",
+    re.IGNORECASE,
+)
+
+# Disabled as independent matching criteria by the approved PG-M01 policy.
+# This vocabulary has one owner; literal model components are protected below.
+_CONNECTIVITY_PROSE_PATTERN = re.compile(
+    r"\b(?:(?:NON|NO|WITHOUT|NOT)[-_\s]*)?"
+    r"(?:WI[-_\s]?FI|IOT|SMART|(?:GOOGLE|ANDROID)(?:\s+TV)?|WEBOS|VIDAA)(?!\w)",
     re.IGNORECASE,
 )
 
@@ -336,8 +371,6 @@ CAPABILITY_POLARITY_PATTERN = re.compile(
 def _normalize_capability_token(raw_tok: str) -> str:
     """Normalize capability token while preserving trailing '+' on ADS+."""
     tok = re.sub(r"[-_\s]", "", raw_tok).upper()
-    if tok == "WIFI":
-        return "WIFI"
     if tok.startswith("ADS"):
         return "ADS+" if tok.endswith("+") else "ADS"
     return tok
@@ -1370,13 +1403,27 @@ def _normalize_sku_separators(text: str) -> str:
 _MODEL_UNIT_SUFFIX_RE = re.compile(
     r"\b(?P<prefix>[A-Za-z]{2,4})[-_\s]+(?P<number>\d{3,6})[-_\s]*(?P<suffix>[WL])\b", re.I
 )
+_ATTACHED_MODEL_RE = re.compile(
+    r"\b(?:[A-Za-z]{2,5}[-_]\d+[A-Za-z0-9]*(?:[-_][A-Za-z0-9+]+)*"
+    r"|\d+[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9+]+)+)\b",
+    re.I,
+)
+_FEATURE_COUNT_PATTERN = re.compile(r"\b\d{1,2}(?:\s*[-_]\s*[A-Za-z]+)+(?![\w-])", re.I)
 
 
 def _strip_category_measurements(text: str) -> str:
     """Protect structurally prefixed model spans before category/unit removal."""
-    pattern = rf"(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})|(?:{CATEGORY_PATTERNS.pattern})|(?:{CAPACITY_MEASUREMENT_PATTERN})"
+    pattern = (
+        rf"(?P<attached_model>{_ATTACHED_MODEL_RE.pattern})"
+        rf"|(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})"
+        rf"|(?:{_FEATURE_COUNT_PATTERN.pattern})"
+        rf"|(?:{CATEGORY_PATTERNS.pattern})|(?:{CAPACITY_MEASUREMENT_PATTERN})"
+    )
 
     def remove_or_preserve(match: re.Match[str]) -> str:
+        if match.group("attached_model"):
+            model = match.group("attached_model")
+            return model if _has_model_anchor(model) else CATEGORY_PATTERNS.sub(" ", model)
         if match.group("model"):
             if match.group("prefix").upper() not in NON_SKU_TOKENS:
                 return match.group("model")
@@ -1394,6 +1441,11 @@ def is_dimension_or_spec_token(token: str) -> bool:
     if parse_capacity(clean) is not None:
         return True
     if re.match(r"^T\d+$", clean, re.IGNORECASE):
+        return True
+    # A short count followed by a hyphenated word is feature prose, not an
+    # independent model (4-Way, 3-Speed, ...). Real prefixed/compound model
+    # evidence remains intact; never split the count into a bare anchor.
+    if _FEATURE_COUNT_PATTERN.fullmatch(clean):
         return True
     # 4-digit calendar years (e.g. 2024, 2025, 2026) are model-year specs, not SKU model codes
     if re.match(r"^(?:19|20)\d{2}$", clean):
@@ -1458,6 +1510,34 @@ def is_sku_variant_tag(token: str) -> bool:
         return bool(re.search(r"[A-Za-z]", clean)) and len(digits) <= 2 and len(clean) <= 4
     # 2 to 4 letter variant codes (e.g. ES, SD, DD, FLT, IFGA, IPPA, CHZP, TIFG, TIFB)
     return 2 <= len(clean) <= 4 and clean.isalpha()
+
+
+def _has_model_anchor(token: str) -> bool:
+    """Require numeric model evidence to survive removal of auxiliary tags.
+
+    A series badge such as Pular-T3 cannot supply an anchor merely because T3
+    contains a digit. Likewise a feature count must not leave a bare 4 behind.
+    """
+    if is_dimension_or_spec_token(token):
+        return False
+    core, _ = extract_tag(token)
+    return bool(re.search(r"\d", core)) and not is_dimension_or_spec_token(core)
+
+
+def _strip_connectivity_prose(text: str) -> str:
+    """Ignore disabled prose while keeping its literal spelling inside models."""
+    model_spans = [
+        match.span()
+        for match in re.finditer(r"\S+", text)
+        if _has_model_anchor(match[0].strip("()[]{}.,|\"'"))
+    ]
+
+    def remove_unbound(match: re.Match[str]) -> str:
+        if any(start <= match.start() and match.end() <= end for start, end in model_spans):
+            return match[0]
+        return " "
+
+    return _CONNECTIVITY_PROSE_PATTERN.sub(remove_unbound, text)
 
 
 # Universal AC capacity code → tonnage mapping (Gree, Haier, Orient, PEL, Kenwood, EcoStar, TCL, Midea, etc.)
@@ -1535,6 +1615,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     """
     full_name_clean, _ = extract_and_strip_opt_tags(_normalize_sku_separators(full_name))
     full_name_clean = _strip_trailing_seller_clauses(full_name_clean)
+    full_name_clean = _strip_connectivity_prose(full_name_clean)
     full_name_clean = _canonicalize_plus_series(full_name_clean)
     full_name_clean = _normalize_ac_transposed_cap_x(full_name_clean, brand=brand)
     clean = (
@@ -1779,10 +1860,15 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
                     )
                 ):
                     suf_tok = raw_tokens[i + 2].strip("()[]-.,_ \"'")
-                    if len(nxt) <= 2:
-                        tokens.append(f"{t}-{nxt}{suf_tok}")
+                    # Preserve the existing single-letter model/colour alias.
+                    # A following word stays separate: formatting a prefix/core
+                    # boundary never gives loose prose suffix authority.
+                    if len(suf_tok) == 1:
+                        joiner = "" if len(nxt) <= 2 else "-"
+                        tokens.append(f"{t}-{nxt}{joiner}{suf_tok}")
                     else:
-                        tokens.append(f"{t}-{nxt}-{suf_tok}")
+                        tokens.append(f"{t}-{nxt}")
+                        tokens.append(suf_tok)
                     i += 3
                     continue
                 tokens.append(f"{t}-{nxt}")
@@ -1816,7 +1902,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
             if (
                 len(t_clean) >= 3
                 and re.search(r"\d", t_clean)
-                and not is_dimension_or_spec_token(t_clean)
+                and _has_model_anchor(t_clean)
                 and re.match(r"^[A-Za-z0-9\-_\/]+$", t_clean)
             ):
                 model_tokens.append(t_clean)
@@ -3292,17 +3378,30 @@ def _text_after_anchor(clean_title: str, anchor: str) -> str | None:
     return None
 
 
-def _adjacent_model_tags(text: str, anchor: str, orthogonal_tags: set[str]) -> list[str]:
-    """Extract contiguous variant codes, stopping at ordinary product prose.
+def _adjacent_model_tags(text: str, orthogonal_tags: set[str]) -> list[str]:
+    """Observe contiguous code-like designations; stop at product/spec prose.
 
-    A self-contained alphanumeric SKU does not need an arbitrary following word
-    to establish its identity. Compact suffix codes and explicit feature codes
-    retain their existing meaning; numeric stems can require longer edition tags.
+    This nominates tokens for source-role classification. Adjacency alone does
+    not make a token verified hardware or strengthen the selected model.
     """
-    _, core = _strip_leading_sku_prefix(re.sub(r"[^A-Z0-9]", "", anchor.upper()), anchor)
-    complete_code = bool(re.search(r"\d[A-Z]+", core))
     tags: list[str] = []
+    source_tokens: list[str] = []
     for raw in text.lstrip(" -_").split():
+        parts = re.split(r"[-_]", raw.strip("()[]-.,_ \"'/|"))
+        # A separate code sequence can use spaces or delimiters. Only expand
+        # an all-code sequence; feature/negation prose still ends observation.
+        if (
+            len(parts) > 1
+            and all(
+                is_sku_variant_tag(part) and part.upper() not in NON_SKU_TOKENS
+                for part in parts
+            )
+            and not CAPABILITY_POLARITY_PATTERN.fullmatch(raw)
+        ):
+            source_tokens.extend(parts)
+        else:
+            source_tokens.append(raw)
+    for raw in source_tokens:
         token = raw.strip("()[]-.,_ \"'/|").upper()
         if token in orthogonal_tags:
             tags.append(token)
@@ -3320,10 +3419,34 @@ def _adjacent_model_tags(text: str, anchor: str, orthogonal_tags: set[str]) -> l
             break
         if not is_sku_variant_tag(token):
             break
-        if complete_code and token.isalpha() and len(token) > 2:
-            break
         tags.append(token)
     return tags
+
+
+def _model_tag_from_source(source: str, anchor: str, tag: str) -> _ModelTag:
+    """Read a nominated code's position and attachment from its source model."""
+    # Extraction can leave a preceding code inside a partial anchor. Read the
+    # entire suffix sequence from its core, rather than the order in which
+    # individual extraction paths nominated those codes.
+    while anchor:
+        core, suffix = extract_tag(anchor)
+        if not suffix or core == anchor:
+            break
+        anchor = core
+    # Use the existing spelling normalizer on both views; it preserves the
+    # whitespace boundary that distinguishes a loose word from a bound suffix.
+    tail = _text_after_anchor(normalize_technical_slashes(source), anchor)
+    if not tail:
+        return _ModelTag(tag, attached=False, source_index=len(source))
+    occurrence = re.search(rf"(?<![A-Za-z0-9+]){re.escape(tag)}(?![A-Za-z0-9+])", tail, re.I)
+    if occurrence is None:
+        return _ModelTag(tag, attached=False, source_index=len(source))
+    attached = re.match(r"[-_]?[A-Za-z][A-Za-z0-9+]*(?:[-_][A-Za-z0-9+]+)*", tail)
+    return _ModelTag(
+        tag,
+        attached=bool(attached and occurrence.end() <= attached.end()),
+        source_index=occurrence.start(),
+    )
 
 
 def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
@@ -3402,8 +3525,10 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
 
     raw_clean = MERCHANT_TRACKING_CODE_RE.sub(" ", raw_clean)
-    clean_title = _bind_standalone_measurement_units(
-        _join_spaced_ac_btu_sku(normalize_technical_slashes(raw_clean))
+    clean_title = _strip_connectivity_prose(
+        _bind_standalone_measurement_units(
+            _join_spaced_ac_btu_sku(normalize_technical_slashes(raw_clean))
+        )
     )
     first_w = clean_title.split()[0] if clean_title else ""
     detected_brand = brand.strip() or (first_w if first_w and not re.search(r"\d", first_w) else "")
@@ -3419,8 +3544,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
     first_token_tag = ""
     if (
-        re.search(r"\d", first_token)
-        and not is_dimension_or_spec_token(first_token)
+        _has_model_anchor(first_token)
         and not (first_token.isdigit() and first_token in all_known_cap_codes)
     ):
         core_stem, first_token_tag = extract_tag(first_token)
@@ -3741,28 +3865,15 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         norm_pol_tok = _normalize_capability_token(m_pol.group(2))
         polarity_matches.append((has_neg, norm_pol_tok))
 
-    has_pos_wifi = any(not neg and tok == "WIFI" for neg, tok in polarity_matches)
     for has_neg, norm_pol_tok in polarity_matches:
-        eff_tok = (
-            "SMART"
-            if (norm_pol_tok == "SMART" and is_display)
-            else ("IOT" if norm_pol_tok == "SMART" else norm_pol_tok)
-        )
         if has_neg:
-            raw_neg_caps.add(eff_tok)
+            raw_neg_caps.add(norm_pol_tok)
         else:
-            raw_pos_caps.add(eff_tok)
-
-    if is_display and re.search(
-        r"\b(?:GOOGLE\s+TV|ANDROID(?:\s+TV)?|WEBOS|VIDAA)\b", clean_title, re.IGNORECASE
-    ):
-        raw_pos_caps.add("SMART")
+            raw_pos_caps.add(norm_pol_tok)
 
     ambiguous_caps: set[str] = set(raw_pos_caps & raw_neg_caps)
     if ({"ADS", "ADS+"} & raw_pos_caps) and ({"ADS", "ADS+"} & raw_neg_caps):
         ambiguous_caps |= ({"ADS", "ADS+"} & (raw_pos_caps | raw_neg_caps))
-    if has_pos_wifi and "IOT" not in ambiguous_caps and "IOT" not in raw_neg_caps:
-        raw_pos_caps.discard("IOT")
     neg_caps: set[str] = set(raw_neg_caps - ambiguous_caps)
     caps: set[str] = set(raw_pos_caps - ambiguous_caps)
 
@@ -3815,20 +3926,15 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     if anchor:
         post_anchor = _text_after_anchor(clean_title_for_post, anchor)
         if post_anchor is not None:
-            candidate_tokens.extend(_adjacent_model_tags(post_anchor, anchor, dedicated_orthogonal_slots | caps))
-
-    # D. Glued trailing code on numeric stem >= 3 digits (e.g. DWT11467ES -> ES, 11467ES8 -> ES8)
-    m_glued_stem = re.search(r"\b[A-Za-z]{0,4}(\d{3,})([A-Za-z]{2,4})\b", clean_title)
-    if m_glued_stem:
-        glued_tag = m_glued_stem.group(2).upper()
-        if is_sku_variant_tag(glued_tag):
-            candidate_tokens.append(glued_tag)
+            candidate_tokens.extend(_adjacent_model_tags(post_anchor, dedicated_orthogonal_slots | caps))
 
     anc_core, _ = extract_tag(anchor) if anchor else ("", "")
     norm_anc = anc_core.replace("-", "").upper() if anc_core else ""
 
-    # Distribute candidate tokens into Category 1 vs Category 2:
-    for tok in candidate_tokens:
+    # Keep observed model codes separate from explicit physical capabilities.
+    # A word's length/position can nominate a designation, never prove hardware.
+    model_tags: list[_ModelTag] = []
+    for tok in dict.fromkeys(candidate_tokens):
         if parse_capacity(tok) is not None:
             continue
         if tok in dedicated_orthogonal_slots:
@@ -3840,8 +3946,12 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
             continue
         if tok == "ADS" and "ADS+" in caps:
             continue
-        # Category 2: All other hardware/variant codes go here dynamically (e.g. ES, ES8, T3, T4, UV, S6)!
-        caps.add(tok)
+        if tok in neg_caps | ambiguous_caps:
+            continue
+        observed_tag = _model_tag_from_source(title_no_opt, anchor, tok)
+        if observed_tag.attached or tok not in caps:
+            model_tags.append(observed_tag)
+    model_tags.sort(key=lambda tag: tag.source_index)
 
     # Enforce strict polarity quarantine: negated or ambiguous tokens can never leak into positive caps
     caps -= neg_caps | ambiguous_caps | {"NON", "WITHOUT", "NOT", "NONT3", "NONT4"}
@@ -4009,6 +4119,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         base_stem=base_stem,
         sub_model_tag=sub_model_tag,
         normalized_title=normalized_title,
+        model_tags=tuple(model_tags),
     )
 
 
@@ -4073,8 +4184,10 @@ def _complete_sku_evidence_level(
     Returns:
         "self_contained": complex alphanumeric model (e.g. WA80CK4240BWRT, 18PITH17G, 18HFP)
             whose identity is complete enough to tolerate omitted/prose series differences.
-        "qualified": prefix + >=3-digit numeric model paired with encoded capability/color code
-            (e.g. DWSI 2322 CX, DWMM 6001 W); tolerates omitted prose when no conflicting sub-series exists.
+        "qualified": prefix + >=3-digit numeric model paired with a shared catalog
+            model code or encoded colour (e.g. DWSI 2322 CX, DWMM 6001 W).
+            Source spacing does not invalidate a matching declared code; a
+            candidate-only designation cannot supply this qualification.
         "none": ordinary numeric/2-letter-suffix stem (e.g. 9149WB, 9178LF) requiring series checks.
     """
     if not target.anchor or not candidate.anchor:
@@ -4091,7 +4204,10 @@ def _complete_sku_evidence_level(
         prefix
         and re.search(r"\d{3,}", core_t)
         and (
-            bool(target.guarded_facets.capabilities - {"INVERTER"})
+            bool(
+                (target.bound_model_tags | set(target.model_designations))
+                & (candidate.bound_model_tags | set(candidate.model_designations))
+            )
             or target.guarded_facets.color_source in {"sku", "code"}
         )
     )
@@ -4196,6 +4312,15 @@ def _evaluate_anchor_compatibility(
     norm_c_eq = re.sub(r"(\d)INV$", r"\1", norm_c.replace("SAVEIN", "SVN"))
     if norm_t_eq == norm_c_eq:
         return True, None
+
+    # Preserve an existing spaced/glued code alias without manufacturing a
+    # suffix while extracting either source. The catalog must declare the code.
+    for declared, shorter, longer in (
+        (target_slots, norm_t_eq, norm_c_eq),
+        (cand_slots, norm_c_eq, norm_t_eq),
+    ):
+        if any(longer == shorter + code for code in declared.model_designations):
+            return True, None
 
     _, stem_t = _strip_leading_sku_prefix(norm_t_eq, target_slots.anchor, brand=brand)
     _, stem_c = _strip_leading_sku_prefix(norm_c_eq, cand_slots.anchor, brand=brand)
@@ -4669,10 +4794,7 @@ def _referee_match(
                     dec.missing_modifier = f"Dual-Color ({joined_cols})"
                     dec.modifier_source = "market"
                     if not dec.compatibility_notice:
-                        dec.compatibility_notice = (
-                            f"⚠️ [CROSS-CHECK NOTICE: Market listing includes "
-                            f"'{dec.missing_modifier}' not specified in target catalog]"
-                        )
+                        dec.compatibility_notice = _cross_check_notice(dec.missing_modifier)
                 return dec
         for dec in decs:
             if dec.is_base_match or dec.match_tier == 2:
@@ -5649,9 +5771,48 @@ def _referee_match(
 
     # 3. Guarded Facets Zero-Tolerance Checks
     # 3a. Generic Category 2 Hardware Capabilities & Modifiers Engine (Zero Hardcoding, Pure Dynamic Set Logic)
-    target_caps = target_slots.guarded_facets.capabilities
-    cand_caps = cand_slots.guarded_facets.capabilities
+    target_caps = (
+        target_slots.guarded_facets.capabilities
+        | target_slots.bound_model_tags
+        | set(target_slots.model_designations)
+    )
+    cand_caps = (
+        cand_slots.guarded_facets.capabilities
+        | cand_slots.bound_model_tags
+        | set(cand_slots.model_designations)
+    )
+    declared_order = tuple(
+        tag.code
+        for tag in target_slots.model_tags
+        if tag.code not in target_slots.guarded_facets.capabilities
+    )
+    observed_order = tuple(tag.code for tag in cand_slots.model_tags if tag.code in declared_order)
+    # A declared short-model code may remain inside the candidate anchor
+    # (AX 50 ES -> AX-50ES). Include that source-leading component in the same
+    # comparison, so the spaced/glued alias cannot bypass declaration order.
+    target_anchor_code = re.sub(r"[^A-Z0-9]", "", target_slots.anchor.upper())
+    candidate_anchor_code = re.sub(r"[^A-Z0-9]", "", cand_slots.anchor.upper())
+    if target_anchor_code and candidate_anchor_code.startswith(target_anchor_code):
+        glued_code = candidate_anchor_code[len(target_anchor_code):]
+        if glued_code in declared_order and glued_code not in observed_order:
+            cand_caps.add(glued_code)
+            observed_order = (glued_code, *observed_order)
+    target_codes = set(target_slots.model_designations) | target_slots.bound_model_tags
+    missing_declared_tags = target_codes - cand_caps
+    advisory_designations = {
+        code for code in set(cand_slots.model_designations) - target_caps
+        if code not in target_slots.anchor.upper()
+    }
     target_series_toks = normalize_series_tokens(target_slots.series)
+
+    if declared_order and not missing_declared_tags and observed_order != declared_order:
+        return MatchDecision(
+            is_match=False,
+            reason="Declared model-code sequence mismatch: source code order differs",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+            reason_code="MODEL_CONFLICT",
+        )
 
     # Check if target title specifies optional/allowed feature tags like [OPT:T3,QC0] or [ALLOW:T3]
     allowed_feature_tags = set(target_slots.guarded_facets.allowed_feature_tags)
@@ -5703,9 +5864,9 @@ def _referee_match(
         for c in (cand_caps - target_caps)
         if not (match_basis == "model" and target_slots.anchor and c in target_slots.anchor.upper())
         and c not in target_series_toks
-        and c not in {"WIFI", "IOT", "SMART"}
         and c not in allowed_feature_tags
         and not (c == "T3" and has_inherent_prose_t3)
+        and not (c in advisory_designations and not missing_declared_tags)
     }
     if extra_cand_caps:
         extra_str = ", ".join(sorted(extra_cand_caps))
@@ -5718,38 +5879,17 @@ def _referee_match(
             is_base_match=False,
         )
 
-    # AUD-MED-03: If target is a pure numeric base stem (e.g. HRF-458, DW-7650) without WIFI/IOT and candidate adds IOT/WIFI,
-    # classify as market-added cross-check fallback rather than a silent exact match (while preserving inherent Wi-Fi prose on full alphanumeric AC SKUs like HSU-19HFS).
-    extra_conn_caps = {
-        c
-        for c in (cand_caps - target_caps)
-        if c in {"WIFI", "IOT", "SMART"} and c not in allowed_feature_tags
-    }
-    if extra_conn_caps:
-        stripped_t_anc = re.sub(r"^[A-Z]{2,4}[-_]?", "", (target_slots.anchor or "").upper())
-        if match_basis == "series" or not stripped_t_anc or stripped_t_anc.isdigit():
-            conn_str = ", ".join(sorted(extra_conn_caps))
-            omitted_fallbacks.append(
-                (
-                    conn_str,
-                    f"Candidate adds connectivity capability ({conn_str}) omitted in target; fallback with cross-check",
-                    "market",
-                )
-            )
-
     # Fallback 2: Target specifies Category 2 modifiers that candidate omitted -> Valid base-model fallback
     missing_target_caps = {
         c
         for c in (target_caps - cand_caps)
         if not (cand_slots.anchor and c in cand_slots.anchor.upper())
-        and not re.search(rf"\b{re.escape(c)}\b", candidate_title, re.IGNORECASE)
-        and not (cand_slots.series and c in cand_slots.series.upper())
-        and c not in allowed_feature_tags
-        and not (
-            c == "SMART"
-            and cand_slots.anchor
-            and not re.sub(r"^[A-Z]{2,4}[-_]?", "", cand_slots.anchor.upper()).isdigit()
+        and (
+            c in target_codes
+            or not re.search(rf"\b{re.escape(c)}\b", candidate_title, re.IGNORECASE)
         )
+        and (c in target_codes or not (cand_slots.series and c in cand_slots.series.upper()))
+        and c not in allowed_feature_tags
     }
     if missing_target_caps:
         missing_str = ", ".join(sorted(missing_target_caps))
@@ -5887,10 +6027,7 @@ def _referee_match(
         if ac_base_model_notice is not None:
             tier2_notice = ac_base_model_notice
         elif primary_source == "market":
-            tier2_notice = (
-                f"⚠️ [CROSS-CHECK NOTICE: Market listing includes '{final_mod}' "
-                "not specified in target catalog]"
-            )
+            tier2_notice = _cross_check_notice(final_mod)
         else:
             tier2_notice = (
                 f"⚠️ [FALLBACK MODEL: Target specified '{final_mod}', "
@@ -5931,6 +6068,13 @@ def _referee_match(
             "ℹ️ [OPTIONAL SPECIFICATION: Target did not specify 'T3', "
             "but market listing specifies 'T3']"
         )
+
+    # A source-only loose designation is advisory after every identity/core
+    # guard passes. It supplies neither fallback metadata nor a verified variant.
+    advisory_designations -= target_series_toks | allowed_feature_tags
+    if advisory_designations:
+        advisory = _cross_check_notice(", ".join(sorted(advisory_designations)))
+        tier1_notice = f"{tier1_notice} {advisory}" if tier1_notice else advisory
 
     matched_id = target_slots.anchor or target_slots.series or "Target"
     reason_msg = (

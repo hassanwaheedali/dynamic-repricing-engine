@@ -1192,13 +1192,16 @@ def test_deep_freezer_df300_es_matching() -> None:
     )
     assert res_exact.is_match is True
 
-    # 3. Extra ET hardware capability must be rejected
+    # PG-M01: a seller-only loose designation is advisory, not verified hardware.
     res_extra_et = referee_match(
         target_name,
         "Dawlance Deep Freezer DF300 ES ET",
         brand=brand,
     )
-    assert res_extra_et.is_match is False
+    assert res_extra_et.is_match is True
+    assert res_extra_et.match_tier == 1
+    assert res_extra_et.missing_modifier is None
+    assert "'ET'" in (res_extra_et.compatibility_notice or "")
 
     # 4. Base model omitting ES
     res_base = referee_match(
@@ -1419,7 +1422,9 @@ def test_trailing_capacity_washing_machine_model_extraction() -> None:
 
     t_dwt = "Dawlance DWT 9057 EZ Fully Automatic Washing Machine - 9.5KG"
     _, m_dwt = extract_search_query_and_model(t_dwt, "Dawlance")
-    assert m_dwt == "DWT-9057-EZ"
+    # A separately written code retains its source separation; normalization
+    # must not manufacture originally attached suffix evidence.
+    assert m_dwt == "DWT-9057 EZ"
     slots_dwt = extract_product_slots(t_dwt, "Dawlance")
     assert slots_dwt.anchor == "DWT-9057"
 

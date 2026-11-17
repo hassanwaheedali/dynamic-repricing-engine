@@ -72,7 +72,8 @@ def test_task02_hyphenated_english_descriptors_do_not_inject_capabilities_or_ser
     assert slots.series == ""
     assert slots.guarded_facets.is_inverter is False
     assert "STAR" not in slots.guarded_facets.capabilities
-    assert "EBD" in slots.guarded_facets.capabilities
+    assert "EBD" in slots.model_designations
+    assert "EBD" not in slots.guarded_facets.capabilities
 
 
 def test_task02_zero_percent_markup_and_processing_fees_cleaned() -> None:
@@ -107,7 +108,8 @@ def test_task02_pakistani_cities_and_marketing_words_excluded_from_series() -> N
         brand="Dawlance",
     )
     assert s_noise.series == ""
-    assert "EZ" in s_noise.guarded_facets.capabilities
+    assert "EZ" in s_noise.model_designations
+    assert "EZ" not in s_noise.guarded_facets.capabilities
 
 
 def test_task03_pakistani_price_string_parsing_variants() -> None:

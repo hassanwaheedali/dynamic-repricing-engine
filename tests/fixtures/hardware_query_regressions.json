@@ -1,0 +1,61 @@
+{
+  "policy": "PG-M01: preserve original model-tag attachment and require numeric model evidence beyond a technical badge",
+  "cases": [
+    {
+      "item": 7,
+      "brand": "Dawlance",
+      "title": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron",
+      "reason": "CX is catalog-declared but originally separate; prefix/core normalization must not fabricate an attached suffix.",
+      "queries": [["DWSI-2322 CX", "DWSI 2322 CX", "DWSI-2322"]]
+    },
+    {
+      "item": 28,
+      "brand": "Gree",
+      "title": "Gree Pular-T3 Series GS-18PITH15G-T3 1.5 Ton Inverter Wall Mounted Split Air Conditioner Grey",
+      "reason": "Pular-T3 is a series badge; the real GS SKU supplies numeric model evidence and retains its attached T3 tag.",
+      "queries": [["GS-18PITH15G-T3", "GS 18PITH15G T3", "GS-18PITH15G"]]
+    },
+    {
+      "item": 34,
+      "brand": "Gree",
+      "title": "Gree Pular-T3 Series GS-12PITH17W-T3 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "reason": "Pular-T3 is a series badge; the real GS SKU supplies numeric model evidence and retains its attached T3 tag.",
+      "queries": [["GS-12PITH17W-T3", "GS 12PITH17W T3", "GS-12PITH17W"]]
+    },
+    {
+      "item": 56,
+      "brand": "Dawlance",
+      "title": "Dawlance DWT 1471 FLP 12 KG Top Load Fully Automatic Washing Machine",
+      "reason": "FLP remains a separate catalog-declared designation after prefix/core normalization; no attached suffix is synthesized.",
+      "queries": [["DWT-1471 FLP", "DWT 1471 FLP", "DWT-1471"]]
+    },
+    {
+      "item": 62,
+      "brand": "Dawlance",
+      "title": "Dawlance DW 393 GSS 23 Ltr Grill Microwave Oven",
+      "reason": "GSS remains a separate catalog-declared designation after prefix/core normalization; no attached suffix is synthesized.",
+      "queries": [["DW-393 GSS", "DW 393 GSS", "DW-393"]]
+    },
+    {
+      "item": 72,
+      "brand": "Gree",
+      "title": "Gree Pular-T3 Series GS-12PITH15W-T3 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "reason": "Pular-T3 is a series badge; the real GS SKU supplies numeric model evidence and retains its attached T3 tag.",
+      "queries": [["GS-12PITH15W-T3", "GS 12PITH15W T3", "GS-12PITH15W"]]
+    },
+    {
+      "item": 73,
+      "brand": "Gree",
+      "title": "Gree Pular-T3 Series GS-18PITC12W-T3 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "reason": "Pular-T3 is a series badge; the real GS SKU supplies numeric model evidence and retains its attached T3 tag.",
+      "queries": [["GS-18PITC12W-T3", "GS 18PITC12W T3", "GS-18PITC12W"]]
+    },
+    {
+      "item": 100,
+      "brand": "Dawlance",
+      "title": "Dawlance Dual Pro T3 Inverter 15 1 Ton Dual-Pro-T3 Series Inverter Wall Mounted Split Air Conditioner",
+      "reason": "The T3 badge cannot fabricate a numeric model anchor; existing named-series query construction remains responsible for this catalog title.",
+      "queries": [["Dual Pro T3 15 Dual-Pro-T3", "Dual Pro T3 15 Dual Pro T3"]]
+    }
+  ]
+}
