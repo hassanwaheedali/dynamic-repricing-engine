@@ -1,0 +1,124 @@
+{
+  "before": {
+    "source": "D:\\Pricing Script\\scratch\\offline-baseline-20261117_150233\\source\\pricing_engine\\matcher.py",
+    "cases": [
+      {
+        "id": "mega-smart",
+        "tier": 2,
+        "code": "BASE_MATCH",
+        "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check",
+        "notice": "\u26a0\ufe0f [CROSS-CHECK NOTICE: Market listing includes 'IOT' not specified in target catalog]"
+      },
+      {
+        "id": "glacier-count",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target",
+        "notice": null
+      },
+      {
+        "id": "dwt-eco",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (ECO mismatch): Candidate has extra capability ECO not present in target",
+        "notice": null
+      },
+      {
+        "id": "md15-eco",
+        "tier": null,
+        "code": "MODEL_CONFLICT",
+        "reason": "Anchor model mismatch: MD-15 vs MD-15ECO",
+        "notice": null
+      },
+      {
+        "id": "variant",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (ES8 mismatch): Candidate has extra capability ES8 not present in target",
+        "notice": null
+      },
+      {
+        "id": "t3-t4",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (T4 mismatch): Candidate has extra capability T4 not present in target",
+        "notice": null
+      },
+      {
+        "id": "tv-smart",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability contradiction (SMART): Target and candidate specify opposing polarities",
+        "notice": null
+      },
+      {
+        "id": "iron",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: DWSI-2322 matched with zero guarded facet collisions",
+        "notice": null
+      }
+    ]
+  },
+  "after": {
+    "source": "D:\\Pricing Script\\pricing_engine\\matcher.py",
+    "cases": [
+      {
+        "id": "mega-smart",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: Mega Flex matched with zero guarded facet collisions",
+        "notice": null
+      },
+      {
+        "id": "glacier-count",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: Glacier Pro matched with zero guarded facet collisions",
+        "notice": null
+      },
+      {
+        "id": "dwt-eco",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: DWT-1165 matched with zero guarded facet collisions",
+        "notice": "\u26a0\ufe0f [CROSS-CHECK NOTICE: Market listing includes 'ECO' not specified in target catalog]"
+      },
+      {
+        "id": "md15-eco",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: MD-15 matched with zero guarded facet collisions",
+        "notice": "\u26a0\ufe0f [CROSS-CHECK NOTICE: Market listing includes 'ECO' not specified in target catalog]"
+      },
+      {
+        "id": "variant",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (ES8 mismatch): Candidate has extra capability ES8 not present in target",
+        "notice": null
+      },
+      {
+        "id": "t3-t4",
+        "tier": null,
+        "code": "FACET_CONFLICT",
+        "reason": "Hardware capability mismatch (T4 mismatch): Candidate has extra capability T4 not present in target",
+        "notice": null
+      },
+      {
+        "id": "tv-smart",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: 32S5400 matched with zero guarded facet collisions",
+        "notice": null
+      },
+      {
+        "id": "iron",
+        "tier": 1,
+        "code": "ACCEPTED",
+        "reason": "Accepted: DWSI-2322 matched with zero guarded facet collisions",
+        "notice": null
+      }
+    ]
+  }
+}

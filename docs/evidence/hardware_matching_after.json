@@ -1,0 +1,1537 @@
+{
+  "interpreter": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "corpus": "data\\inputs\\100_Products\\Book1.csv",
+  "corpus_sha256": "7c2b1103dd4f8ea93655e11f4293678ddf574b8a49bd810ef1c0334309fd5978",
+  "row_numbering": "1-based data row, header excluded, no filtering",
+  "self_matches": 100,
+  "controls_passed": 28,
+  "controls": [
+    {
+      "id": "alias",
+      "expected_current_tier": 1,
+      "target": "Dawlance DW-MD 15 20 Ltr Microwave Oven",
+      "candidate": "Dawlance MD 15 20 Ltr Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DW-MD-15 matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "short-prefix",
+      "expected_current_tier": null,
+      "target": "Dawlance DW-MD 15 Microwave Oven",
+      "candidate": "Dawlance DW-15 Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "DW-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "SKU prefix collision: target prefix 'DW-MD' vs candidate prefix 'DW'",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "numeric-boundary",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1165 Washing Machine",
+      "candidate": "Dawlance DWT-11650 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "DWT-11650",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Anchor model mismatch: DWT-1165 vs DWT-11650",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "e-chrome",
+      "expected_current_tier": null,
+      "target": "Dawlance 9149WB E-Chrome Refrigerator",
+      "candidate": "Dawlance 9149WB Chrome Refrigerator",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9149WB",
+        "series": "E-Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "9149WB",
+        "series": "Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "SERIES_CONFLICT",
+      "tier": null,
+      "reason": "Sub-series mismatch: candidate series 'Chrome' conflicts with target 'E-CHROME' on E",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "e-chrome-pro",
+      "expected_current_tier": null,
+      "target": "Dawlance 9149WB E-Chrome Refrigerator",
+      "candidate": "Dawlance 9149WB Chrome Pro Refrigerator",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9149WB",
+        "series": "E-Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "9149WB",
+        "series": "Chrome Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "SERIES_UNCERTAIN",
+      "tier": null,
+      "reason": "Missing required series tokens for any alternative in 'E-Chrome'",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "t3-t4",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP T4 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T4"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (T4 mismatch): Candidate has extra capability T4 not present in target",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "t3-negative",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP Non-T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [
+          "T3"
+        ],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability contradiction (T3): Target and candidate specify opposing polarities",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "t3-omitted",
+      "expected_current_tier": 2,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Hardware capability omitted (T3 mismatch): Target specifies T3 but candidate does not",
+      "compatibility_notice": "\u26a0\ufe0f [FALLBACK MODEL: Target specified 'T3', but market listing omitted 'T3']",
+      "missing_modifier": "T3"
+    },
+    {
+      "id": "t3-prose",
+      "expected_current_tier": 1,
+      "target": "Haier HSU-18HFP Inverter AC",
+      "candidate": "Haier HSU-18HFP T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: HSU-18HFP matched with zero guarded facet collisions",
+      "compatibility_notice": "\u2139\ufe0f [OPTIONAL SPECIFICATION: Target did not specify 'T3', but market listing specifies 'T3']",
+      "missing_modifier": "T3"
+    },
+    {
+      "id": "t3-bound-extra",
+      "expected_current_tier": null,
+      "target": "Gree GS-18AITH24S Inverter AC",
+      "candidate": "Gree GS-18AITH24S-T3 Inverter AC",
+      "brand": "Gree",
+      "target_slots": {
+        "anchor": "GS-18AITH24S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "GS-18AITH24S",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [
+          "T3"
+        ],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (T3 mismatch): Candidate has extra capability T3 not present in target",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "inv-explicit",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Non-Inverter Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Inverter mode collision: target is Inverter vs candidate Non-Inverter",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "inv-omitted",
+      "expected_current_tier": 1,
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "kg-conflict",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 10KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Capacity / screen size mismatch: 8KG vs 10KG",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "color",
+      "expected_current_tier": null,
+      "target": "Gree GS-12AITH21W Inverter AC",
+      "candidate": "Gree GS-12AITH21B Inverter AC",
+      "brand": "Gree",
+      "target_slots": {
+        "anchor": "GS-12AITH21W",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "GS-12AITH21B",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Anchor model mismatch: GS-12AITH21W vs GS-12AITH21B",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "edition",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1165 ES Washing Machine",
+      "candidate": "Dawlance DWT-1165 ES8 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "ES"
+        ]
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "ES8"
+        ]
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (ES8 mismatch): Candidate has extra capability ES8 not present in target",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "edition-missing",
+      "expected_current_tier": 2,
+      "target": "Dawlance DWT-1165 ES Washing Machine",
+      "candidate": "Dawlance DWT-1165 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "ES"
+        ]
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Hardware capability omitted (ES mismatch): Target specifies ES but candidate does not",
+      "compatibility_notice": "\u26a0\ufe0f [FALLBACK MODEL: Target specified 'ES', but market listing omitted 'ES']",
+      "missing_modifier": "ES"
+    },
+    {
+      "id": "door-finish",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Glass Door Refrigerator",
+      "candidate": "Haier HRF-538 Inox Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware finish collision: target is GD vs candidate INOX",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "door-structure",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Single Door Refrigerator",
+      "candidate": "Haier HRF-538 Double Door Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Door structure collision: target is SD vs candidate DD",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "wash-load",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Front Load Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Top Load Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Loading type collision: target is FL vs candidate TL",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "tub",
+      "expected_current_tier": null,
+      "target": "Haier HWM-80-1217 Twin Tub Washing Machine",
+      "candidate": "Haier HWM-80-1217 Single Tub Washing Machine",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Tub type collision: target is TWIN vs candidate SINGLE",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "automation",
+      "expected_current_tier": null,
+      "target": "Haier HWM-80-1217 Fully Automatic Washing Machine",
+      "candidate": "Haier HWM-80-1217 Semi Automatic Washing Machine",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Automation type collision: target is AUTO vs candidate SEMI",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "defrost",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Direct Cool Refrigerator",
+      "candidate": "Haier HRF-538 No Frost Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Defrost type collision: target is DIRECT_COOL vs candidate NO_FROST",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "mount",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP Split AC",
+      "candidate": "Haier HSU-18HFP Floor Standing AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "AC mounting form-factor collision: target is SPLIT vs candidate FLOOR_STANDING",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "mode",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP Cool Only Inverter AC",
+      "candidate": "Haier HSU-18HFP Heat & Cool Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Operating mode collision: Target is Cool Only vs Candidate is Heat & Cool",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "base",
+      "expected_current_tier": 2,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFP 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Base model fallback: target '18HFPCA' matched base model 'HSU-18HFP'",
+      "compatibility_notice": "\u26a0\ufe0f [FALLBACK MODEL: Target specified '18HFPCA', but market listing is base model 'HSU-18HFP']",
+      "missing_modifier": "CA"
+    },
+    {
+      "id": "sibling",
+      "expected_current_tier": 3,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFPE 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFPE",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "SIBLING_MATCH",
+      "tier": 3,
+      "reason": "Sibling sub-model tag collision fallback: target '18HFPCA' vs sibling edition 'HSU-18HFPE' sharing base '18HFP'",
+      "compatibility_notice": "\u26a0\ufe0f [SIBLING SUB-MODEL FALLBACK: Target specified '18HFPCA', but market listing is sibling edition 'HSU-18HFPE' sharing base '18HFP']",
+      "missing_modifier": "CA->E"
+    },
+    {
+      "id": "wrong-series",
+      "expected_current_tier": null,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFA 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Variant tag collision: 18HFPCA vs HSU-18HFA",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "ADS-negative",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1166 ADS+ Washing Machine",
+      "candidate": "Dawlance DWT-1166 Non-ADS+ Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1166",
+        "series": "",
+        "capabilities": [
+          "ADS+"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1166",
+        "series": "",
+        "capabilities": [],
+        "negative": [
+          "ADS+"
+        ],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability contradiction (ADS+): Target and candidate specify opposing polarities",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    }
+  ],
+  "append_probes": 500,
+  "append_counts": {
+    "Smart Frequency => ACCEPTED/T1": 100,
+    "WiFi => ACCEPTED/T1": 100,
+    "Without WiFi => ACCEPTED/T1": 100,
+    "| 4-Way Air Throw => ACCEPTED/T1": 100,
+    "| Premium Performance => ACCEPTED/T1": 100
+  },
+  "changed_append_results": [],
+  "pool_priority_assertions_passed": 3,
+  "pool_replays": {
+    "mega": {
+      "exact": [
+        [
+          "Electronics World",
+          154255.0
+        ],
+        [
+          "Home Cart",
+          164499.0
+        ]
+      ],
+      "base": [],
+      "selected": [
+        [
+          "Electronics World",
+          154255.0
+        ],
+        [
+          "Home Cart",
+          164499.0
+        ]
+      ],
+      "status": "COMPLETE_WITH_OFFERS",
+      "rejected": 0
+    },
+    "eco": {
+      "exact": [
+        [
+          "External Merchant",
+          150000.0
+        ]
+      ],
+      "base": [],
+      "selected": [
+        [
+          "External Merchant",
+          150000.0
+        ]
+      ],
+      "status": "COMPLETE_WITH_OFFERS",
+      "rejected": 0
+    },
+    "glacier": {
+      "exact": [
+        [
+          "External Merchant",
+          150000.0
+        ]
+      ],
+      "base": [],
+      "selected": [
+        [
+          "External Merchant",
+          150000.0
+        ]
+      ],
+      "status": "COMPLETE_WITH_OFFERS",
+      "rejected": 0
+    }
+  },
+  "additional_observations": [
+    {
+      "target": "Dawlance 1.5 Ton Inverter Mega Flex 30 Split Air Conditioner",
+      "candidate": "Dawlance 1.5 Ton Mega Flex 30 Smart Frequency AC",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex Frequency",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: Mega Flex matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "target": "Dawlance 2 Ton Inverter Glacier 45 Pro T3 Floor Standing Air Conditioner",
+      "candidate": "Dawlance 2 Ton Inverter Floor Standing Heat & Cool Air Conditioner (White) | Glacier Pro 45 T3 | 4-Way Air Throw | Gold Fin Coils",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Glacier Pro",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "2T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Glacier Pro Throw",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "2T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: Glacier Pro matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "target": "Dawlance DWT-1165 Washing Machine",
+      "candidate": "Dawlance DWT-1165 ECO Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "ECO"
+        ]
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DWT-1165 matched with zero guarded facet collisions",
+      "compatibility_notice": "\u26a0\ufe0f [CROSS-CHECK NOTICE: Market listing includes 'ECO' not specified in target catalog]",
+      "missing_modifier": null
+    },
+    {
+      "id": "md15-eco",
+      "target": "Dawlance MD 15 20 Ltr Microwave Oven",
+      "candidate": "Dawlance MD 15 ECO 20 Ltr Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "ECO"
+        ]
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: MD-15 matched with zero guarded facet collisions",
+      "compatibility_notice": "\u26a0\ufe0f [CROSS-CHECK NOTICE: Market listing includes 'ECO' not specified in target catalog]",
+      "missing_modifier": null
+    },
+    {
+      "id": "tv-smart-prose",
+      "target": "TCL 32S5400 32 Inch Smart LED TV",
+      "candidate": "TCL 32S5400 32 Inch Non-Smart LED TV",
+      "brand": "TCL",
+      "target_slots": {
+        "anchor": "32S5400",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "32INCH",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "32S5400",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "32INCH",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: 32S5400 matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "iron-preserved",
+      "target": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron",
+      "candidate": "Dawlance Dwsi 2322 CX Steam Iron Fast and efficient ironing",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWSI-2322",
+        "series": "Handheld Corded Steam",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "CX"
+        ]
+      },
+      "candidate_slots": {
+        "anchor": "Dwsi-2322",
+        "series": "Steam efficient ironing",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": [
+          "CX"
+        ]
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DWSI-2322 matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "without-inverter",
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Without Inverter Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "Without",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "target-ambiguity",
+      "target": "Haier HSU-18HFP T3 Non-T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [
+          "T3"
+        ],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: HSU-18HFP matched with zero guarded facet collisions",
+      "compatibility_notice": "\u2139\ufe0f [OPTIONAL SPECIFICATION: Target did not specify 'T3', but market listing specifies 'T3']",
+      "missing_modifier": "T3"
+    },
+    {
+      "id": "litres",
+      "target": "Dawlance DW-MD 15 20 Ltr Microwave Oven",
+      "candidate": "Dawlance MD 15 30 Ltr Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DW-MD-15 matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "multiple-kg",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG 10KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "component-display",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine 6 Inch LED Display",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "Display",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6INCH",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Capacity / screen size mismatch: 8KG vs 6INCH",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "tap-hidden",
+      "target": "Midea YL2037S 3L 2 Taps Water Dispenser 1KG",
+      "candidate": "Midea YL2037S 3L 3 Taps Water Dispenser 1KG",
+      "brand": "Midea",
+      "target_slots": {
+        "anchor": "YL2037S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "YL2037S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: YL2037S matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "missing-capacity",
+      "target": "Dawlance 1.5 Ton Inverter Mega Flex 30 Split AC",
+      "candidate": "Dawlance Mega Flex Inverter Split AC",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": true,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: Mega Flex matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    },
+    {
+      "id": "rpm-suspicion",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine 1400RPM",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "1400RPM",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null,
+        "bound_model_tags": [],
+        "loose_model_designations": []
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions",
+      "compatibility_notice": null,
+      "missing_modifier": null
+    }
+  ],
+  "boundary": "Offline PG-M01 post-correction replay; no marketplace or database requests."
+}

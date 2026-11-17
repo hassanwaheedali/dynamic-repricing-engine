@@ -1,0 +1,3757 @@
+{
+  "interpreter": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "corpus": "data\\inputs\\100_Products\\Book1.csv",
+  "corpus_sha256": "7c2b1103dd4f8ea93655e11f4293678ddf574b8a49bd810ef1c0334309fd5978",
+  "row_numbering": "1-based data row, header excluded, no filtering",
+  "self_matches": 100,
+  "controls_passed": 28,
+  "controls": [
+    {
+      "id": "alias",
+      "expected_current_tier": 1,
+      "target": "Dawlance DW-MD 15 20 Ltr Microwave Oven",
+      "candidate": "Dawlance MD 15 20 Ltr Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DW-MD-15 matched with zero guarded facet collisions"
+    },
+    {
+      "id": "short-prefix",
+      "expected_current_tier": null,
+      "target": "Dawlance DW-MD 15 Microwave Oven",
+      "candidate": "Dawlance DW-15 Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "SKU prefix collision: target prefix 'DW-MD' vs candidate prefix 'DW'"
+    },
+    {
+      "id": "numeric-boundary",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1165 Washing Machine",
+      "candidate": "Dawlance DWT-11650 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-11650",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Anchor model mismatch: DWT-1165 vs DWT-11650"
+    },
+    {
+      "id": "e-chrome",
+      "expected_current_tier": null,
+      "target": "Dawlance 9149WB E-Chrome Refrigerator",
+      "candidate": "Dawlance 9149WB Chrome Refrigerator",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9149WB",
+        "series": "E-Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "9149WB",
+        "series": "Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "SERIES_CONFLICT",
+      "tier": null,
+      "reason": "Sub-series mismatch: candidate series 'Chrome' conflicts with target 'E-CHROME' on E"
+    },
+    {
+      "id": "e-chrome-pro",
+      "expected_current_tier": null,
+      "target": "Dawlance 9149WB E-Chrome Refrigerator",
+      "candidate": "Dawlance 9149WB Chrome Pro Refrigerator",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9149WB",
+        "series": "E-Chrome",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "9149WB",
+        "series": "Chrome Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "SERIES_UNCERTAIN",
+      "tier": null,
+      "reason": "Missing required series tokens for any alternative in 'E-Chrome'"
+    },
+    {
+      "id": "t3-t4",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP T4 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T4"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (T4 mismatch): Candidate has extra capability T4 not present in target"
+    },
+    {
+      "id": "t3-negative",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP Non-T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [
+          "T3"
+        ],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability contradiction (T3): Target and candidate specify opposing polarities"
+    },
+    {
+      "id": "t3-omitted",
+      "expected_current_tier": 2,
+      "target": "Haier HSU-18HFP T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Hardware capability omitted (T3 mismatch): Target specifies T3 but candidate does not"
+    },
+    {
+      "id": "t3-prose",
+      "expected_current_tier": 1,
+      "target": "Haier HSU-18HFP Inverter AC",
+      "candidate": "Haier HSU-18HFP T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: HSU-18HFP matched with zero guarded facet collisions"
+    },
+    {
+      "id": "t3-bound-extra",
+      "expected_current_tier": null,
+      "target": "Gree GS-18AITH24S Inverter AC",
+      "candidate": "Gree GS-18AITH24S-T3 Inverter AC",
+      "brand": "Gree",
+      "target_slots": {
+        "anchor": "GS-18AITH24S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "GS-18AITH24S",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (T3 mismatch): Candidate has extra capability T3 not present in target"
+    },
+    {
+      "id": "inv-explicit",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Non-Inverter Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Inverter mode collision: target is Inverter vs candidate Non-Inverter"
+    },
+    {
+      "id": "inv-omitted",
+      "expected_current_tier": 1,
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions"
+    },
+    {
+      "id": "kg-conflict",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 10KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Capacity / screen size mismatch: 8KG vs 10KG"
+    },
+    {
+      "id": "color",
+      "expected_current_tier": null,
+      "target": "Gree GS-12AITH21W Inverter AC",
+      "candidate": "Gree GS-12AITH21B Inverter AC",
+      "brand": "Gree",
+      "target_slots": {
+        "anchor": "GS-12AITH21W",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "GS-12AITH21B",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Anchor model mismatch: GS-12AITH21W vs GS-12AITH21B"
+    },
+    {
+      "id": "edition",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1165 ES Washing Machine",
+      "candidate": "Dawlance DWT-1165 ES8 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [
+          "ES"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [
+          "ES8"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (ES8 mismatch): Candidate has extra capability ES8 not present in target"
+    },
+    {
+      "id": "edition-missing",
+      "expected_current_tier": 2,
+      "target": "Dawlance DWT-1165 ES Washing Machine",
+      "candidate": "Dawlance DWT-1165 Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [
+          "ES"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Hardware capability omitted (ES mismatch): Target specifies ES but candidate does not"
+    },
+    {
+      "id": "door-finish",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Glass Door Refrigerator",
+      "candidate": "Haier HRF-538 Inox Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware finish collision: target is GD vs candidate INOX"
+    },
+    {
+      "id": "door-structure",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Single Door Refrigerator",
+      "candidate": "Haier HRF-538 Double Door Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Door structure collision: target is SD vs candidate DD"
+    },
+    {
+      "id": "wash-load",
+      "expected_current_tier": null,
+      "target": "Samsung WA80CK4240BWRT 8KG Front Load Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Top Load Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Loading type collision: target is FL vs candidate TL"
+    },
+    {
+      "id": "tub",
+      "expected_current_tier": null,
+      "target": "Haier HWM-80-1217 Twin Tub Washing Machine",
+      "candidate": "Haier HWM-80-1217 Single Tub Washing Machine",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Tub type collision: target is TWIN vs candidate SINGLE"
+    },
+    {
+      "id": "automation",
+      "expected_current_tier": null,
+      "target": "Haier HWM-80-1217 Fully Automatic Washing Machine",
+      "candidate": "Haier HWM-80-1217 Semi Automatic Washing Machine",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HWM-80-1217",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Automation type collision: target is AUTO vs candidate SEMI"
+    },
+    {
+      "id": "defrost",
+      "expected_current_tier": null,
+      "target": "Haier HRF-538 Direct Cool Refrigerator",
+      "candidate": "Haier HRF-538 No Frost Refrigerator",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HRF-538",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Defrost type collision: target is DIRECT_COOL vs candidate NO_FROST"
+    },
+    {
+      "id": "mount",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP Split AC",
+      "candidate": "Haier HSU-18HFP Floor Standing AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "AC mounting form-factor collision: target is SPLIT vs candidate FLOOR_STANDING"
+    },
+    {
+      "id": "mode",
+      "expected_current_tier": null,
+      "target": "Haier HSU-18HFP Cool Only Inverter AC",
+      "candidate": "Haier HSU-18HFP Heat & Cool Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Operating mode collision: Target is Cool Only vs Candidate is Heat & Cool"
+    },
+    {
+      "id": "base",
+      "expected_current_tier": 2,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFP 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Base model fallback: target '18HFPCA' matched base model 'HSU-18HFP'"
+    },
+    {
+      "id": "sibling",
+      "expected_current_tier": 3,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFPE 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFPE",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "SIBLING_MATCH",
+      "tier": 3,
+      "reason": "Sibling sub-model tag collision fallback: target '18HFPCA' vs sibling edition 'HSU-18HFPE' sharing base '18HFP'"
+    },
+    {
+      "id": "wrong-series",
+      "expected_current_tier": null,
+      "target": "Haier 18HFPCA 1.5 Ton Inverter AC",
+      "candidate": "Haier HSU-18HFA 1.5 Ton Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "18HFPCA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFA",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "MODEL_CONFLICT",
+      "tier": null,
+      "reason": "Variant tag collision: 18HFPCA vs HSU-18HFA"
+    },
+    {
+      "id": "ADS-negative",
+      "expected_current_tier": null,
+      "target": "Dawlance DWT-1166 ADS+ Washing Machine",
+      "candidate": "Dawlance DWT-1166 Non-ADS+ Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1166",
+        "series": "",
+        "capabilities": [
+          "ADS+"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1166",
+        "series": "",
+        "capabilities": [],
+        "negative": [
+          "ADS+"
+        ],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability contradiction (ADS+): Target and candidate specify opposing polarities"
+    }
+  ],
+  "append_probes": 500,
+  "append_counts": {
+    "Smart Frequency => BASE_MATCH/T2": 35,
+    "WiFi => BASE_MATCH/T2": 35,
+    "Without WiFi => ACCEPTED/T1": 100,
+    "| 4-Way Air Throw => FACET_CONFLICT/TNone": 14,
+    "| Premium Performance => ACCEPTED/T1": 100,
+    "Smart Frequency => ACCEPTED/T1": 65,
+    "WiFi => ACCEPTED/T1": 65,
+    "| 4-Way Air Throw => ACCEPTED/T1": 86
+  },
+  "changed_append_results": [
+    {
+      "row": 1,
+      "append": " Smart Frequency",
+      "target": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Frost Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 1,
+      "append": " WiFi",
+      "target": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 1,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 20 1.25 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Frost Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.25T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 2,
+      "append": " Smart Frequency",
+      "target": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 2,
+      "append": " WiFi",
+      "target": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 2,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega Flex Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Mega Flex Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 4,
+      "append": " Smart Frequency",
+      "target": "Dawlance Classic Series MD 15 20 Ltr Solo Microwave Oven",
+      "candidate": "Dawlance Classic Series MD 15 20 Ltr Solo Microwave Oven Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "MD-15",
+        "series": "Classic",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "Classic Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 4,
+      "append": " WiFi",
+      "target": "Dawlance Classic Series MD 15 20 Ltr Solo Microwave Oven",
+      "candidate": "Dawlance Classic Series MD 15 20 Ltr Solo Microwave Oven WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "MD-15",
+        "series": "Classic",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "Classic",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 5,
+      "append": " Smart Frequency",
+      "target": "Kenwood Hydro-Wash Series KWM-899 8 KG Non-Inverter Single Tub Semi-Automatic Washing Machine",
+      "candidate": "Kenwood Hydro-Wash Series KWM-899 8 KG Non-Inverter Single Tub Semi-Automatic Washing Machine Smart Frequency",
+      "brand": "Kenwood",
+      "target_slots": {
+        "anchor": "KWM-899",
+        "series": "Hydro-Wash",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "KWM-899",
+        "series": "Hydro-Wash Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 5,
+      "append": " WiFi",
+      "target": "Kenwood Hydro-Wash Series KWM-899 8 KG Non-Inverter Single Tub Semi-Automatic Washing Machine",
+      "candidate": "Kenwood Hydro-Wash Series KWM-899 8 KG Non-Inverter Single Tub Semi-Automatic Washing Machine WiFi",
+      "brand": "Kenwood",
+      "target_slots": {
+        "anchor": "KWM-899",
+        "series": "Hydro-Wash",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "KWM-899",
+        "series": "Hydro-Wash",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 7,
+      "append": " Smart Frequency",
+      "target": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron",
+      "candidate": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWSI-2322",
+        "series": "Handheld Corded Steam",
+        "capabilities": [
+          "CX"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWSI-2322",
+        "series": "Handheld Corded Steam Frequency",
+        "capabilities": [
+          "CX",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 7,
+      "append": " WiFi",
+      "target": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron",
+      "candidate": "Dawlance DWSI 2322 CX Handheld Corded Garment Steam Iron WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWSI-2322",
+        "series": "Handheld Corded Steam",
+        "capabilities": [
+          "CX"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWSI-2322",
+        "series": "Handheld Corded Steam",
+        "capabilities": [
+          "CX",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 8,
+      "append": " Smart Frequency",
+      "target": "Dawlance REF 9106 6 Cu Ft Non-Inverter Single Door Refrigerator Silver",
+      "candidate": "Dawlance REF 9106 6 Cu Ft Non-Inverter Single Door Refrigerator Silver Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9106",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6CFT",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "9106",
+        "series": "Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6CFT",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 8,
+      "append": " WiFi",
+      "target": "Dawlance REF 9106 6 Cu Ft Non-Inverter Single Door Refrigerator Silver",
+      "candidate": "Dawlance REF 9106 6 Cu Ft Non-Inverter Single Door Refrigerator Silver WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9106",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6CFT",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "9106",
+        "series": "",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6CFT",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 12,
+      "append": " Smart Frequency",
+      "target": "Dawlance 9101 4 Cu Ft Non-Inverter Single Door Refrigerator",
+      "candidate": "Dawlance 9101 4 Cu Ft Non-Inverter Single Door Refrigerator Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9101",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "4CFT",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "9101",
+        "series": "Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "4CFT",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 12,
+      "append": " WiFi",
+      "target": "Dawlance 9101 4 Cu Ft Non-Inverter Single Door Refrigerator",
+      "candidate": "Dawlance 9101 4 Cu Ft Non-Inverter Single Door Refrigerator WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9101",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "4CFT",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "9101",
+        "series": "",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "4CFT",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 13,
+      "append": " Smart Frequency",
+      "target": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Frost Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 13,
+      "append": " WiFi",
+      "target": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 13,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Frost Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Frost",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Frost Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 14,
+      "append": " Smart Frequency",
+      "target": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Infinity Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Infinity Pro Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 14,
+      "append": " WiFi",
+      "target": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Infinity Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Infinity Pro",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 14,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Infinity Pro 15 1 Ton Non-Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Infinity Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Infinity Pro Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": false
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 20,
+      "append": " Smart Frequency",
+      "target": "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black",
+      "candidate": "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black Smart Frequency",
+      "brand": "Orient",
+      "target_slots": {
+        "anchor": "Icon-2",
+        "series": "VCM Bottle",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "Icon-2",
+        "series": "VCM Bottle Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 20,
+      "append": " WiFi",
+      "target": "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black",
+      "candidate": "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black WiFi",
+      "brand": "Orient",
+      "target_slots": {
+        "anchor": "Icon-2",
+        "series": "VCM Bottle",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "Icon-2",
+        "series": "VCM Bottle",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 21,
+      "append": " Smart Frequency",
+      "target": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "AeroMax",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "AeroMax Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 21,
+      "append": " WiFi",
+      "target": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "AeroMax",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "AeroMax",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 21,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance AeroMax Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "AeroMax",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "AeroMax Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 22,
+      "append": " Smart Frequency",
+      "target": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Cruise Plus",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Cruise Plus Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 22,
+      "append": " WiFi",
+      "target": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Cruise Plus",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Cruise Plus",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 22,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Cruise Plus Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Cruise Plus",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Cruise Plus Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 31,
+      "append": " Smart Frequency",
+      "target": "Dawlance DBD-1034 5.1 Ltr Glass Door Bottom Load Water Dispenser",
+      "candidate": "Dawlance DBD-1034 5.1 Ltr Glass Door Bottom Load Water Dispenser Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DBD-1034",
+        "series": "Bottom",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DBD-1034",
+        "series": "Bottom Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 31,
+      "append": " WiFi",
+      "target": "Dawlance DBD-1034 5.1 Ltr Glass Door Bottom Load Water Dispenser",
+      "candidate": "Dawlance DBD-1034 5.1 Ltr Glass Door Bottom Load Water Dispenser WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DBD-1034",
+        "series": "Bottom",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DBD-1034",
+        "series": "Bottom",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 33,
+      "append": " Smart Frequency",
+      "target": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Sprinter X",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Sprinter X Frequency",
+        "capabilities": [
+          "IOT",
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 33,
+      "append": " WiFi",
+      "target": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Sprinter X",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Sprinter X",
+        "capabilities": [
+          "T3",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 33,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Sprinter X Inverter 15 T3 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Sprinter X",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Sprinter X Throw",
+        "capabilities": [
+          "T3",
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 37,
+      "append": " Smart Frequency",
+      "target": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega CO",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega CO Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 37,
+      "append": " WiFi",
+      "target": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega CO",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega CO",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 37,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Mega T+ Inverter 10 CO 0.75 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega CO",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Mega CO Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "0.75T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 43,
+      "append": " Smart Frequency",
+      "target": "Dawlance DS-6080 CB 6 KG Single Tub Spin Dryer",
+      "candidate": "Dawlance DS-6080 CB 6 KG Single Tub Spin Dryer Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DS-6080",
+        "series": "",
+        "capabilities": [
+          "CB"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DS-6080",
+        "series": "Frequency",
+        "capabilities": [
+          "CB",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 43,
+      "append": " WiFi",
+      "target": "Dawlance DS-6080 CB 6 KG Single Tub Spin Dryer",
+      "candidate": "Dawlance DS-6080 CB 6 KG Single Tub Spin Dryer WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DS-6080",
+        "series": "",
+        "capabilities": [
+          "CB"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DS-6080",
+        "series": "",
+        "capabilities": [
+          "CB",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 44,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW-297 GSS 20 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW-297 GSS 20 Ltr Grill Microwave Oven Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-297",
+        "series": "",
+        "capabilities": [
+          "GSS"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-297",
+        "series": "Frequency",
+        "capabilities": [
+          "GSS",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 44,
+      "append": " WiFi",
+      "target": "Dawlance DW-297 GSS 20 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW-297 GSS 20 Ltr Grill Microwave Oven WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-297",
+        "series": "",
+        "capabilities": [
+          "GSS"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-297",
+        "series": "",
+        "capabilities": [
+          "GSS",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 47,
+      "append": " Smart Frequency",
+      "target": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Econo Plus X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Econo Plus X Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 47,
+      "append": " WiFi",
+      "target": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Econo Plus X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Econo Plus X",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 47,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Econo Plus X Inverter 15 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Econo Plus X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Econo Plus X Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 52,
+      "append": " Smart Frequency",
+      "target": "Haier HDF-285IG 10 Cu Ft Inverter Chest Freezer Deep Freezer",
+      "candidate": "Haier HDF-285IG 10 Cu Ft Inverter Chest Freezer Deep Freezer Smart Frequency",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HDF-285",
+        "series": "",
+        "capabilities": [
+          "IG"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10CFT",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HDF-285",
+        "series": "Frequency",
+        "capabilities": [
+          "IG",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10CFT",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 52,
+      "append": " WiFi",
+      "target": "Haier HDF-285IG 10 Cu Ft Inverter Chest Freezer Deep Freezer",
+      "candidate": "Haier HDF-285IG 10 Cu Ft Inverter Chest Freezer Deep Freezer WiFi",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HDF-285",
+        "series": "",
+        "capabilities": [
+          "IG"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10CFT",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HDF-285",
+        "series": "",
+        "capabilities": [
+          "IG",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10CFT",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 54,
+      "append": " Smart Frequency",
+      "target": "Dawlance DWDI 1020 1000 W Dry Iron Black",
+      "candidate": "Dawlance DWDI 1020 1000 W Dry Iron Black Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWDI-1020",
+        "series": "1000W",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWDI-1020",
+        "series": "1000W Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 54,
+      "append": " WiFi",
+      "target": "Dawlance DWDI 1020 1000 W Dry Iron Black",
+      "candidate": "Dawlance DWDI 1020 1000 W Dry Iron Black WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWDI-1020",
+        "series": "1000W",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWDI-1020",
+        "series": "1000W",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 55,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW 10115 10 KG Single Tub Semi-Automatic Washing Machine Black",
+      "candidate": "Dawlance DW 10115 10 KG Single Tub Semi-Automatic Washing Machine Black Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-10115",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-10115",
+        "series": "Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 55,
+      "append": " WiFi",
+      "target": "Dawlance DW 10115 10 KG Single Tub Semi-Automatic Washing Machine Black",
+      "candidate": "Dawlance DW 10115 10 KG Single Tub Semi-Automatic Washing Machine Black WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-10115",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-10115",
+        "series": "",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 56,
+      "append": " Smart Frequency",
+      "target": "Dawlance DWT 1471 FLP 12 KG Top Load Fully Automatic Washing Machine",
+      "candidate": "Dawlance DWT 1471 FLP 12 KG Top Load Fully Automatic Washing Machine Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1471",
+        "series": "",
+        "capabilities": [
+          "FLP"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1471",
+        "series": "Frequency",
+        "capabilities": [
+          "FLP",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 56,
+      "append": " WiFi",
+      "target": "Dawlance DWT 1471 FLP 12 KG Top Load Fully Automatic Washing Machine",
+      "candidate": "Dawlance DWT 1471 FLP 12 KG Top Load Fully Automatic Washing Machine WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1471",
+        "series": "",
+        "capabilities": [
+          "FLP"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1471",
+        "series": "",
+        "capabilities": [
+          "FLP",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 61,
+      "append": " Smart Frequency",
+      "target": "Dawlance WD-1060 4 Ltr Top Load Bottle Water Dispenser",
+      "candidate": "Dawlance WD-1060 4 Ltr Top Load Bottle Water Dispenser Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "WD-1060",
+        "series": "Bottle",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WD-1060",
+        "series": "Bottle Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 61,
+      "append": " WiFi",
+      "target": "Dawlance WD-1060 4 Ltr Top Load Bottle Water Dispenser",
+      "candidate": "Dawlance WD-1060 4 Ltr Top Load Bottle Water Dispenser WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "WD-1060",
+        "series": "Bottle",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WD-1060",
+        "series": "Bottle",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 62,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW 393 GSS 23 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW 393 GSS 23 Ltr Grill Microwave Oven Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-393",
+        "series": "",
+        "capabilities": [
+          "GSS"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-393",
+        "series": "Frequency",
+        "capabilities": [
+          "GSS",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 62,
+      "append": " WiFi",
+      "target": "Dawlance DW 393 GSS 23 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW 393 GSS 23 Ltr Grill Microwave Oven WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-393",
+        "series": "",
+        "capabilities": [
+          "GSS"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-393",
+        "series": "",
+        "capabilities": [
+          "GSS",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 65,
+      "append": " Smart Frequency",
+      "target": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Powercon",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Powercon Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 65,
+      "append": " WiFi",
+      "target": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Powercon",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Powercon",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 65,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Powercon 15 1 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Powercon",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Powercon Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 67,
+      "append": " Smart Frequency",
+      "target": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Prima PurSense",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Prima PurSense Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 67,
+      "append": " WiFi",
+      "target": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Prima PurSense",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Prima PurSense",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 67,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Prima PurSense Inverter 30 1.5 Ton Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Prima PurSense",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Prima PurSense Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 68,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW-115-CHZP 25 Ltr Combination Convection Microwave Oven",
+      "candidate": "Dawlance DW-115-CHZP 25 Ltr Combination Convection Microwave Oven Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-115",
+        "series": "Combination Convection",
+        "capabilities": [
+          "CHZP"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-115",
+        "series": "Combination Convection Frequency",
+        "capabilities": [
+          "CHZP",
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 68,
+      "append": " WiFi",
+      "target": "Dawlance DW-115-CHZP 25 Ltr Combination Convection Microwave Oven",
+      "candidate": "Dawlance DW-115-CHZP 25 Ltr Combination Convection Microwave Oven WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-115",
+        "series": "Combination Convection",
+        "capabilities": [
+          "CHZP"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-115",
+        "series": "Combination Convection",
+        "capabilities": [
+          "CHZP",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 69,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW-128-G 28 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW-128-G 28 Ltr Grill Microwave Oven Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-128",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-128",
+        "series": "Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 69,
+      "append": " WiFi",
+      "target": "Dawlance DW-128-G 28 Ltr Grill Microwave Oven",
+      "candidate": "Dawlance DW-128-G 28 Ltr Grill Microwave Oven WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-128",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-128",
+        "series": "",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 70,
+      "append": " Smart Frequency",
+      "target": "Dawlance DW-7500 C 10 KG Semi Automatic Twin Tub Washing Machine",
+      "candidate": "Dawlance DW-7500 C 10 KG Semi Automatic Twin Tub Washing Machine Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-7500",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-7500",
+        "series": "C-Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 70,
+      "append": " WiFi",
+      "target": "Dawlance DW-7500 C 10 KG Semi Automatic Twin Tub Washing Machine",
+      "candidate": "Dawlance DW-7500 C 10 KG Semi Automatic Twin Tub Washing Machine WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-7500",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DW-7500",
+        "series": "",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "10KG",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 77,
+      "append": " Smart Frequency",
+      "target": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Aura X Aura-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Aura X Aura-X Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 77,
+      "append": " WiFi",
+      "target": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Aura X Aura-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Aura X Aura-X",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 77,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Aura X Inverter 15 1 Ton Aura-X Series Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Aura X Aura-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Aura X Aura Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 78,
+      "append": " Smart Frequency",
+      "target": "Dawlance 9173 WB 12 Cu Ft IceMax Series Inverter Top Mount Double Door Refrigerator Mist Green",
+      "candidate": "Dawlance 9173 WB 12 Cu Ft IceMax Series Inverter Top Mount Double Door Refrigerator Mist Green Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9173",
+        "series": "IceMax Mist",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12CFT",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "9173",
+        "series": "IceMax Mist Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12CFT",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 78,
+      "append": " WiFi",
+      "target": "Dawlance 9173 WB 12 Cu Ft IceMax Series Inverter Top Mount Double Door Refrigerator Mist Green",
+      "candidate": "Dawlance 9173 WB 12 Cu Ft IceMax Series Inverter Top Mount Double Door Refrigerator Mist Green WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "9173",
+        "series": "IceMax Mist",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12CFT",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "9173",
+        "series": "IceMax Mist",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "12CFT",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 86,
+      "append": " Smart Frequency",
+      "target": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Inspire Pro Inspire-Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Inspire Pro Inspire-Pro Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 86,
+      "append": " WiFi",
+      "target": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Inspire Pro Inspire-Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Inspire Pro Inspire-Pro",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 86,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Inspire Pro Inverter 15 1 Ton Inspire-Pro Series Inverter Wall Mounted Split Air Conditioner | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Inspire Pro Inspire-Pro",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Inspire Pro Inspire-Pro Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 92,
+      "append": " Smart Frequency",
+      "target": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black",
+      "candidate": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "EnerCon X EnerCon-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "EnerCon X EnerCon-X Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 92,
+      "append": " WiFi",
+      "target": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black",
+      "candidate": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "EnerCon X EnerCon-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "EnerCon X EnerCon-X",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 92,
+      "append": " | 4-Way Air Throw",
+      "target": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black",
+      "candidate": "Dawlance EnerCon X Inverter 15 1 Ton EnerCon-X Series Inverter Wall Mounted Split Air Conditioner Midnight Black | 4-Way Air Throw",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "EnerCon X EnerCon-X",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "EnerCon X EnerCon Throw",
+        "capabilities": [
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "row": 99,
+      "append": " Smart Frequency",
+      "target": "Dawlance DWMM 6001 W 600 W Electric Meat Mincer",
+      "candidate": "Dawlance DWMM 6001 W 600 W Electric Meat Mincer Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWMM-6001",
+        "series": "600W Electric Meat Mincer",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWMM-6001",
+        "series": "600W Electric Meat Mincer Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 99,
+      "append": " WiFi",
+      "target": "Dawlance DWMM 6001 W 600 W Electric Meat Mincer",
+      "candidate": "Dawlance DWMM 6001 W 600 W Electric Meat Mincer WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWMM-6001",
+        "series": "600W Electric Meat Mincer",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWMM-6001",
+        "series": "600W Electric Meat Mincer",
+        "capabilities": [
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 100,
+      "append": " Smart Frequency",
+      "target": "Dawlance Dual Pro T3 Inverter 15 1 Ton Dual-Pro-T3 Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Dual Pro T3 Inverter 15 1 Ton Dual-Pro-T3 Series Inverter Wall Mounted Split Air Conditioner Smart Frequency",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "Dual",
+        "series": "Pro Pro",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "Dual",
+        "series": "Pro Pro Frequency",
+        "capabilities": [
+          "IOT",
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "row": 100,
+      "append": " WiFi",
+      "target": "Dawlance Dual Pro T3 Inverter 15 1 Ton Dual-Pro-T3 Series Inverter Wall Mounted Split Air Conditioner",
+      "candidate": "Dawlance Dual Pro T3 Inverter 15 1 Ton Dual-Pro-T3 Series Inverter Wall Mounted Split Air Conditioner WiFi",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "Dual",
+        "series": "Pro Pro",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "Dual",
+        "series": "Pro Pro",
+        "capabilities": [
+          "T3",
+          "WIFI"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1T",
+        "inverter": true
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (WIFI) omitted in target; fallback with cross-check"
+    }
+  ],
+  "pool_priority_assertions_passed": 3,
+  "pool_replays": {
+    "mega": {
+      "exact": [
+        [
+          "Home Cart",
+          164499.0
+        ]
+      ],
+      "base": [
+        [
+          "Electronics World",
+          154255.0
+        ]
+      ],
+      "selected": [
+        [
+          "Home Cart",
+          164499.0
+        ]
+      ],
+      "status": "COMPLETE_WITH_OFFERS",
+      "rejected": 0
+    },
+    "eco": {
+      "exact": [],
+      "base": [],
+      "selected": [],
+      "status": "COMPLETE_NO_COMPETITORS",
+      "rejected": 1
+    },
+    "glacier": {
+      "exact": [],
+      "base": [],
+      "selected": [],
+      "status": "COMPLETE_NO_COMPETITORS",
+      "rejected": 1
+    }
+  },
+  "additional_observations": [
+    {
+      "target": "Dawlance 1.5 Ton Inverter Mega Flex 30 Split Air Conditioner",
+      "candidate": "Dawlance 1.5 Ton Mega Flex 30 Smart Frequency AC",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex Frequency",
+        "capabilities": [
+          "IOT"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": null
+      },
+      "reason_code": "BASE_MATCH",
+      "tier": 2,
+      "reason": "Candidate adds connectivity capability (IOT) omitted in target; fallback with cross-check"
+    },
+    {
+      "target": "Dawlance 2 Ton Inverter Glacier 45 Pro T3 Floor Standing Air Conditioner",
+      "candidate": "Dawlance 2 Ton Inverter Floor Standing Heat & Cool Air Conditioner (White) | Glacier Pro 45 T3 | 4-Way Air Throw | Gold Fin Coils",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Glacier Pro",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "2T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "4",
+        "series": "Glacier Pro Throw",
+        "capabilities": [
+          "T3",
+          "WAY"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "2T",
+        "inverter": true
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (WAY mismatch): Candidate has extra capability WAY not present in target"
+    },
+    {
+      "target": "Dawlance DWT-1165 Washing Machine",
+      "candidate": "Dawlance DWT-1165 ECO Washing Machine",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "DWT-1165",
+        "series": "",
+        "capabilities": [
+          "ECO"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Hardware capability mismatch (ECO mismatch): Candidate has extra capability ECO not present in target"
+    },
+    {
+      "id": "without-inverter",
+      "target": "Samsung WA80CK4240BWRT 8KG Inverter Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Without Inverter Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "Without",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": true
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions"
+    },
+    {
+      "id": "target-ambiguity",
+      "target": "Haier HSU-18HFP T3 Non-T3 Inverter AC",
+      "candidate": "Haier HSU-18HFP T3 Inverter AC",
+      "brand": "Haier",
+      "target_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [
+          "T3"
+        ],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "HSU-18HFP",
+        "series": "",
+        "capabilities": [
+          "T3"
+        ],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: HSU-18HFP matched with zero guarded facet collisions"
+    },
+    {
+      "id": "litres",
+      "target": "Dawlance DW-MD 15 20 Ltr Microwave Oven",
+      "candidate": "Dawlance MD 15 30 Ltr Microwave Oven",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "DW-MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "MD-15",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: DW-MD-15 matched with zero guarded facet collisions"
+    },
+    {
+      "id": "multiple-kg",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG 10KG Washing Machine",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions"
+    },
+    {
+      "id": "component-display",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine 6 Inch LED Display",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "Display",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "6INCH",
+        "inverter": null
+      },
+      "reason_code": "FACET_CONFLICT",
+      "tier": null,
+      "reason": "Capacity / screen size mismatch: 8KG vs 6INCH"
+    },
+    {
+      "id": "tap-hidden",
+      "target": "Midea YL2037S 3L 2 Taps Water Dispenser 1KG",
+      "candidate": "Midea YL2037S 3L 3 Taps Water Dispenser 1KG",
+      "brand": "Midea",
+      "target_slots": {
+        "anchor": "YL2037S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "YL2037S",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1KG",
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: YL2037S matched with zero guarded facet collisions"
+    },
+    {
+      "id": "missing-capacity",
+      "target": "Dawlance 1.5 Ton Inverter Mega Flex 30 Split AC",
+      "candidate": "Dawlance Mega Flex Inverter Split AC",
+      "brand": "Dawlance",
+      "target_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "1.5T",
+        "inverter": true
+      },
+      "candidate_slots": {
+        "anchor": "",
+        "series": "Mega Flex",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": null,
+        "inverter": true
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: Mega Flex matched with zero guarded facet collisions"
+    },
+    {
+      "id": "rpm-suspicion",
+      "target": "Samsung WA80CK4240BWRT 8KG Washing Machine",
+      "candidate": "Samsung WA80CK4240BWRT 8KG Washing Machine 1400RPM",
+      "brand": "Samsung",
+      "target_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "candidate_slots": {
+        "anchor": "WA80CK4240BWRT",
+        "series": "1400RPM",
+        "capabilities": [],
+        "negative": [],
+        "ambiguous": [],
+        "capacity": "8KG",
+        "inverter": null
+      },
+      "reason_code": "ACCEPTED",
+      "tier": 1,
+      "reason": "Accepted: WA80CK4240BWRT matched with zero guarded facet collisions"
+    }
+  ],
+  "boundary": "Offline current-source characterization; no production correction implemented or tested."
+}
