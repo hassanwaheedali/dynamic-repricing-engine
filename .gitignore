@@ -48,6 +48,7 @@ htmlcov/
 .agents/settings.local.json
 
 # Data Pipeline
+data/.checkpoints/
 data/outputs/**
 !data/outputs/
 !data/outputs/.gitkeep

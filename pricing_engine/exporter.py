@@ -7,8 +7,7 @@ timestamps and maintaining an always-current latest copy.
 from __future__ import annotations
 
 import re
-import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,12 @@ from pricing_engine.models import (
     format_comm_pct_label,
     get_winning_comm_goals,
     has_compatibility_or_fallback_notice,
+)
+from pricing_engine.publication import (
+    Publication,
+    copy_artifact,
+    unique_audit_paths,
+    write_artifact,
 )
 
 console = Console()
@@ -165,6 +170,8 @@ class ExportManifest:
     total_rows: int
     timestamped_xlsx_path: Path | None = None
     latest_xlsx_path: Path | None = None
+    warnings: tuple[str, ...] = ()
+    artifact_outcomes: dict[str, Any] = field(default_factory=dict)
 
 
 def export_excel_workbook(
@@ -539,13 +546,20 @@ def _write_dedicated_platform_files(
     csv_path: Path,
     xlsx_path: Path,
     personal_comm_pct: float,
+    publication: Publication | None = None,
 ) -> None:
     """Write a dedicated single-vendor CSV and XLSX pair safely."""
     plat_df = df.copy()
     if "S.NO" in plat_df.columns:
         plat_df["S.NO"] = plat_df["S.NO"].apply(format_export_sno)
-    export_excel_workbook(plat_df, xlsx_path, personal_comm_pct=personal_comm_pct)
-    _format_csv_export_frame(plat_df).to_csv(csv_path, index=False)
+    write_artifact(
+        xlsx_path, lambda stage: export_excel_workbook(plat_df, stage, personal_comm_pct=personal_comm_pct),
+        publication=publication, required=False,
+    )
+    write_artifact(
+        csv_path, lambda stage: _format_csv_export_frame(plat_df).to_csv(stage, index=False),
+        publication=publication, required=False,
+    )
 
 
 def export_results(
@@ -556,6 +570,7 @@ def export_results(
     render_panel: bool = True,
     personal_comm_pct: float = 5.0,
     platform: str = "all",
+    publication: Publication | None = None,
 ) -> ExportManifest:
     """Format and export results DataFrame to timestamped and latest CSV and XLSX files.
 
@@ -599,6 +614,18 @@ def export_results(
 
     timestamped_xlsx_path = xlsx_dir / timestamped_xlsx_filename
     latest_xlsx_path = xlsx_dir / latest_xlsx_filename
+    timestamped_csv_path, timestamped_xlsx_path = unique_audit_paths(timestamped_csv_path, timestamped_xlsx_path)
+    timestamped_xlsx_filename = timestamped_xlsx_path.name
+
+    if publication is not None:
+        for path in (timestamped_csv_path, latest_csv_path):
+            publication.plan(path, required=True)
+        for path in (timestamped_xlsx_path, latest_xlsx_path):
+            publication.plan(path, required=False)
+        if plat_key == "all":
+            for suffix in ("alfa", "digi"):
+                publication.plan(csv_dir / f"{stem}_repriced_{suffix}_latest.csv", required=False)
+                publication.plan(xlsx_dir / f"{stem}_repriced_{suffix}_latest.xlsx", required=False)
 
     clean_base_df = normalize_export_dataframe(df)
     export_df = clean_base_df.copy()
@@ -611,9 +638,13 @@ def export_results(
 
     # 1. Export Excel workbook with dynamic formulas first (from full precision numbers)
     try:
-        export_excel_workbook(export_df, timestamped_xlsx_path, personal_comm_pct=personal_comm_pct)
+        write_artifact(
+            timestamped_xlsx_path,
+            lambda stage: export_excel_workbook(export_df, stage, personal_comm_pct=personal_comm_pct),
+            publication=publication, required=False,
+        )
         try:
-            shutil.copyfile(timestamped_xlsx_path, latest_xlsx_path)
+            copy_artifact(timestamped_xlsx_path, latest_xlsx_path, publication=publication, required=False)
         except OSError as exc:
             console.print(
                 f"[bold yellow]⚠️  {latest_xlsx_filename} is open in Excel and cannot be overwritten ({exc}). Timestamped copy saved: {timestamped_xlsx_filename}[/]"
@@ -626,8 +657,8 @@ def export_results(
 
     # 2. Format pure integer strings for portal upload CSV (eliminating float drift .0)
     export_df = _format_csv_export_frame(export_df)
-    export_df.to_csv(timestamped_csv_path, index=False)
-    shutil.copyfile(timestamped_csv_path, latest_csv_path)
+    write_artifact(timestamped_csv_path, lambda stage: export_df.to_csv(stage, index=False), publication=publication)
+    copy_artifact(timestamped_csv_path, latest_csv_path, publication=publication)
 
     # 3. Generate dedicated platform files independently when running unified dual mode (all)
     if plat_key == "all":
@@ -641,6 +672,7 @@ def export_results(
                     csv_path=csv_dir / f"{stem}_repriced_{suffix}_latest.csv",
                     xlsx_path=xlsx_dir / f"{stem}_repriced_{suffix}_latest.xlsx",
                     personal_comm_pct=personal_comm_pct,
+                    publication=publication,
                 )
             except Exception as exc:
                 console.print(f"[bold yellow]⚠️  Dedicated {suffix} export notice:[/] {exc}")
@@ -652,6 +684,8 @@ def export_results(
         total_rows=len(export_df),
         timestamped_xlsx_path=timestamped_xlsx_path,
         latest_xlsx_path=latest_xlsx_path,
+        warnings=publication.warnings if publication else (),
+        artifact_outcomes=dict(publication.journal["artifacts"]) if publication else {},
     )
 
     if render_panel:
@@ -667,6 +701,7 @@ def export_winning_5pct_results(
     timestamp: datetime | None = None,
     personal_comm_pct: float = 5.0,
     platform: str = "all",
+    publication: Publication | None = None,
 ) -> tuple[Path | None, Path | None, int]:
     """Filter and export only high-demand Winning + Full 5% Commission products to CSV and Excel.
 
@@ -690,7 +725,19 @@ def export_winning_5pct_results(
         if f"Digi {lbl}% Goal" in df.columns
         else next((c for c in df.columns if _DYNAMIC_DIGI_GOAL_COL_RE.match(str(c))), None)
     )
+    def retire_current_winners() -> None:
+        # A standalone call has no verified ownership receipt and must not delete.
+        if publication is not None:
+            root = Path(output_dir) if output_dir is not None else resolve_option_output_dir(source_filename, option=3)
+            stem = sanitize_catalog_stem(source_filename)
+            slug = lbl.replace(".", "_")
+            publication.retire_winners([
+                root / "csv" / f"{stem}_winning_{slug}pct_latest.csv",
+                root / "xlsx" / f"{stem}_winning_{slug}pct_latest.xlsx",
+            ])
+
     if alfa_goal_col is None and digi_goal_col is None:
+        retire_current_winners()
         return None, None, 0
 
     win_goals = WINNING_5PCT_GOALS | get_winning_comm_goals(personal_comm_pct)
@@ -716,6 +763,7 @@ def export_winning_5pct_results(
     winners_df = df[win_mask].copy()
 
     if winners_df.empty:
+        retire_current_winners()
         return None, None, 0
 
     # Sort winning products strictly by Input Order / Serial Number (S# 1, 2, 5, 6, 7... ascending)
@@ -755,6 +803,13 @@ def export_winning_5pct_results(
     latest_csv = csv_dir / f"{stem}_winning_{pct_slug}pct_latest.csv"
     ts_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_{ts_str}.xlsx"
     latest_xlsx = xlsx_dir / f"{stem}_winning_{pct_slug}pct_latest.xlsx"
+    ts_csv, ts_xlsx = unique_audit_paths(ts_csv, ts_xlsx)
+
+    if publication is not None:
+        for path in (ts_csv, latest_csv):
+            publication.plan(path, required=True, role="winner_latest" if path == latest_csv else "winner_history")
+        for path in (ts_xlsx, latest_xlsx):
+            publication.plan(path, required=False, role="winner_latest" if path == latest_xlsx else "winner_history")
 
     export_df = normalize_export_dataframe(winners_df)
     if plat_key == "alfa":
@@ -766,15 +821,19 @@ def export_winning_5pct_results(
 
     saved_xlsx: Path | None = latest_xlsx
     try:
-        export_excel_workbook(export_df, ts_xlsx, personal_comm_pct=personal_comm_pct)
+        write_artifact(
+            ts_xlsx, lambda stage: export_excel_workbook(export_df, stage, personal_comm_pct=personal_comm_pct),
+            publication=publication, required=False, role="winner_history",
+        )
         try:
-            shutil.copyfile(ts_xlsx, latest_xlsx)
+            copy_artifact(ts_xlsx, latest_xlsx, publication=publication, required=False, role="winner_latest")
         except OSError as exc:
             console.print(
                 f"[bold yellow]⚠️  {latest_xlsx.name} is open in Excel and cannot be overwritten ({exc}). Timestamped copy saved: {ts_xlsx.name}[/]"
             )
             saved_xlsx = ts_xlsx
-    except Exception:
+    except Exception as exc:
+        console.print(f"[bold yellow]⚠️ Winner XLSX export warning:[/] {exc}")
         saved_xlsx = None
 
     if "Shipping Estimate" in export_df.columns:
@@ -785,8 +844,8 @@ def export_winning_5pct_results(
         if is_price_int_column(col):
             export_df[col] = export_df[col].apply(format_export_price)
 
-    export_df.to_csv(ts_csv, index=False)
-    shutil.copyfile(ts_csv, latest_csv)
+    write_artifact(ts_csv, lambda stage: export_df.to_csv(stage, index=False), publication=publication, role="winner_history")
+    copy_artifact(ts_csv, latest_csv, publication=publication, role="winner_latest")
 
     return latest_csv, saved_xlsx, len(export_df)
 
@@ -812,6 +871,7 @@ class RangeExportManifest:
     timestamp: str
     total_rows: int
     warnings: tuple[str, ...] = ()
+    artifact_outcomes: dict[str, Any] = field(default_factory=dict)
 
 
 def _range_xlsx_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -860,6 +920,7 @@ def export_range_results(
     timestamp: datetime | None = None,
     render_panel: bool = True,
     platform: str = "all",
+    publication: Publication | None = None,
 ) -> RangeExportManifest:
     """Export Market Range results to ``csv/`` and ``xlsx/`` (timestamped + latest each).
 
@@ -892,22 +953,26 @@ def export_range_results(
 
     csv_path = csv_dir / f"{stem}_range_{ts_str}.csv"
     csv_latest = csv_dir / f"{stem}_range_latest.csv"
+    csv_path, xlsx_history = unique_audit_paths(csv_path, xlsx_dir / f"{stem}_range_{ts_str}.xlsx")
     csv_df = working_df.copy()
     if "S.NO" in csv_df.columns:
         csv_df["S.NO"] = csv_df["S.NO"].apply(format_export_sno)
     for col in RANGE_NUMERIC_COLUMNS:
         if col in csv_df.columns:
             csv_df[col] = csv_df[col].apply(format_export_price)
-    csv_df.to_csv(csv_path, index=False)
-    shutil.copyfile(csv_path, csv_latest)
+    write_artifact(csv_path, lambda stage: csv_df.to_csv(stage, index=False), publication=publication)
+    copy_artifact(csv_path, csv_latest, publication=publication)
 
     warnings: list[str] = []
-    xlsx_path: Path | None = xlsx_dir / f"{stem}_range_{ts_str}.xlsx"
+    xlsx_path: Path | None = xlsx_history
     xlsx_latest: Path | None = xlsx_dir / f"{stem}_range_latest.xlsx"
     xl_df = _range_xlsx_frame(working_df)
     assert xlsx_path is not None and xlsx_latest is not None
+    if publication is not None:
+        for path in (xlsx_path, xlsx_latest):
+            publication.plan(path, required=False)
     try:
-        _write_range_xlsx(xl_df, xlsx_path)
+        write_artifact(xlsx_path, lambda stage: _write_range_xlsx(xl_df, stage), publication=publication, required=False)
     except ImportError:
         warnings.append("openpyxl is not installed; XLSX skipped (pip install openpyxl).")
         xlsx_path = xlsx_latest = None
@@ -916,7 +981,7 @@ def export_range_results(
         xlsx_path = xlsx_latest = None
     else:
         try:
-            _write_range_xlsx(xl_df, xlsx_latest)
+            write_artifact(xlsx_latest, lambda stage: _write_range_xlsx(xl_df, stage), publication=publication, required=False)
         except OSError as exc:
             warnings.append(
                 f"{xlsx_latest.name} not updated (is it open in Excel?): {exc}. "
@@ -931,7 +996,8 @@ def export_range_results(
         xlsx_latest=xlsx_latest,
         timestamp=ts_str,
         total_rows=len(working_df),
-        warnings=tuple(warnings),
+        warnings=tuple(warnings) + (publication.warnings if publication else ()),
+        artifact_outcomes=dict(publication.journal["artifacts"]) if publication else {},
     )
     if render_panel:
         table = Table.grid(padding=(0, 2))

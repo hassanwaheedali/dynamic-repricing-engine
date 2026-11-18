@@ -94,3 +94,45 @@ def test_corrupt_and_legacy_state_are_not_first_runs(tmp_path: Path) -> None:
     store.working_path.write_text("{broken", encoding="utf-8")
     assert store.has_prior_state
     assert store.select("sig")[2]
+
+
+@pytest.mark.parametrize("damage", ["parent_run_id", "signature", "record", "observation", "row_key"])
+def test_malformed_work_cannot_hide_completed_snapshot(tmp_path: Path, damage: str) -> None:
+    source = tmp_path / "catalog.csv"
+    source.write_text("input")
+    store = RunStore(source, "reprice", tmp_path / "state")
+    completed = store.begin([row("A")], "sig", {}, None)
+    store.record(completed, 0, {"result": 199}, "")
+    store.promote(completed)
+    working = store.begin([row("A")], "sig", {}, completed)
+    store.record(working, 0, {"result": 200}, "")
+    if damage in {"parent_run_id", "signature"}:
+        working.pop(damage)
+    elif damage == "record":
+        working["completed_records"]["0"] = []
+    elif damage == "observation":
+        working["observed_at"].clear()
+    else:
+        working["completed_records"]["00"] = working["completed_records"].pop("0")
+    store.save(working)
+    _, selected, issue = store.select("sig")
+    assert selected is not None and selected["run_id"] == completed["run_id"]
+    assert not issue
+
+
+def test_select_reports_changed_signature_components(tmp_path: Path) -> None:
+    source = tmp_path / "catalog.csv"
+    source.write_text("input", encoding="utf-8")
+    store = RunStore(source, "reprice", tmp_path / "state")
+    state = store.begin([row("A")], "old-sig", {}, None)
+    state["signature_components"] = {"source:matcher": "old-hash", "pricing": "same-hash"}
+    store.record(state, 0, {"result": 199}, "")
+    store.promote(state)
+
+    _, baseline, issue = store.select(
+        "new-sig",
+        components={"source:matcher": "new-hash", "pricing": "same-hash"},
+    )
+    assert baseline is None
+    assert "changed: source:matcher" in issue
+    assert "--rerun full" in issue

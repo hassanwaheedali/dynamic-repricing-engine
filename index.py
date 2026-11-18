@@ -132,7 +132,7 @@ def parse_args() -> argparse.Namespace:
 
 
 ARTIFACT_FILENAME_PATTERN = re.compile(
-    r"_(?:repriced|range|winning_\w+)_(?:\d{8}_\d{6}|latest)\.csv$",
+    r"_(?:repriced|range|winning_\w+)_(?:\d{8}_\d{6}(?:_\d+)?|latest)\.csv$",
     re.IGNORECASE,
 )
 

@@ -66,6 +66,22 @@ INVALID_NAME_VALUES: frozenset[str] = frozenset(
 )
 
 
+def extract_product_name(row: pd.Series | dict[str, Any]) -> str:
+    """Resolve the existing name/alias precedence without changing input semantics."""
+    for key in (
+        "Name ", "Name", "Title", "title", "Product Name", "product name",
+        "Product Title", "product title", "Model", "model",
+    ):
+        val = row.get(key)
+        if isinstance(val, pd.Series):
+            val = val.dropna().iloc[0] if not val.dropna().empty else None
+        if val is not None and not pd.isna(val) and str(val).strip() != "":
+            candidate = str(val).strip()
+            if candidate.lower() not in INVALID_NAME_VALUES:
+                return candidate
+    return ""
+
+
 def normalize_catalog_columns(
     columns: list[Any],
     preserve_name_space: bool = False,

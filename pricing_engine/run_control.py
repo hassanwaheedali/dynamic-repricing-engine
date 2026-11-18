@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import sys
+import tempfile
+from collections import Counter
 from collections.abc import Awaitable
 from pathlib import Path
+from secrets import token_bytes
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -14,10 +16,11 @@ from rich.markup import escape
 
 from pricing_engine import checkpoint
 from pricing_engine.models import SNO_ALIASES_LOWER, ProductInput
+from pricing_engine.publication import Publication
 from pricing_engine.run_lock import RunLocks
-from pricing_engine.run_signature import build_signatures
-from pricing_engine.run_state import RowComparison, RunStore, reconcile_rows
-from pricing_engine.state_io import file_digest, json_value
+from pricing_engine.run_signature import build_signatures, private_request_digest
+from pricing_engine.run_state import RowComparison, RunStore, comparable_row, reconcile_rows
+from pricing_engine.state_io import digest, file_digest, json_value
 
 RerunMode = Literal["targeted", "full"]
 
@@ -29,22 +32,11 @@ def retry_reason(record: dict[str, Any], platform: str) -> str:
         if platform not in {"all", vendor.lower()}:
             continue
         alert = str(record.get(f"{vendor} Risk Alert", ""))
-        if alert in {"SERVER_DOWN", "INCOMPLETE_DISCOVERY", "AMBIGUOUS_VARIANT", "CANDIDATES_REJECTED"}:
+        if alert in {"SERVER_DOWN", "INCOMPLETE_DISCOVERY", "AMBIGUOUS_VARIANT"}:
             reasons.append(f"{vendor}: {alert}")
         if record.get(f"{vendor} Discovery Coverage") in {"FAILED", "INCOMPLETE", "UNKNOWN"}:
             reasons.append(f"{vendor}: incomplete discovery")
     return "; ".join(reasons)
-
-
-async def gather_workers(tasks: list[asyncio.Task[dict[str, Any]]]) -> list[dict[str, Any]]:
-    """Cancel and join siblings before resources and file locks can be released."""
-    try:
-        return list(await asyncio.gather(*tasks))
-    except BaseException:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        raise
 
 
 class RunExecution:
@@ -65,7 +57,8 @@ class RunExecution:
         self.store = RunStore(source, mode, checkpoint.DEFAULT_CHECKPOINT_DIR)
         self.locks = RunLocks(
             [source, self.store.working_path, self.store.snapshot_path, *output_dirs],
-            lock_dir=checkpoint.DEFAULT_CHECKPOINT_DIR / ".locks",
+            # Different CWDs/checkouts must contend for the same absolute resources.
+            lock_dir=Path(tempfile.gettempdir()) / "pricing-engine-resource-locks-v1",
         )
         self.console = Console(legacy_windows=False)
         self.state: dict[str, Any] | None = None
@@ -74,44 +67,35 @@ class RunExecution:
         self.comparison = RowComparison()
         self.source_digest = ""
         self.export_signature = ""
+        self.publication: Publication | None = None
+        self._request_key = token_bytes(32)
+        self._request_digest = ""
+        self._input_content_changed = False
 
     def prepare(self, products: list[ProductInput]) -> None:
         """Choose work before initializing any search/discovery requests."""
         inputs = [json_value(product.raw_row) for product in products]
-        try:
-            signatures = build_signatures(self.mode, self.platform, self.personal_comm_pct)
-            signature = signatures.processing
-            self.export_signature = signatures.export
-            components = signatures.components
-        except ValueError:
-            if self.rerun == "targeted":
-                raise
-            signature, components = uuid4().hex, {}
-            self.console.print("Reuse unavailable for current dependencies; processing a full run.")
-        completed, baseline, issue = self.store.select(signature)
+        signatures = build_signatures(self.mode, self.platform, self.personal_comm_pct)
+        signature = signatures.processing
+        self.export_signature = signatures.export
+        components = signatures.components
+        self._request_digest = private_request_digest(self.platform, self._request_key)
+        completed, baseline, issue = self.store.select(signature, components=components)
+        if not signatures.reusable:
+            baseline = None
+            issue = "Untracked request headers prevent persisted reuse; use --rerun full"
+            self.console.print(issue)
         self.baseline = baseline
         previous = baseline["inputs"] if baseline else []
         finished = {int(key) for key in baseline["completed_records"]} if baseline else set()
         self.comparison = reconcile_rows(inputs, previous, finished)
-        if baseline and (self.verbose or self.rerun is None and sys.stdin.isatty()):
+        self._input_content_changed = (
+            Counter(digest(comparable_row(row)) for row in inputs)
+            != Counter(digest(comparable_row(row)) for row in previous)
+        )
+        if baseline is not None and self._should_show_comparison():
             self._show_comparison(baseline)
-        choice = self.rerun
-        if choice == "targeted" and baseline is None and self.store.has_prior_state:
-            if not sys.stdin.isatty():
-                raise ValueError(issue or "No compatible state; use --rerun full")
-            self.console.print(escape(issue))
-            choice = self._prompt(compatible=False)
-        elif choice is None:
-            if sys.stdin.isatty() and self.store.has_prior_state:
-                if issue:
-                    self.console.print(escape(issue))
-                choice = self._prompt(compatible=baseline is not None)
-            else:
-                choice = "full"
-                if self.store.has_prior_state:
-                    self.console.print("Non-interactive execution: full run (use --rerun targeted to reuse).")
-        if baseline is None and not self.store.has_prior_state and choice == "targeted":
-            self.console.print("First run: no reusable baseline; processing all rows.")
+        choice = self._resolve_rerun_choice(baseline, issue)
         reused: dict[int, tuple[dict[str, Any], str]] = {}
         if choice == "targeted" and baseline:
             for idx, old_idx in self.comparison.reuse.items():
@@ -125,6 +109,7 @@ class RunExecution:
             raise ValueError("Input changed while it was being read; rerun the current file")
         self.state = self.store.begin(inputs, signature, reused, completed)
         self.state["signature_components"] = components
+        self.state["reuse_allowed"] = signatures.reusable
         self.state["export_signature"] = self.export_signature
         # Ownership receipts remain useful even after dependency invalidation.
         self.state["previous_publication"] = (baseline or completed or {}).get("publication", {})
@@ -133,6 +118,66 @@ class RunExecution:
             f"{choice or 'full'} run: {len(self.comparison.to_run)} row(s) to process, "
             f"{len(self.cached)} validated row(s) reused."
         )
+
+    def _has_detected_work(self) -> bool:
+        """Return whether reconciliation found modified, new, removed, or pending rows."""
+        return self._input_content_changed or bool(self.baseline and self.baseline["pending_indices"])
+
+    def _is_interactive_auto_mode(self) -> bool:
+        """Return whether execution is running interactively without an explicit --rerun flag."""
+        return self.rerun is None and sys.stdin.isatty()
+
+    def _should_show_comparison(self) -> bool:
+        """Show change summary when verbose or when prompting an interactive rerun."""
+        if self.verbose:
+            return True
+        return self._is_interactive_auto_mode() and self._has_detected_work()
+
+    def _can_prompt_for_rerun(self, baseline: dict[str, Any] | None) -> bool:
+        """Prompt only when a compatible baseline exists and changes or pending work were found."""
+        if baseline is None:
+            return False
+        return self._is_interactive_auto_mode() and self._has_detected_work()
+
+    def _resolve_rerun_choice(self, baseline: dict[str, Any] | None, issue: str) -> RerunMode:
+        """Select targeted or full execution without prompting when no targeted choice applies."""
+        if self.rerun == "targeted":
+            return self._resolve_explicit_targeted(baseline, issue)
+        if self.rerun is not None:
+            return self.rerun
+        if self._can_prompt_for_rerun(baseline):
+            if issue:
+                self.console.print(escape(issue))
+            return self._prompt(compatible=True)
+        self._announce_automatic_full_run(baseline, issue)
+        return "full"
+
+    def _resolve_explicit_targeted(self, baseline: dict[str, Any] | None, issue: str) -> RerunMode:
+        """Handle explicit --rerun targeted requests safely when no compatible baseline exists."""
+        if baseline is not None:
+            return "targeted"
+        if not self.store.has_prior_state:
+            self.console.print("First run: no reusable baseline; processing all rows.")
+            return "targeted"
+        if not sys.stdin.isatty():
+            raise ValueError(issue or "No compatible state; use --rerun full")
+        self.console.print(escape(issue))
+        return self._prompt(compatible=False)
+
+    def _announce_automatic_full_run(self, baseline: dict[str, Any] | None, issue: str) -> None:
+        """Explain why an automatic full run was chosen without prompting."""
+        if baseline is not None:
+            message = (
+                "No input changes or pending rows detected; running full."
+                if sys.stdin.isatty()
+                else "Non-interactive execution: full run (use --rerun targeted to reuse)."
+            )
+            self.console.print(message)
+            return
+        if not issue:
+            return
+        if self.store.working_path.exists() or self.store.snapshot_path.exists():
+            self.console.print(escape(f"{issue}; running full."))
 
     def _prompt(self, *, compatible: bool) -> RerunMode:
         while True:
@@ -178,10 +223,11 @@ class RunExecution:
         for key, value in product.raw_row.items():
             if key.strip().lower() in SNO_ALIASES_LOWER:
                 continue
-            saved_key = saved_by_label.get(key.strip())
+            saved_key = key if key in record else saved_by_label.get(key.strip())
             if saved_key is not None:
                 old_value = record[saved_key]
-                refreshed[key] = value if old_value == old_by_label.get(key.strip()) else old_value
+                original = old_input.get(key, old_by_label.get(key.strip()))
+                refreshed[key] = value if old_value == original else old_value
                 consumed.add(saved_key)
         refreshed.update({key: value for key, value in record.items() if key not in consumed and key != "S.NO"})
         return refreshed
@@ -204,11 +250,34 @@ class RunExecution:
             raise ValueError("Missing worker outcomes; export stopped")
         if file_digest(self.source) != self.source_digest:
             raise ValueError("Input changed during execution; results retained, publication stopped")
+        current = build_signatures(self.mode, self.platform, self.personal_comm_pct)
+        compatible = (
+            current.processing == self.state["signature"]
+            and private_request_digest(self.platform, self._request_key) == self._request_digest
+        )
+        if not compatible:
+            # Retain evidence, but never reuse rows evaluated under a mixed context.
+            self.state["signature"] = f"invalidated-{uuid4().hex}"
+            self.store.save(self.state)
+            raise ValueError("Processing dependencies changed during execution; publication stopped")
         self.state["phase"] = "publishing"
+        previous = self.state.pop("previous_publication", {})
+        if previous:
+            prior = Publication(previous.get("run_id", ""), previous, lambda: None)
+            prior.recover_pending()
+        self.publication = Publication(
+            self.state["run_id"], self.state["publication"], lambda: self.store.save(self.state or {}),
+            previous=previous,
+            protected=[self.source, self.store.working_path, self.store.snapshot_path, self.store.legacy_path],
+        )
         self.store.save(self.state)
 
     def finish(self) -> None:
         """Publish only fully resolved generations; unresolved work remains resumable."""
+        if self.publication is not None:
+            self.publication.check_required()
+            for warning in self.publication.warnings:
+                self.console.print(escape(f"Publication warning: {warning}"))
         if self.state is not None and not self.state["pending_indices"]:
             self.store.promote(self.state)
 
@@ -222,4 +291,12 @@ class RunExecution:
         return self
 
     def __exit__(self, *args: Any) -> None:
-        self.locks.__exit__(*args)
+        try:
+            if args[0] is not None and self.state is not None:
+                self.console.print(escape(f"Run incomplete; recovery state: {self.store.working_path}"))
+                if self.publication is not None:
+                    self.console.print("Publication may be partial; files are replaced individually.")
+                    for warning in self.publication.warnings:
+                        self.console.print(escape(warning))
+        finally:
+            self.locks.__exit__(*args)

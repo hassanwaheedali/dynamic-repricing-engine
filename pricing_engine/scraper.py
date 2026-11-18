@@ -27,6 +27,7 @@ from config import (
     DIGIMALL_CONFIG as DIGIMALL_CONFIG,
 )
 from pricing_engine import offer_processing as _processing
+from pricing_engine.async_utils import gather_owned
 from pricing_engine.digi_discovery import DigiQueryPlan, discover_digimall
 from pricing_engine.digi_transport import DigiDiscoveryContext
 from pricing_engine.models import (
@@ -184,7 +185,7 @@ async def _execute_waterfall(
             unique_tier_queries.append(q_str)
 
         if unique_tier_queries:
-            sub_results = await asyncio.gather(
+            sub_results = await gather_owned(
                 *[
                     single_scraper_fn(
                         session=session,

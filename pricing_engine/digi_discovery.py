@@ -1,6 +1,5 @@
 """Model-first query planning for DigiMall's broad, relevance-ranked search."""
 
-import asyncio
 import json
 from dataclasses import asdict, dataclass, replace
 from typing import Any
@@ -17,6 +16,7 @@ from config import (
     DIGI_QUERY_BUDGET as DIGI_QUERY_BUDGET,
 )
 from config import DIGIMALL_CONFIG
+from pricing_engine.async_utils import gather_owned
 from pricing_engine.digi_transport import DigiDiscoveryContext, required_pages
 from pricing_engine.ingestion import INVALID_BRAND_VALUES
 from pricing_engine.matcher import (
@@ -129,7 +129,7 @@ async def _fetch_query(
 
     first = await context.fetch(config, session, query, 1, timeout, max_retries)
     required = required_pages(first.total) if first.success else (1,)
-    later = await asyncio.gather(
+    later = await gather_owned(
         *[context.fetch(config, session, query, p, timeout, max_retries) for p in required[1:]]
     )
     pages = [first, *later]

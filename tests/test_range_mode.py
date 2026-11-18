@@ -282,14 +282,14 @@ def test_export_range_results_files_and_formats(tmp_path: Path) -> None:
 
 
 def test_export_range_results_locked_xlsx_does_not_crash(tmp_path: Path) -> None:
-    real = pd.DataFrame.to_excel
+    real = Path.replace
 
-    def flaky(self: pd.DataFrame, target: object, *a: object, **k: object) -> None:
+    def flaky(self: Path, target: Path) -> Path:
         if str(target).endswith("_range_latest.xlsx"):
             raise PermissionError("locked by Excel")
-        real(self, target, *a, **k)
+        return real(self, target)
 
-    with patch.object(pd.DataFrame, "to_excel", flaky):
+    with patch.object(Path, "replace", flaky):
         man = export_range_results(_range_df(), "l.csv", output_dir=tmp_path, render_panel=False)
     assert man.csv_latest.is_file()
     assert man.xlsx_path is not None and man.xlsx_path.is_file()

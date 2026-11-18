@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from pricing_engine.async_utils import gather_owned, gather_workers
 from pricing_engine.checkpoint import merge_records_in_order
 from pricing_engine.digi_discovery import generate_digimall_plan
 from pricing_engine.digi_transport import DigiDiscoveryContext
@@ -52,7 +54,7 @@ from pricing_engine.models import (
     ScrapeResult,
 )
 from pricing_engine.pipeline import parse_product_input
-from pricing_engine.run_control import RerunMode, RunExecution, gather_workers
+from pricing_engine.run_control import RerunMode, RunExecution
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 console = Console(legacy_windows=False)
@@ -309,7 +311,7 @@ async def process_range_item_async(
 
     async with semaphore:
         if alfa_task and digi_task:
-            alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
+            alfa_offers, digi_offers = await gather_owned(alfa_task, digi_task)
         elif alfa_task:
             alfa_offers = await alfa_task
             digi_offers = ScrapeResult(offers=[])
@@ -554,9 +556,16 @@ async def _run_range_owned(
         Path(export_dir) if export_dir is not None else resolve_option_output_dir(path, option=2)
     )
     manifest = export_range_results(
-        out_df, path, output_dir=resolved_export_dir, render_panel=False, platform=plat
+        out_df, path, output_dir=resolved_export_dir, render_panel=False, platform=plat,
+        publication=execution.publication,
     )
     execution.finish()
+    if execution.publication is not None:
+        manifest = replace(
+            manifest, xlsx_path=execution.publication.current_path(manifest.xlsx_path),
+            xlsx_latest=execution.publication.current_path(manifest.xlsx_latest),
+            warnings=execution.publication.warnings,
+        )
 
     if verbose:
         render_range_summary(list(records))

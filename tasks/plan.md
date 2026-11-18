@@ -517,3 +517,26 @@ Implemented the subsequent Samsung missing-suffix and Midea named-series fallbac
 The shared typed series policy and suffix-omission rule contain no brand/model exceptions. Normalized leading title-brand evidence now outranks contradictory API tags. Raw responses can be reused across strict/series modes with separate evaluation keys. Source simplification and the five-axis review are complete.
 
 Final validation: 807 tests passed, Ruff passed, strict Mypy passed for 17 source files, and changed executable-line coverage is 96.92%. Real pricing and range pipelines passed through temporary CSV/XLSX exports on both marketplaces. All 401 catalog probes were inspected; only the intended Samsung base-model decision changed. See `tasks/series-fallback-review.md` and the linked machine-readable evidence there. Completed history above remains unchanged.
+
+## 2026-11-17 — Smart change detection and targeted re-runs
+
+Implement the reviewed plan without changing matching, discovery, pricing, or
+commission policies. S.NO remains optional/display-only. Only unique identical
+input content is reusable; unique full Brand+Name supports reporting edits only.
+
+Ordered increments: validated run generations and OS resource locks; shared
+targeted/full selection across repricing and range; atomic artifact publication
+with durable outcomes and verified winner ownership; adversarial review and
+regression verification. Each increment must pass focused tests and static checks.
+Separate adversarial review is required before every subsequent commit under the
+user's updated instruction. The additional external cross-model review was offered
+and explicitly declined.
+
+Completed snapshots and working state have separate provenance. Explicit targeted
+incompatibility stops for an explicit full choice; headless unspecified runs
+default full. Publication is atomic per file, never transactional across files;
+winner cleanup cannot remove historical or unverified files. See
+`docs/smart-reruns.md` for operational behavior.
+
+Pre-change baseline: 1,277 tests passed (28 warnings); repository Ruff and strict
+Mypy passed. Final verification results are recorded in the completion checklist.

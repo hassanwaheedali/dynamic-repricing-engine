@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 import config
+from pricing_engine.async_utils import gather_owned, gather_workers
 from pricing_engine.calculator import (
     calculate_cost_base,
     calculate_effective_target_profit,
@@ -50,7 +51,7 @@ from pricing_engine.exporter import (
 )
 from pricing_engine.ingestion import (
     INVALID_BRAND_VALUES,
-    INVALID_NAME_VALUES,
+    extract_product_name,
     normalize_catalog_columns,
     read_catalog_csv,
 )
@@ -82,8 +83,9 @@ from pricing_engine.models import (
     has_compatibility_or_fallback_notice,
     resolve_non_competitor_kind,
 )
+from pricing_engine.publication import write_artifact
 from pricing_engine.registry import InMemoryRegistry
-from pricing_engine.run_control import RerunMode, RunExecution, gather_workers
+from pricing_engine.run_control import RerunMode, RunExecution
 from pricing_engine.scraper import clear_scraper_cache, scrape_alfamall, scrape_digimall
 
 default_learner = AutonomousLearner()
@@ -252,30 +254,6 @@ def _extract_sno(row: pd.Series | dict[str, Any], default: int) -> int | str:
     return default
 
 
-def _extract_name(row: pd.Series | dict[str, Any]) -> str:
-    """Extract product name from row checking standard keys and common aliases."""
-    for key in (
-        "Name ",
-        "Name",
-        "Title",
-        "title",
-        "Product Name",
-        "product name",
-        "Product Title",
-        "product title",
-        "Model",
-        "model",
-    ):
-        val = row.get(key)
-        if isinstance(val, pd.Series):
-            val = val.dropna().iloc[0] if not val.dropna().empty else None
-        if val is not None and not pd.isna(val) and str(val).strip() != "":
-            candidate = str(val).strip()
-            if candidate.lower() not in INVALID_NAME_VALUES:
-                return candidate
-    return ""
-
-
 def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     """Parse and sanitize a raw CSV row into a strongly typed ProductInput.
 
@@ -289,7 +267,7 @@ def parse_product_input(idx: int, row: pd.Series) -> ProductInput:
     sno = _extract_sno(row, idx + 1)
     raw_brand = row.get("Brand")
     brand = str(raw_brand).strip() if (raw_brand is not None and not pd.isna(raw_brand)) else ""
-    name = _extract_name(row)
+    name = extract_product_name(row)
     if not name:
         raise ValueError(
             f"Row {idx + 1}: Product 'Name' or 'Title' is empty or missing in CSV. "
@@ -1621,7 +1599,7 @@ async def process_item_async(
 
     async with semaphore:
         if alfa_task and digi_task:
-            alfa_offers, digi_offers = await asyncio.gather(alfa_task, digi_task)
+            alfa_offers, digi_offers = await gather_owned(alfa_task, digi_task)
         elif alfa_task:
             alfa_offers = await alfa_task
             digi_offers = ScrapeResult(offers=[])
@@ -2358,7 +2336,10 @@ async def _run_pipeline_owned(
                 export_df = filter_alfa_only_columns(export_df)
             elif plat == "digi":
                 export_df = filter_digi_only_columns(export_df)
-            export_df.to_csv(target_out, index=False)
+            write_artifact(
+                target_out, lambda stage: export_df.to_csv(stage, index=False),
+                publication=execution.publication,
+            )
             effective_finish_path = target_out
             if personal_comm_pct > 0:
                 winners_csv_path, winners_xlsx_path, winners_count = export_winning_5pct_results(
@@ -2367,6 +2348,7 @@ async def _run_pipeline_owned(
                     output_dir=target_out.parent,
                     personal_comm_pct=personal_comm_pct,
                     platform=plat,
+                    publication=execution.publication,
                 )
         else:
             manifest = export_results(
@@ -2376,6 +2358,7 @@ async def _run_pipeline_owned(
                 render_panel=False,
                 personal_comm_pct=personal_comm_pct if personal_comm_pct > 0 else 5.0,
                 platform=plat,
+                publication=execution.publication,
             )
             effective_finish_path = manifest.timestamped_path
             effective_xlsx_path = manifest.latest_xlsx_path
@@ -2386,9 +2369,13 @@ async def _run_pipeline_owned(
                     output_dir=resolved_export_dir,
                     personal_comm_pct=personal_comm_pct,
                     platform=plat,
+                    publication=execution.publication,
                 )
 
         execution.finish()
+        if execution.publication is not None:
+            effective_xlsx_path = execution.publication.current_path(effective_xlsx_path)
+            winners_xlsx_path = execution.publication.current_path(winners_xlsx_path)
 
         if supabase_client.is_configured and default_learner.buffer_size > 0:
             flushed_count = await default_learner.flush_observations(supabase_client)

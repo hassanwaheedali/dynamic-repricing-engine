@@ -88,3 +88,17 @@ Cross-model review skipped by explicit user instruction. Earlier completed check
 - [x] Inspect all 401 controlled catalog probes and the one intended changed decision.
 - [x] Live-check Midea Titan 1/1.5-ton retrieval on AlfaMall and Samsung yellow suffix fallback on DigiMall.
 - [x] Final validation: 807 tests passed; 33 focused tests; Ruff passed; strict Mypy passed (17 source files); whitespace check passed; changed executable-line coverage 189/195 (96.92%).
+
+## 2026-11-17 — Smart change detection and targeted re-runs
+
+- [x] Audit current checkpoint, input, CLI, configuration, registry, and export behavior.
+- [x] Obtain approval of the corrected plan and preserve agreed reconciliation rules.
+- [x] Verify pre-change full baseline: 1,277 tests; Ruff; strict Mypy.
+- [x] Add validated working/completed generations and nonblocking OS resource locks.
+- [x] Integrate shared targeted/full selection with existing repricing/range workers.
+- [x] Preserve current-order complete outputs and optional display-only S.NO.
+- [x] Add journaled atomic publication and verified latest-winner ownership cleanup.
+- [x] Resolve actionable findings from separate state, selection, and publication reviewers.
+- [x] Document flags, compatibility, source provenance, recovery, and partial publication.
+- [x] Verify isolated repricing payload against HEAD matching code/catalog fixtures: 1,344 tests passed, 73 warnings; Ruff and strict Mypy passed (28 source files).
+- [x] Prepare verified work for commit after separate adversarial review; preserve the user's excluded matcher/capacity/test/catalog/ADR edits.

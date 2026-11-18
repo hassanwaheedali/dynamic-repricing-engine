@@ -60,6 +60,7 @@ def test_interactive_catalog_picker_selection(tmp_path: Path) -> None:
 def test_parse_args_defaults() -> None:
     with patch("sys.argv", ["index.py"]):
         args = parse_args()
+        assert args.rerun is None
         assert args.input is None
         assert args.output is None
         assert args.batch is False

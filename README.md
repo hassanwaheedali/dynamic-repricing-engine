@@ -330,6 +330,11 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ## Market Range Mode (`--range-only`)
 
+Repricing and Market Range also support `--rerun targeted` for validated unchanged
+result reuse and `--rerun full` for fresh discovery of every row. Headless runs
+default to full processing. See [smart re-runs and recovery](docs/smart-reruns.md)
+for identity rules, compatibility checks, locking, and publication recovery.
+
 Give only a model list (`Brand`, `Name`) and get the market **Min / Max** price on AlfaMall and DigiMall. No cost math, no floors, no final price.
 
 ```bash
