@@ -4,6 +4,94 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
 
 ---
 
+## 0. Mandatory Agent Working Agreement
+
+This section records the owner's engineering and collaboration requirements. Apply it to every task, including work continued by another agent. Current explicit user instructions determine scope; an implementation plan or this handbook is not permission to modify unrelated files.
+
+### Understand the pipeline before changing the algorithm
+
+- Treat `matcher.py` and capacity/model interpretation as financially consequential core logic. A false match can cause incorrect repricing even when the price calculations themselves are correct.
+- Inspect the actual current files, staged AND unstaged diffs, callers, configuration, fixtures, and tests. Do not rely solely on conversation summaries, another agent's report, comments, or historical test counts.
+- Trace the relevant complete path: ingestion and aliases -> normalization -> model/measurement extraction -> query planning -> discovery -> matching and variant guards -> evaluation -> checkpoint reuse -> output/export. Locate where evidence is introduced, transformed, discarded, or reused.
+- Identify the root cause and the owning layer. A failure visible in matching may originate in measurement parsing, query generation, seller cleanup, stale state, or output assembly. Fix its producer rather than adding compensating exceptions downstream.
+- Record verified facts, assumptions, unresolved product decisions, and expected behavior separately. Never turn a plausible guess into a business rule.
+
+### Required workflow: Research -> Innovate -> Think -> Plan -> Execute -> Review
+
+| Phase | Required work and evidence |
+| --- | --- |
+| **Research** | Read-only investigation. Reproduce the failure, trace the pipeline, inspect existing shared logic, and establish representative baseline behavior. Identify both valid matches and dangerous false matches. |
+| **Innovate** | Consider viable approaches proportionate to the problem. Prefer extending the canonical algorithm over another parser, branch, or parallel implementation. Explain compatibility and failure-mode tradeoffs. |
+| **Think** | Challenge assumptions: what proves product identity, what could be a measurement or prose, what happens with an unfamiliar brand/category, and what information might normalization erase? State invariants before choosing an approach. |
+| **Plan** | Present the root cause, proposed unified algorithm, affected boundaries, intended behavior changes, adversarial tests, and validation steps before nontrivial implementation. Honor any user-requested approval gate. Existing approval persists; do not repeatedly ask permission for already-authorized steps. |
+| **Execute** | Implement in small coherent increments. Write a failing behavioral regression first for logic changes; verify it fails for the intended reason, then implement the general correction. Preserve the existing worker pipeline and shared contracts. |
+| **Review** | Inspect the complete diff and actual outcomes, run relevant and full regression checks, and conduct separate adversarial review before every commit. Reconcile findings against the actual code and evidence, then report remaining limitations honestly. |
+
+Keep concise task notes for substantial work in the repository's existing `tasks/` or `docs/` structure. Do not create a separate document or framework for every trivial operation. Record outcomes, decisions, and reproducible evidence rather than private reasoning transcripts.
+
+### No shortcuts, duplicate policies, or product exception chains
+
+- Never fix a single model, brand, category, seller listing, or failing fixture by introducing an exception that cannot be justified as a general rule. Do not keep patching each new counterexample onto the previous heuristic.
+- A regression example is evidence for discovering the defect; it is not the specification of the algorithm. Derive the general rule and test its counterexamples, boundaries, symmetry, and applicability to unseen inputs.
+- Search for and reuse the canonical parser, normalizer, unit definitions, alias resolution, configuration, and validator before writing another one. Equivalent representations must not receive different identity or collision decisions in different modules/platforms.
+- DRY means one source of semantic truth, not merely moving repeated code into a helper. Do not centralize an incorrect assumption or force contexts with different meanings through a lossy shared regex.
+- Do not implement new hardcoded brand/model/prefix dictionaries, category-name conditionals, ad hoc descriptor-removal lists, or arbitrary word-count/digit-count/range limits to make selected examples pass. Every bound needs a demonstrated contract or documented configuration basis; inherited bounds are not automatically correct.
+- Legitimate shared unit vocabularies, spelling aliases, typed schema enums, and declarative approved shipping/business tables are data, not automatically forbidden hardcoding. Define them once and reference them. They must not conceal product-specific matching exceptions.
+- Hardcode only what is strictly required: shared data tables (units, aliases, enums, approved business tables) defined once in a single source of truth. Decision logic must be structural and general (token runs, digit/letter boundaries, numeric ordering, unit binding, symmetry), never a list of words, brands, models, stores, promo terms, or phrases added to make selected titles pass. Before adding any literal word list or phrase regex, first prove that no existing canonical vocabulary or structural rule can express it; if a new vocabulary is truly unavoidable, define it once with its documented contract, cover it with unseen-input tests, and state it explicitly in the review as new hardcoding.
+- Brand/product names in test fixtures or explanatory comments are not executable brand exceptions. Distinguish new hardcoding from inherited hardcoding and structural heuristics when reviewing; show the relevant executable condition and its consequence.
+- Do not invent equivalence between a model number and a capacity/count. A unit, nearby word, short prefix, or matching number can nominate evidence but cannot independently prove SKU identity.
+
+### Evidence-preserving identity and normalization
+
+- Preserve explicit brand, full SKU, subordinate model tags, color, capacity, and physical-feature conflicts. Never remove contradictory evidence merely to obtain an accepted match or a cheaper competitor.
+- Keep explicit identity evidence, measurements, normal prose, and ambiguous observations distinguishable through the relevant pipeline. Do not silently reinterpret ambiguity as a confirmed match or as confirmed absence of a constraint. Use existing review/rejection contracts where evidence is insufficient.
+- Normalization must preserve meaning across harmless casing, whitespace, punctuation, aliases, separator variants, quotation styles, and word order. Do not let `in` versus `IN` change physical capacity merely because one regex branch is case-sensitive.
+- Normalize a protected measurement/model span before any cleanup that would destroy its evidence. Verify cleanup ordering, not only individual helper functions. Repeated normalization must not progressively change identity.
+- A measurement range is not an exact endpoint. Check spaced/unspaced hyphens and slashes, decimals, thousands separators, attached/separate units, quoted models, and prose prepositions. Reject or retain uncertainty rather than silently selecting a range endpoint.
+- A broader fallback query may improve retrieval; it must not weaken the final brand/model/variant referee. Exact queries retain their established priority, and incomplete discovery must not be represented as a confirmed empty market.
+- Do not infer missing catalog brands from titles. Do not edit input names, colors, SKU suffixes, fixtures, expected outputs, or source catalogs to hide an algorithmic defect. User-verified catalog corrections are authoritative for that catalog and must not become global equivalence rules.
+
+### Regression tests must challenge the rule
+
+- Include positive and negative cases, unseen synthetic brands/models, cross-brand isolation, opposing colors/capacities, conflicting explicit SKUs, missing evidence, and both matching directions where applicable.
+- Exercise combinations rather than only isolated examples: unit before/after color and descriptors, upper/lowercase, spaced ranges, quote styles, numeric boundaries, multiword series, and words that resemble prefixes. Do not exclude a valid input just because it breaks the proposed shortcut.
+- Use dynamic synthetic fixtures for general algorithm tests and representative existing catalogs for compatibility. Real product fixtures may document a regression; the implementation must not recognize those fixture names specially.
+- Tests must assert observable identity/coverage/output behavior, not merely repeat the implementation's regex or arbitrary cutoff. Do not change expected results solely to turn a failure green; justify each intentional behavior delta.
+- Validate input parsing, model extraction, query coverage/order, final match decisions, pricing/commission invariants, and complete CSV/XLSX output where affected. Helper tests alone do not establish end-to-end correctness.
+- Report actual commands, results, warnings, and any skipped or blocked checks. Passing selected tests is not proof that the entire catalog is correct. Never claim a full suite, live marketplace check, coverage percentage, or performance result that was not measured for the stated revision/scope.
+- Discover the active test/tool configuration; use the project virtual environment. Established checks include pytest, Ruff, and strict Mypy for `pricing_engine` and `index.py`. Historical numbers below are not current verification evidence.
+
+### Separate adversarial review and commit discipline
+
+- Before **every commit**, a separate review sub-agent must inspect the relevant final artifact and contract for correctness, architecture, readability/DRY, security, and performance. Give it an adversarial task, not a request to approve. Do not use a reviewer to rubber-stamp a conclusion.
+- The primary agent must personally read the relevant diff and verify substantive findings. A reviewer can be wrong: reproduce findings, distinguish confirmed bugs from policy concerns, and retract claims contradicted by source/history. A test-green result does not override a demonstrated false match.
+- Fix actionable issues in the authorized scope and recheck them before committing. If unresolved issues remain, disclose them; do not claim the file is safe or bury the failures under passing-test counts. If a review tool is unavailable, report the missing review rather than claiming equivalent verification.
+- Additional external/cross-model review is optional and requires user authorization. Respect a user's decision to skip it; separate sub-agent review remains required.
+- Preserve other agents' and the user's staged/unstaged work. Respect file-specific instructions such as “review only,” “do not edit,” and “do not commit matcher.” Never reset, stash, overwrite, or commit excluded work to manufacture a clean tree.
+- Stage explicit, reviewed scope; do not use blanket staging when unrelated changes exist. Inspect the staged diff before committing. No engine-code change is implied by a request to update documentation or agent instructions.
+- Coordinate or isolate verification when another agent is editing core files. A source-provenance guard firing during edits is not evidence of a pricing bug. An isolated payload check must use complete fixtures and be reported as isolated verification, not a passing live working-tree suite.
+- A clean-tree request never authorizes deleting or committing preserved user work. Report intentional remaining changes clearly. Do not push, merge, or deploy merely because a local commit was authorized.
+
+### Owner collaboration and explanations
+
+- Respond in the user's language; Roman Urdu is appropriate when they use it. Keep technical identifiers precise. Explain the concrete problem, why it happens, its consequence, and the general fix in understandable language.
+- Lead with verified outcomes. Show a minimal reproducer or file/line evidence for important claims. Explain what changed in each requested file, what is useful, what is unsafe, and what tests do or do not establish.
+- Do not blame another agent for assumptions or heuristic fixes you contributed. Acknowledge and correct your own meaningful mistakes plainly.
+- Do not add unnecessary confirmations, features, restrictive business policies, or unrelated refactors. Ask only for genuinely missing product intent/authority; continue independent authorized work while waiting.
+- For review-only requests, provide findings and recommended correction order without implementing them. When implementation is explicitly requested, carry it through the authorized verification and review steps rather than stopping at advice.
+
+### Re-run and artifact behavior already agreed with the owner
+
+- `S.NO` is optional display numbering, never a persistent product identifier. Row position does not prove identity. Reuse requires validated, compatible, uniquely reconciled input content; do not fabricate identities or modification histories for renamed/ambiguous products.
+- Automatic interactive re-run choices apply to meaningful input changes or pending work. Unchanged completed input, including duplicates conservatively requiring processing, must not prompt merely because results cannot be reused. Full refresh remains available; headless unspecified execution defaults to full.
+- An explicitly requested targeted run must not silently become an incompatible full run. Preserve the established first-run exception and explicit full authorization behavior.
+- Keep working recovery state separate from completed snapshots; validate provenance and dependencies before reuse. Concurrent executions must not mix state or outputs. Preserve current input ordering and complete row coverage.
+- Publication is atomic per file, not transactional across all files. Report partial failures and stale optional outputs truthfully. Winner cleanup may touch only verified owned current artifacts, never historical, edited, or unverified files.
+
+The technical descriptions below document existing contracts and history; verify them against current code and the owner's explicit requirements before relying on them. If a substantive conflict exists, report it rather than silently changing business behavior or treating a stale description as a proven implementation fact.
+
+---
+
 ## 1. System Identity & Mission
 
 - **Target Market**: Pakistani e-commerce retail (Consumer Electronics, Home Appliances, Split ACs, Washing Machines, Refrigerators, LEDs).
@@ -14,7 +102,7 @@ Automated, high-speed dynamic repricing pipeline for Pakistani e-commerce platfo
   4. **Strictly Fixed Per-Vendor Commissions**: Each vendor strictly applies its own configured percentage (`effective_commission_rate == configured_vendor_commission_rate`; defaults `ALFA_COMMISSION_PCT = 10.0`, `DIGI_COMMISSION_PCT = 8.0`) across every calculation, floor, pipeline, checkpoint, CSV, and XLSX formula. Zero automatic emergency overrides or hidden fallbacks.
   5. **Deterministic Data Integrity**: Guaranteed Column 1 `S.NO`, pure integer price outputs (zero `.0` float drift), and ANSI-free risk alerts.
   6. **Strict DRY Concept & Generic Dynamic Algorithms (Zero Category & Brand Hardcoding)**:
-     - **Zero Static Lists**: Never hardcode category conditionals (`if 'MINI BAR'`), static brand lists (`["DAWLANCE", "GREE", ...]`), or static prefix sets (`(HWM|DWT|DW|WM|...)`) in `matcher.py` or anywhere in the engine.
+     - **No Product Exception Lists**: Never hardcode category conditionals (`if 'MINI BAR'`), static brand exceptions (`["DAWLANCE", "GREE", ...]`), or static SKU prefix sets (`(HWM|DWT|DW|WM|...)`) in engine algorithms. Shared unit/alias definitions and approved declarative configuration belong in a single source of truth; see section 0.
      - **Dynamic SKU Prefixes**: All SKU prefixes (e.g. `DMB`, `HRF`, `HWM`, `GS`, `PR`, `WF`) must be extracted dynamically via generic regex (`\b([A-Za-z]{2,4})[- ]?{stem_num}`).
      - **Dynamic Initialism Referee**: 2-letter modifier tags (e.g. `SD` vs `Double Door`, `FL` vs `Top Load`) must be matched and collided dynamically via word boundaries and initialisms without static collision dictionaries.
      - **Dynamic Brand-Initial Verification**: Numeric stems must be validated against brand initials dynamically (`{brand[0]}[a-z]{1,3}[- ]?{model}`).
@@ -193,7 +281,7 @@ Standardized output column ordering:
 ## 7. Testing Discipline & Quality Gates
 
 The codebase enforces strict test-driven development:
-- **Test Suite**: Located in `tests/` (346 passing tests, 0 failures).
+- **Test Suite**: Located in `tests/`. Historical counts are not guarantees; discover and run the current suite and report actual results for the current revision.
 - **Test Fixtures**: Isolated in `tests/fixtures/` (`Gree_Uploading_on_DigiMall_and_Price.csv`, `Haier_Washing_Machines_Uploading_and_Price.csv`, `Stock Holding Report 25-Feb-2026.csv`).
 - **Commands**:
   ```bash
