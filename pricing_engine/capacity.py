@@ -16,6 +16,13 @@ UNIT_PATTERNS: dict[CapacityUnit, str] = {
     "L": r"(?:LTRS?|LITRES?|LITERS?|L)",
     "TAP": r"(?:TAPS?|FAUCETS?)",
 }
+# Prose matching excludes bare 'IN' and quote marks ('', ', ") so English prepositions
+# ('2 in Black') and quoted model names ("'Icon 2'") never corrupt screen-size extraction;
+# valid screen quotes (32", 32”) are canonicalised upfront by normalize_screen_units.
+PROSE_UNIT_PATTERNS: dict[CapacityUnit, str] = {
+    **UNIT_PATTERNS,
+    "INCH": r"(?:INCH(?:ES)?)",
+}
 QUERY_UNITS: dict[CapacityUnit, str] = {
     "T": "Ton",
     "INCH": "Inch",
@@ -41,12 +48,75 @@ def parse_amount(value: object) -> Decimal | None:
     return amount if amount.is_finite() else None
 
 
+RANGE_SEPARATOR_PATTERN = r"[-\u2013\u2014/]"
+_RANGE_LOWER_BOUND_RE = re.compile(
+    rf"(?<![A-Za-z0-9\-\u2013\u2014_/])(\d+(?:\.\d+)?)\s*{RANGE_SEPARATOR_PATTERN}\s*$"
+)
+_RANGE_UPPER_BOUND_RE = re.compile(r"\d+(?:\.\d+)?")
+VALID_TAP_COUNTS: frozenset[Decimal] = frozenset(
+    {Decimal(1), Decimal(2), Decimal(3), Decimal(4)}
+)
+
+
+def is_numeric_range_continuation(text: str, match_start: int) -> bool:
+    """Return True when a unit match sits on the right side of an ascending numeric range.
+
+    Both unspaced ('2-3 Taps', '2.5-3 Taps', '2/3 Taps') and spaced ('2 - 3 Taps') pairs must
+    be strictly ascending (lower < upper) so descending '<model>-<capacity>' tokens
+    ('9173-12CFT', '120-10KG') and clause separators ('DW 120 - 10 KG') are never misclassified
+    as measurement ranges.
+    """
+    lower = _RANGE_LOWER_BOUND_RE.search(text[:match_start])
+    if lower is None:
+        return False
+    upper = _RANGE_UPPER_BOUND_RE.match(text, match_start)
+    if upper is None:
+        return False
+    low_amount, high_amount = parse_amount(lower.group(1)), parse_amount(upper.group(0))
+    return low_amount is not None and high_amount is not None and low_amount < high_amount
+
+
+def _unbounded_capacity_pattern(unit_pattern: str) -> str:
+    return rf"(?i:(\d+(?:\.\d+)?)\s*[-]?\s*{unit_pattern}(?!\w))"
+
+
+def _bounded_capacity_pattern(unit_pattern: str) -> str:
+    return rf"(?i:(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{unit_pattern}(?!\w))"
+
+
 def explicit_capacity_pattern(unit: CapacityUnit) -> str:
     """Configured extraction pattern; inference and scaling stay with the caller."""
-    return rf"(?i:(?<![\w./])(\d+(?:\.\d+)?)\s*[-]?\s*{UNIT_PATTERNS[unit]}(?!\w))"
+    return _bounded_capacity_pattern(UNIT_PATTERNS[unit])
 
 
-CAPACITY_MEASUREMENT_PATTERN = "|".join(explicit_capacity_pattern(unit) for unit in UNIT_PATTERNS)
+def prose_capacity_pattern(unit: CapacityUnit) -> str:
+    """Prose-safe extraction pattern excluding preposition/quote tokens normalized upstream."""
+    return _bounded_capacity_pattern(PROSE_UNIT_PATTERNS[unit])
+
+
+CAPACITY_MEASUREMENT_PATTERN = "|".join(prose_capacity_pattern(unit) for unit in UNIT_PATTERNS)
+UNBOUNDED_CAPACITY_MEASUREMENT_PATTERN = "|".join(
+    _unbounded_capacity_pattern(PROSE_UNIT_PATTERNS[unit]) for unit in UNIT_PATTERNS
+)
+UNBOUNDED_TAP_PATTERN = _unbounded_capacity_pattern(PROSE_UNIT_PATTERNS["TAP"])
+SPEC_ONLY_UNIT_PATTERN = r"(?:FEET|FT|MM|CM|GM|SETS?|WATTS?|W|VOLTS?|V|AMPS?|HZ|BTU|RPM|GALLONS?|GAL)"
+NON_TAP_MEASUREMENT_UNIT_PATTERN = "|".join(
+    [
+        *(pattern for unit, pattern in PROSE_UNIT_PATTERNS.items() if unit != "TAP"),
+        SPEC_ONLY_UNIT_PATTERN,
+    ]
+)
+TOKEN_MEASUREMENT_UNIT_PATTERN = "|".join(
+    [
+        r"(?:TONS?|ΤΟ[NΝ])",
+        PROSE_UNIT_PATTERNS["INCH"],
+        PROSE_UNIT_PATTERNS["KG"],
+        PROSE_UNIT_PATTERNS["CFT"],
+        PROSE_UNIT_PATTERNS["L"],
+        PROSE_UNIT_PATTERNS["TAP"],
+        SPEC_ONLY_UNIT_PATTERN,
+    ]
+)
 
 
 @dataclass(frozen=True)
@@ -75,5 +145,8 @@ def parse_capacity(value: str | None) -> Capacity | None:
 
 def find_capacity(text: str, unit: CapacityUnit) -> Capacity | None:
     """Read an explicit bounded measurement; caller owns category/SKU context."""
-    match = re.search(explicit_capacity_pattern(unit), text)
-    return parse_capacity(match[0]) if match else None
+    for match in re.finditer(prose_capacity_pattern(unit), text):
+        if is_numeric_range_continuation(text, match.start()):
+            continue
+        return parse_capacity(match[0])
+    return None

@@ -3,7 +3,10 @@ import pytest
 from pricing_engine.matcher import (
     extract_product_slots,
     extract_search_query_and_model,
+    generate_model_first_queries,
     generate_search_patterns,
+    is_dimension_or_spec_token,
+    is_sku_variant_tag,
     is_strict_model_match,
     referee_match,
 )
@@ -1170,6 +1173,370 @@ def test_water_dispenser_tap_count_matching() -> None:
     assert res_omitted.is_match
 
 
+def test_anchor_less_candidate_tap_model_bridges() -> None:
+    """Spaced alphanumeric models whose trailing digit is also a tap count bridge cleanly."""
+    target = "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black (Model: Icon-2)"
+
+    for valid_cand in (
+        "Orient Icon 2 Taps Water Dispenser",
+        "Orient Water Dispenser Icon 2 Taps With Refrigerator",
+        "Orient Icon  2 Taps Water Dispenser",
+        "Orient Icon 2-Tap Water Dispenser",
+    ):
+        dec = referee_match(target, valid_cand, brand="Orient")
+        assert dec.is_match is True
+        assert dec.is_base_match is False
+        assert dec.reason_code == "ACCEPTED"
+        assert dec.match_tier == 1
+        assert dec.compatibility_notice is None
+
+    # Non-TAP capacity alongside TAP must not shadow tap matching; brand-subsequence prefixes must bridge
+    assert referee_match(
+        "Orient Icon-2 Water Dispenser",
+        "Orient Icon 2 Taps Water Dispenser With 2 CFT Refrigerator",
+        brand="Orient",
+    ).is_match
+    assert referee_match("Dawlance DW-2 Water Dispenser", "Dawlance DW 2 Taps Water Dispenser", brand="Dawlance").is_match
+    assert referee_match("Orient OT-2 Water Dispenser", "Orient OT 2 Taps Water Dispenser", brand="Orient").is_match
+
+    # Opposing explicit tap counts still enforce FACET_CONFLICT
+    dec_tap = referee_match(
+        "Orient VCM Series Icon 2 3 Taps Water Dispenser (Model: Icon-2)",
+        "Orient Icon 2 Taps Water Dispenser",
+        brand="Orient",
+    )
+    assert dec_tap.is_match is False
+    assert dec_tap.reason_code == "FACET_CONFLICT"
+
+
+def test_explicit_inch_shorthand_preserves_size_guard() -> None:
+    from pricing_engine.matcher import referee_match
+
+    for notation in ("IN", "in", "-IN"):
+        for color in ("", "Black "):
+            assert not referee_match(
+                f"Synthetic AB32 32 {notation} {color}LED TV",
+                f"Synthetic AB32 40 {notation} {color}LED TV",
+                brand="Synthetic",
+            ).is_match
+            assert not referee_match(
+                f"Haier Pro 32 {notation} {color}LED TV",
+                f"Haier Pro 40 {notation} {color}LED TV",
+                brand="Haier",
+            ).is_match
+    for descriptor in ("TV", "LED"):
+        assert not referee_match(
+            f"Synthetic AB123 {descriptor} 32 in Black LED TV",
+            f"Synthetic AB123 {descriptor} 40 in Black LED TV",
+            brand="Synthetic",
+        ).is_match
+    # Preceding quoted models ("Pro 50") or decade apostrophes ("50's") must never suppress real TV sizes
+    for prefix in ('"Pro 50"', "Retro 50's"):
+        assert not referee_match(
+            f"Brand AB123 {prefix} 32 in Black LED TV",
+            f"Brand AB123 {prefix} 40 in Black LED TV",
+            brand="Brand",
+        ).is_match
+    assert not referee_match(
+        "Brand Retro 50's 32' LED TV",
+        "Brand Retro 50's 40' LED TV",
+        brand="Brand",
+    ).is_match
+    # Trailing display-type clauses (| LED TV, - Smart TV, - UHD TV, - QLED TV) must preserve TV context
+    for trailer in ("| LED TV", "- Smart TV", "- UHD TV", "- QLED TV"):
+        assert not referee_match(
+            f"Brand AB123 32 in Black {trailer}",
+            f"Brand AB123 40 in Black {trailer}",
+            brand="Brand",
+        ).is_match, trailer
+
+
+def test_prose_quotes_and_in_preposition_never_invent_inch_capacity() -> None:
+    """Quoted model names, apostrophes, and 'in <phrase>' prose do not corrupt capacity to INCH."""
+    for target, cand, brand in (
+        ("Orient Icon-2 2 Taps Water Dispenser", "Orient 'Icon 2' 2 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 2 Taps Water Dispenser", 'Orient "Icon 2" 2 Taps Water Dispenser', "Orient"),
+        ("Orient Icon-2 2 Taps Water Dispenser", "Orient Icon 2 in Black 2 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 in Stock Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 in Glass Door Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient's 'Icon 2' Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient ''Icon 2'' Water Dispenser", "Orient"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance 'DW 255' 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW-255 in White 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 IN White 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in Stock 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance ''DW 255'' 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White with LED Display 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - Official LED Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - Official TV Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - TV Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - LED TV Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - Brand Official TV Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White | TV Store", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - TV Shop", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in White - Smart TV House", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in (White) 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in 2025 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 - in White 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", 'Dawlance DW 255 in "White" 10 KG Washing Machine', "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", "Dawlance DW 255 in 'White' 10 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 10 KG Washing Machine", 'Dawlance DW-255" 10 KG Washing Machine', "Dawlance"),
+        ("Orient Crystal-12 Water Dispenser", "Orient Crystal 12 in Black Water Dispenser", "Orient"),
+    ):
+        cand_slots = extract_product_slots(cand, brand=brand)
+        assert cand_slots.guarded_facets.capacity not in {"2INCH", "12INCH", "255INCH"}, (cand, cand_slots)
+        dec = referee_match(target, cand, brand=brand)
+        assert dec.is_match is True, (cand, dec.reason)
+        assert dec.reason_code == "ACCEPTED", (cand, dec.reason)
+
+    assert extract_product_slots('Dawlance "Blaze 32" LED TV', "Dawlance").guarded_facets.capacity is None
+    assert extract_product_slots("Dawlance Blaze 32\u201d LED TV", "Dawlance").guarded_facets.capacity == "32INCH"
+    assert extract_product_slots("Haier Blaze 32'' LED TV", "Haier").guarded_facets.capacity == "32INCH"
+    assert "'" not in extract_product_slots("Haier Blaze 32'' LED TV", "Haier").normalized_title
+    # Glued quote-inch before letters ('32"TV', "32''LED TV") and decade apostrophe ("50's")
+    assert extract_product_slots('Samsung 32"TV', "Samsung").guarded_facets.capacity == "32INCH"
+    assert extract_product_slots("Samsung 32''LED TV", "Samsung").guarded_facets.capacity == "32INCH"
+    assert "50's" in extract_product_slots("Brand 50's Retro Fridge", "Brand").normalized_title
+    assert extract_product_slots("Samsung Series 500 in Black 43 Inch LED TV", "Samsung").guarded_facets.capacity == "43INCH"
+    # Curly/prime pipe-delimited quote-inch trailers are preserved
+    assert extract_product_slots("Haier Blaze LED TV | 32\u2019", "Haier").guarded_facets.capacity == "32INCH"
+    assert extract_product_slots("Haier Blaze LED TV | 32\u2032", "Haier").guarded_facets.capacity == "32INCH"
+    # Earlier inch quote must not flip parity of a later quoted model
+    quoted_after_inch = extract_product_slots('Dawlance 32" "Pro 50" LED TV', "Dawlance")
+    assert quoted_after_inch.guarded_facets.capacity == "32INCH"
+    assert '"Pro 50"' in quoted_after_inch.normalized_title
+    # Descending <model>-<capacity> is not a numeric range; model and capacity both stay intact
+    dec_cft = referee_match(
+        "Dawlance Chrome 9173-12CFT Refrigerator",
+        "Dawlance Chrome 9173-14CFT Refrigerator",
+        brand="Dawlance",
+    )
+    assert dec_cft.is_match is False and dec_cft.reason_code == "FACET_CONFLICT", dec_cft.reason
+    assert extract_product_slots("Haier 120-10KG Washing Machine", "Haier").guarded_facets.capacity == "10KG"
+    assert extract_product_slots("Dawlance DW-6550-8KG Washing Machine", "Dawlance").guarded_facets.capacity == "8KG"
+    assert extract_product_slots("Haier HWM-120-10KG Washing Machine", "Haier").guarded_facets.capacity == "10KG"
+    assert extract_product_slots("Orient Icon 2.5 Taps Water Dispenser", "Orient").guarded_facets.capacity is None
+    assert extract_product_slots("Orient Icon 2 - 3 Taps Water Dispenser", "Orient").guarded_facets.capacity is None
+    assert extract_product_slots("Orient Icon 2 / 3 Taps Water Dispenser", "Orient").guarded_facets.capacity is None
+    # Unspaced slash ranges never fabricate bogus anchors ('2/3', '100/', '10/')
+    for slash_range, s_brand in (
+        ("Orient Icon 2/3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon 2.5/3 Taps Water Dispenser", "Orient"),
+        ("Acme 100/200 Ltr Refrigerator", "Acme"),
+        ("Acme 10/12 KG Washing Machine", "Acme"),
+    ):
+        sr_slots = extract_product_slots(slash_range, s_brand)
+        assert sr_slots.anchor == "", (slash_range, sr_slots)
+        assert sr_slots.guarded_facets.capacity is None, (slash_range, sr_slots)
+    assert extract_product_slots("Orient Icon Two-Tap Water Dispenser", "Orient").guarded_facets.capacity == "2TAP"
+    assert is_dimension_or_spec_token("2GAL") is True
+    assert is_sku_variant_tag("2GAL") is False
+
+
+@pytest.mark.parametrize(
+    ("target", "cand", "brand"),
+    [
+        (
+            "Orient Icon-20 Water Dispenser",
+            "Orient VCM Series Icon 20 Ltr Top Load Bottle Water Dispenser Black",
+            "Orient",
+        ),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 Ltr Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 KG Water Dispenser", "Orient"),
+        ("Gree Aura-2 Split AC", "Gree Aura 2 Ton Split AC", "Gree"),
+        ("Dawlance Chrome-12 Refrigerator", "Dawlance Chrome 12 Cu Ft Refrigerator", "Dawlance"),
+        ("Haier Pearl-10 Washing Machine", "Haier Pearl 10 KG Washing Machine", "Haier"),
+        ("Dawlance Blaze-32 LED TV", "Dawlance Blaze 32 Inch LED TV", "Dawlance"),
+        ("Dawlance Blaze-32 LED TV", 'Dawlance Blaze 32" LED TV', "Dawlance"),
+        ("Dawlance Blaze-32 LED TV", "Dawlance Blaze 32\u201d LED TV", "Dawlance"),
+        ("Dawlance Blaze-32 LED TV", "Dawlance's Blaze 32' LED TV", "Dawlance"),
+        ("Orient Eco-1000 Iron", "Orient Eco 1000 Watts Iron", "Orient"),
+        ("Dawlance DW-15 Microwave Oven", "Dawlance DW 15 Ltr Microwave Oven", "Dawlance"),
+        ("Haier HAF-50 Air Fryer", "Haier HAF 50 Ltr Air Fryer", "Haier"),
+        ("Haier 120 Washing Machine", "Haier 120 Taps Washing Machine", "Haier"),
+        ("Dawlance DW-120 Washing Machine", "Dawlance 120 Taps Washing Machine", "Dawlance"),
+        ("Orient DWT-10-2 Water Dispenser", "Orient DWT 10 2 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2A Water Dispenser", "Orient Crystal 2-A Water Dispenser", "Orient"),
+        ("Dawlance DW-12L Water Dispenser", "Dawlance 12 L Water Dispenser", "Dawlance"),
+        ("Gree GS-12T Split AC", "Gree 12 T Split AC", "Gree"),
+        ("Orient Apex-150 Water Dispenser", "Orient Nova 150 Ltr Water Dispenser", "Orient"),
+        ("Dawlance DW-120 Washing Machine", "Dawlance 120 KG Washing Machine", "Dawlance"),
+        ("Dawlance DW-255 Water Dispenser", "Dawlance 1-255 Ltr Water Dispenser", "Dawlance"),
+        ("Dawlance DW-255 Water Dispenser", "Dawlance 1/255 Ltr Water Dispenser", "Dawlance"),
+        ("Dawlance DW-12", "Dawlance DW 12-EX", "Dawlance"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 20 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2-A Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2-EX Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2,000 Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2,5 Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2.5 Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2-3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2/3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 - 3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2 / 3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-3 Water Dispenser", "Orient Icon 2.5-3 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-12 Water Dispenser", "Orient Icon 10-12 Taps Water Dispenser", "Orient"),
+        ("Orient Icon-20 Water Dispenser", "Orient Icon 20 Taps Water Dispenser", "Orient"),
+        ("Orient PRO-ICON-2 Water Dispenser", "Orient Icon 2 Taps Water Dispenser", "Orient"),
+    ],
+)
+def test_anchor_less_fallback_rejects_measurement_and_boundary_collisions(
+    target: str, cand: str, brand: str
+) -> None:
+    """Anchor-less fallback never steals capacity/unit digits or crosses token/prefix bounds."""
+    dec = referee_match(target, cand, brand=brand)
+    assert dec.is_match is False, (target, cand, dec.reason)
+    assert dec.reason_code == "MODEL_CONFLICT", (target, cand, dec.reason)
+
+
+def test_tap_series_target_reverse_matching_and_discovery() -> None:
+    """Series + Tap targets match symmetrically and generate valid DigiMall model-first queries."""
+    rev_target = "Orient Icon 2 Taps Water Dispenser"
+
+    for valid_cand in (
+        "ORIENT TWO TAPS WATER DISPENSER Model ICON2 MB",
+        "Orient VCM Series Icon 2 20 Ltr Top Load Bottle Water Dispenser Black (Model: Icon-2)",
+        "Orient WD-ICON-2 Water Dispenser",
+        "Orient Icon 20 Ltr 2 Taps Water Dispenser",
+        "Orient Icon 20 Ltr Two Taps Water Dispenser",
+        "Orient Icon 2025 2 Taps Water Dispenser",
+        "Orient Icon 2.0 Taps Water Dispenser",
+        "Orient Icon 02 Taps Water Dispenser",
+        "Orient Icon 2Taps Water Dispenser",
+    ):
+        dec = referee_match(rev_target, valid_cand, brand="Orient")
+        assert dec.is_match is True, (valid_cand, dec.reason)
+        assert dec.reason_code == "ACCEPTED", (valid_cand, dec.reason)
+
+    # Forward/reverse symmetry for glued 2Taps, 2.0/02 Taps, and validated wrapper prefix (WD-ICON-2)
+    for fwd_target, fwd_cand in (
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2Taps Water Dispenser"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2.0 Taps Water Dispenser"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 02 Taps Water Dispenser"),
+        ("Orient WD-ICON-2 Water Dispenser", "Orient Icon 2 Taps Water Dispenser"),
+        ("Orient WD-ICON-2 Water Dispenser", "Orient WD Icon 2 Taps Water Dispenser"),
+    ):
+        dec_fwd = referee_match(fwd_target, fwd_cand, brand="Orient")
+        assert dec_fwd.is_match is True, (fwd_target, fwd_cand, dec_fwd.reason)
+        assert dec_fwd.reason_code == "ACCEPTED", (fwd_target, fwd_cand, dec_fwd.reason)
+
+    for wrong_cand in (
+        "Orient Icon-3 Water Dispenser",
+        "Orient Icon 3 Water Dispenser",
+        "Orient Icon-20 Water Dispenser",
+        "Orient Icon 2.0 Water Dispenser",
+        "Orient Icon 2-3 Taps Water Dispenser",
+        "Orient Icon 2 - 3 Taps Water Dispenser",
+        "Orient Icon 2 / 3 Taps Water Dispenser",
+        "Orient Icon 2 Ltr Water Dispenser",
+        "Orient Icon 2Ltr Water Dispenser",
+        "Orient Icon 2L Water Dispenser",
+        "Orient Icon 2 Watt Water Dispenser",
+        "Orient Icon 2Watt Water Dispenser",
+        "Orient 20 Ltr Icon Water Dispenser",
+        "Orient 2 Ltr Icon Water Dispenser",
+        "Orient WD-ICON-3 Water Dispenser",
+        "Orient PRO-ICON-2 Water Dispenser",
+        "Orient MINI-ICON-2 Water Dispenser",
+        "Orient VCM-20 Icon 2 Taps Water Dispenser",
+        "Orient Crystal-3 Icon 2 Taps Water Dispenser",
+        "Orient Icon 2 Taps (Model: WD-550) Water Dispenser",
+        "Orient Icon 2.5 Water Dispenser",
+        "Orient Icon 2,5 Water Dispenser",
+        "Orient Icon 2,000 Water Dispenser",
+    ):
+        dec_bad = referee_match(rev_target, wrong_cand, brand="Orient")
+        assert dec_bad.is_match is False, (wrong_cand, dec_bad.reason)
+        assert dec_bad.reason_code == "MODEL_CONFLICT", (wrong_cand, dec_bad.reason)
+
+    dec_vcm_measure = referee_match(
+        "Orient VCM Series Icon 2 Taps Water Dispenser",
+        "Orient VCM 20 Ltr Icon 2 Taps Water Dispenser",
+        brand="Orient",
+    )
+    assert dec_vcm_measure.is_match is True, dec_vcm_measure.reason
+    assert dec_vcm_measure.reason_code == "ACCEPTED", dec_vcm_measure.reason
+
+    dec_diff_series = referee_match(rev_target, "Orient Crystal-2 Water Dispenser", brand="Orient")
+    assert dec_diff_series.is_match is False
+
+    # Co-occurring non-TAP capacity (2 CFT) must not shadow reverse tap guard, opposing tap facets, or DigiMall discovery
+    cft_tap_target = "Orient Icon 2 Taps With 2 CFT Refrigerator Water Dispenser"
+    for bad_cft_cand in (
+        "Orient Icon-3 With 2 CFT Refrigerator Water Dispenser",
+        "Orient Icon 3 Taps With 2 CFT Refrigerator Water Dispenser",
+        "Orient Icon-2 3 Taps With 2 CFT Refrigerator Water Dispenser",
+    ):
+        dec_cft_bad = referee_match(cft_tap_target, bad_cft_cand, brand="Orient")
+        assert dec_cft_bad.is_match is False, (bad_cft_cand, dec_cft_bad.reason)
+    for fwd_cft_target, fwd_cft_cand in (
+        (
+            "Orient Icon-2 3 Taps With 2 CFT Refrigerator Water Dispenser",
+            "Orient Icon 2 Taps With 2 CFT Refrigerator Water Dispenser",
+        ),
+        (
+            "Orient Icon-2 2 Taps With 2 CFT Refrigerator Water Dispenser",
+            "Orient Icon-2 3 Taps With 2 CFT Refrigerator Water Dispenser",
+        ),
+    ):
+        dec_cft_opp = referee_match(fwd_cft_target, fwd_cft_cand, brand="Orient")
+        assert dec_cft_opp.is_match is False and dec_cft_opp.reason_code == "FACET_CONFLICT", (
+            fwd_cft_target,
+            fwd_cft_cand,
+            dec_cft_opp.reason,
+        )
+    assert generate_model_first_queries(cft_tap_target, "Orient") == ("Icon 2", "Icon2", "Icon-2")
+
+    # Out-of-range or range tap counts on anchorless targets must never collapse to endpoint SKUs
+    for bad_target, bad_oor_cand in (
+        ("Orient Icon 20 Taps Water Dispenser", "Orient Icon-20 Water Dispenser"),
+        ("Orient Icon 20 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon 20 Taps Water Dispenser", "Orient Icon-3 Water Dispenser"),
+        ("Orient Icon 2-3 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon 2-3 Taps Water Dispenser", "Orient Icon-3 Water Dispenser"),
+        ("Orient Icon 2/3 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon 2-3 Taps Water Dispenser", "Orient Icon 2 Taps Water Dispenser"),
+        ("Orient Icon 2-3 Taps Water Dispenser", "Orient Icon 3 Taps Water Dispenser"),
+        ("Orient Icon 2.5-3 Taps Water Dispenser", "Orient Icon-3 Water Dispenser"),
+        ("Orient Icon 10-12 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon 2\u20133 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon-2 Water Dispenser", "Orient Icon 2\u20133 Taps Water Dispenser"),
+        ("Orient Icon 2 \u2013 3 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+        ("Orient Icon 2\u20143 Taps Water Dispenser", "Orient Icon-2 Water Dispenser"),
+    ):
+        dec_oor = referee_match(bad_target, bad_oor_cand, brand="Orient")
+        assert dec_oor.is_match is False and dec_oor.reason_code == "MODEL_CONFLICT", (
+            bad_target,
+            bad_oor_cand,
+            dec_oor.reason,
+        )
+
+    assert generate_model_first_queries(rev_target, "Orient") == ("Icon 2", "Icon2", "Icon-2")
+    assert generate_model_first_queries("Dawlance DW 2 Taps Water Dispenser", "Dawlance") == (
+        "DW 2",
+        "DW2",
+        "DW-2",
+    )
+    assert generate_model_first_queries(
+        "ORIENT Crystal 3 Taps (Smoke Purple) Crystal Glass Door Water Dispenser - 3 Taps",
+        "Orient",
+    ) == ("Crystal 3", "Crystal3", "Crystal-3")
+    slash_series_queries = generate_model_first_queries(
+        "Orient Icon / Crystal 2 Taps Water Dispenser", "Orient"
+    )
+    assert slash_series_queries and all("/" not in q for q in slash_series_queries), slash_series_queries
+    assert generate_model_first_queries(
+        "Orient VCM Series Icon 2 Taps Top Load Bottle Water Dispenser", "Orient"
+    )
+    # Series length is not an identity contract: a long series must not abort discovery.
+    long_series_queries = generate_model_first_queries(
+        "Orient Alpha Beta Gamma Delta Epsilon 3 Taps Water Dispenser", "Orient"
+    )
+    assert long_series_queries and long_series_queries[0].endswith(" 3"), long_series_queries
+
+
 def test_deep_freezer_df300_es_matching() -> None:
     """Verify deep freezer model matching for spaced DF-300 ES vs glued DF-300ES."""
     target_name = "Dawlance DF-300 ES 300 Litres Energy Saver Series Deep Freezer"
@@ -1668,7 +2035,7 @@ def test_dw6570_twin_tub_double_washing_machine_and_onestop_seller_cleanup() -> 
     assert "Accepted" in dec.reason
 
 
-def test_trailing_plus_capability_inside_parenthesized_sku_is_not_stripped_as_feature_list():
+def test_trailing_plus_capability_inside_parenthesized_sku_is_not_stripped_as_feature_list() -> None:
     target = 'Dawlance DWT 1166 ADS+ Automatic Top Load Washing Machine'
     for title in (
         'Dawlance Top Load Fully Automatic Washing Machine (AWM-DWT-1166-ADS+)',
@@ -1683,7 +2050,7 @@ def test_trailing_plus_capability_inside_parenthesized_sku_is_not_stripped_as_fe
     assert s.anchor == 'HRF-458'
 
 
-def test_twin_tub_with_spaced_variant_matches_top_load_semi_auto_as_base_model():
+def test_twin_tub_with_spaced_variant_matches_top_load_semi_auto_as_base_model() -> None:
     tgt = "Dawlance DW-10500 C Twin Tub Washing Machine"
     cands = [
         "Dawlance - Washing Machine Semi Auto Twin Tub Top Load 12KG - DW 10500",
@@ -1696,4 +2063,227 @@ def test_twin_tub_with_spaced_variant_matches_top_load_semi_auto_as_base_model()
         assert d.is_base_match is True
         assert d.match_tier == 2
         assert "Single-letter variant 'C' omitted" in d.reason
+        assert d.compatibility_notice is not None
         assert "FALLBACK MODEL" in d.compatibility_notice
+
+
+def test_cabinet_and_color_word_noise_do_not_trigger_series_uncertain() -> None:
+    """Generic descriptor words like 'Cabinet' and 'color'/'colour' must not leak into series."""
+    target = (
+        "Midea YL2037S-B 3 Taps Top Load with Refrigerator Cabinet "
+        "Water Dispenser Black (Model: YL2037S-B)"
+    )
+    cand_et_black = (
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black color | "
+        "Official Warranty | Free delivery | On Installments (0% Markup) - ET"
+    )
+    cand_mt_black = "Midea 3 Taps Water Dispenser Model YL-2037S Black With Free Home Delivery"
+    cand_et_white = (
+        "Midea Water Dispenser 3 Taps Model YL-2037S White colour | "
+        "Official Warranty | Free delivery | On Installments (0% Markup) - ET"
+    )
+    cand_mt_white = "Midea 3 Taps Water Dispenser Model YL-2037S White With Free Home Delivery"
+
+    assert extract_product_slots(target, brand="Midea").series == ""
+    assert extract_product_slots(cand_et_black, brand="Midea").series == ""
+    assert extract_product_slots(cand_et_white, brand="Midea").series == ""
+
+    dec_et = referee_match(target, cand_et_black, brand="Midea")
+    assert dec_et.is_match is True and dec_et.reason_code == "ACCEPTED", dec_et.reason
+
+    dec_mt = referee_match(target, cand_mt_black, brand="Midea")
+    assert dec_mt.is_match is True and dec_mt.reason_code == "ACCEPTED", dec_mt.reason
+
+    for white_cand in (
+        cand_et_white,
+        cand_mt_white,
+        "Midea Water Dispenser 3 Taps Model YL-2037S - White Color",
+        "Midea Water Dispenser 3 Taps Model YL-2037S | White Colour",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - ET - White Color",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - Color: White",
+        "Midea Water Dispenser 3 Taps Model YL-2037S | Colour: White",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - Light Grey Color",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - Smoke Purple Color",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - White Finish",
+        "Midea Water Dispenser 3 Taps Model YL-2037S | White & Silver",
+        "Midea Water Dispenser 3 Taps Model YL-2037S - Color: White/Grey",
+    ):
+        dec_w = referee_match(target, white_cand, brand="Midea")
+        assert dec_w.is_match is False and dec_w.reason_code == "FACET_CONFLICT", (
+            white_cand,
+            dec_w.reason,
+        )
+
+    # Seller/store trailers that merely contain a color word, generic descriptor, or quoted
+    # promo tag are seller noise, not product color/spec evidence.
+    for seller_trailer_cand in (
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Red Star",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - White New",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Silver Tech House",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Warranty",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Karachi",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - 'Deal 99'",
+        'Midea Water Dispenser 3 Taps Model YL-2037S Black - "Store 24"',
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - \u201cStore 24\u201d",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Deal 99",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Deal: 99",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Discount 15",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Black - Discount: 15",
+    ):
+        dec_s = referee_match(target, seller_trailer_cand, brand="Midea")
+        assert dec_s.is_match is True and dec_s.reason_code == "ACCEPTED", (
+            seller_trailer_cand,
+            dec_s.reason,
+        )
+        assert extract_product_slots(seller_trailer_cand, brand="Midea").series == "", (
+            seller_trailer_cand,
+        )
+
+    # Pipe-delimited '| Model <digits>' / '| Model: <digits>' / '| Model:9173' / '| Model#9173'
+    # must preserve model evidence without leaking ':' or '#' into series.
+    for pipe_model_cand in (
+        "Dawlance Refrigerator | Model 9173",
+        "Dawlance Refrigerator | Model: 9173",
+        "Dawlance Refrigerator | Model# 9173",
+        "Dawlance Refrigerator | Model:9173",
+        "Dawlance Refrigerator | Model#9173",
+    ):
+        slots_pm = extract_product_slots(pipe_model_cand, brand="Dawlance")
+        assert slots_pm.anchor == "9173" and slots_pm.series == "", (pipe_model_cand, slots_pm)
+        dec_pipe_model = referee_match(
+            "Dawlance 9173 Avante Refrigerator",
+            pipe_model_cand,
+            brand="Dawlance",
+        )
+        assert dec_pipe_model.is_match is True and dec_pipe_model.reason_code == "ACCEPTED", (
+            pipe_model_cand,
+            dec_pipe_model.reason,
+        )
+    dec_color_colon = referee_match(
+        "Dawlance 9173 Avante Refrigerator White",
+        "Dawlance 9173 Refrigerator | Color: White",
+        brand="Dawlance",
+    )
+    assert dec_color_colon.is_match is True and dec_color_colon.reason_code == "ACCEPTED", (
+        dec_color_colon.reason
+    )
+
+    # Negative check: genuine series disagreement must still fail with SERIES_UNCERTAIN.
+    dec_ser = referee_match(
+        "Midea YL2037S-B Prestige 3 Taps Water Dispenser Black",
+        "Midea Water Dispenser 3 Taps Model YL-2037S Glamour Black color",
+        brand="Midea",
+    )
+    assert dec_ser.is_match is False and dec_ser.reason_code == "SERIES_UNCERTAIN", dec_ser.reason
+
+
+def test_glued_prefixed_skus_emit_anchor_and_hyphen_without_mid_number_slicing() -> None:
+    """Color-suffixed and glued 3/4-digit SKUs must emit clean fallback queries without drum slicing."""
+    title = (
+        "Midea YL2037S-B 3 Taps Top Load with Refrigerator Cabinet "
+        "Water Dispenser Black (Model: YL2037S-B)"
+    )
+    pats = generate_search_patterns(title, brand="Midea")
+    all_queries = {q for tier in pats.values() for q in tier}
+
+    assert "Midea YL2037S-B" in pats["tier_1"]
+    assert "YL2037S-B" in pats["tier_1"]
+    assert {"YL2037S", "Midea YL2037S", "YL-2037S", "Midea YL-2037S"} <= set(pats["tier_2"])
+    assert {"YL 2037S", "Midea YL 2037S"} <= set(pats["tier_3"])
+
+    for bad_slice in (
+        "YL-203-7S-B",
+        "Midea YL-203-7S-B",
+        "YL 203 7S-B",
+        "Midea YL 203 7S-B",
+        "YL 203 7S B",
+    ):
+        assert bad_slice not in all_queries
+
+    # Bidirectional symmetry for pre-hyphenated color-suffixed models
+    pats_hyph = generate_search_patterns(
+        "Midea YL-2037S-B 3 Taps Water Dispenser Black", brand="Midea"
+    )
+    assert {"YL-2037S", "Midea YL-2037S", "YL2037S"} <= set(pats_hyph["tier_2"])
+    assert "YL 2037S" in pats_hyph["tier_3"]
+
+    # 3-digit prefix+digits SKU must not be mid-number sliced by drum rule
+    pats_hrf = generate_search_patterns("Haier HRF538 Refrigerator", brand="Haier")
+    hrf_all = {q for tier in pats_hrf.values() for q in tier}
+    assert "HRF-538" in hrf_all
+    assert "HRF-53-8" not in hrf_all
+    assert "HRF 53 8" not in hrf_all
+
+    # Unhyphenated front-load washer drum SKU continues to segment cleanly
+    pats_drum = generate_search_patterns("Haier HW90BP12357S8 Washing Machine", brand="Haier")
+    assert "HW-90-BP12357-S8" in pats_drum["tier_1"]
+    # 3-digit capacity + 3-digit series washer segments the same way as 2+4 digit drums
+    hwm_all = {
+        q
+        for tier in generate_search_patterns("Haier HWM150826 Washing Machine", brand="Haier").values()
+        for q in tier
+    }
+    assert "HWM-150-826" in hwm_all, hwm_all
+
+    # Bare non-letter numeric or AC 2-digit prefix SKUs stay isolated
+    pats_9101 = generate_search_patterns("9101 white", brand="Dawlance")
+    assert "9101" not in pats_9101["tier_2"] and "9101" not in pats_9101["tier_3"]
+    pats_ac = generate_search_patterns("Gree GS18AITH21W Split AC", brand="Gree")
+    assert "GS-18AITH21W" not in pats_ac["tier_2"]
+
+    # Non-drum SKUs with 1-digit suffixes or 5-digit glued numbers must not slice mid-number
+    for title_nv, brand_nv, bad, good in (
+        ("Gree GS60F1 5 Ton Floor Standing AC", "Gree", "GS-60-F1", None),
+        ("Haier HRF216S6 Refrigerator", "Haier", "HRF-216-S6", "HRF-216S6"),
+        ("Midea YL203S1 Water Dispenser", "Midea", "YL-203-S1", "YL-203S1"),
+        ("Dawlance 91060 Refrigerator", "Dawlance", "91-060", None),
+        ("Midea YL80250S Water Dispenser", "Midea", "YL-80-250S", "YL-80250S"),
+    ):
+        nv_pats = generate_search_patterns(title_nv, brand=brand_nv)
+        nv_all = {q for tier in nv_pats.values() for q in tier}
+        assert bad not in nv_all, (title_nv, nv_all)
+        if good is not None:
+            assert good in nv_pats["tier_2"], (title_nv, nv_pats)
+
+    # Multi-block TV/washer contract remains intact (e.g. Samsung UA65DU7000 -> UA-65-DU7000)
+    assert "UA-65-DU7000" in generate_search_patterns(
+        "Samsung UA65DU7000 65 Inch Smart LED TV", brand="Samsung"
+    )["tier_2"]
+    qa_all = {
+        q
+        for tier in generate_search_patterns(
+            "Samsung QA65Q60DAUXMM 65 Inch QLED TV", brand="Samsung"
+        ).values()
+        for q in tier
+    }
+    assert "QA-65-Q60DAUXMM" in qa_all, qa_all
+
+    # Non-color hyphenated suffix preserved + unit/brand/missing-brand guards enforced
+    pats_m = generate_search_patterns("Midea YL2037S-M Water Dispenser", brand="Midea")
+    assert "YL-2037S-M" in pats_m["tier_2"]
+    assert "GAL-100" not in generate_search_patterns("Acme GAL100 Water Heater", brand="Acme")["tier_2"]
+    assert "KGS-200" not in generate_search_patterns("Acme KGS200 Scale", brand="Acme")["tier_2"]
+    assert "LG-1200" not in generate_search_patterns(
+        "LG Electronics LG1200 Refrigerator", brand="LG Electronics"
+    )["tier_2"]
+    # Hyphenated multi-word brands are brand tokens, not SKU prefixes
+    assert "MEGA-500" not in generate_search_patterns(
+        "Mega-Cool MEGA500 Air Cooler", brand="Mega-Cool"
+    )["tier_2"]
+    brandless_hrf = {
+        q for tier in generate_search_patterns("HRF538 Refrigerator").values() for q in tier
+    }
+    assert "HRF538 HRF-538" not in brandless_hrf
+
+    # DigiMall contract keeps YL2037S-B 3-query baseline; variantless glued SKUs pull YL-2037S
+    assert generate_model_first_queries(title, brand="Midea") == (
+        "YL2037S-B",
+        "YL2037S B",
+        "YL2037S",
+    )
+    assert "YL-2037S" in generate_model_first_queries(
+        "Midea YL2037S 3 Taps Water Dispenser Black", brand="Midea"
+    )
+    assert "YL-80250S" in generate_model_first_queries(
+        "Midea YL80250S Water Dispenser", brand="Midea"
+    )

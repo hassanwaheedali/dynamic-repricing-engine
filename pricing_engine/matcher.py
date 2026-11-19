@@ -3,7 +3,22 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import Literal
 
-from pricing_engine.capacity import CAPACITY_MEASUREMENT_PATTERN, find_capacity, parse_capacity
+from pricing_engine.capacity import (
+    CAPACITY_MEASUREMENT_PATTERN,
+    NON_TAP_MEASUREMENT_UNIT_PATTERN,
+    RANGE_SEPARATOR_PATTERN,
+    TOKEN_MEASUREMENT_UNIT_PATTERN,
+    UNBOUNDED_CAPACITY_MEASUREMENT_PATTERN,
+    UNBOUNDED_TAP_PATTERN,
+    UNIT_PATTERNS,
+    VALID_TAP_COUNTS,
+    Capacity,
+    find_capacity,
+    format_amount,
+    is_numeric_range_continuation,
+    parse_amount,
+    parse_capacity,
+)
 from pricing_engine.registry import (
     _SEED_DAWLANCE_CAPACITIES,
     _SEED_UNIVERSAL_CAPACITIES,
@@ -734,6 +749,8 @@ NON_SKU_TOKENS = {
     "YEARS",
     "TECH",
     "HOUSE",
+    "COLOR",
+    "COLOUR",
 }
 
 GENUINE_SUB_SERIES_TOKENS = {
@@ -1087,14 +1104,93 @@ def normalize_technical_slashes(text: str) -> str:
     return normalize_screen_units(t)
 
 
+_DISPLAY_CONTEXT_RE = re.compile(
+    r"\b(?:TV|TELEVISION|MONITOR|SMART\s*TV|LED\s*TV|OLED|QLED|UHD|FHD)\b", re.IGNORECASE
+)
+_SCREEN_QUOTE_MARKS_PATTERN = r'(?:"|\u201d|\u2033|\'\'|\'|\u2019|\u2032)'
+
+
 def normalize_screen_units(text: str) -> str:
-    """Canonicalise screen-size notation: 32" / 32-inch / 32 Inches -> '32 INCH'.
-    Fractions such as 1/2" or 12/16" (pipe sizes) are left untouched."""
+    """Canonicalise screen-size notation: 32" / 32'' / 32-inch / 32 Inches -> '32 INCH'.
+
+    Fractions such as 1/2" or 12/16" (pipe sizes), decade apostrophes ("50's"), and paired
+    quotation marks (including ``''...''`` and quotes following an earlier inch mark) are left
+    untouched. Explicit ``INCH``/``INCHES`` and quote-parity inch marks are resolved FIRST so
+    quoted models (``"Pro 50"``) and decade apostrophes (``50's``) never falsely trigger
+    ``has_explicit_inch`` or suppress a real ``32 in`` / ``40 in`` TV size. A spaced bare
+    ``<num> in <token>`` (including clause-dash ``255 - in White`` and quoted ``255 in "White"``)
+    is read as inches only when the non-seller title carries unambiguous TV/monitor context and
+    does not already state an explicit canonical ``INCH`` measurement.
+    """
     t = re.sub(
         r"(?<![\d./])(\d{2,3})\s*-?\s*(?:INCHES|INCH)\b", r"\1 INCH", text, flags=re.IGNORECASE
     )
-    t = re.sub(r"(?<![\d./])(\d{2,3})\s*(?:\"|\u201d|\u2033)", r"\1 INCH", t)
-    return t
+
+    # Track quote marks already consumed as inch units in this left-to-right pass so an
+    # earlier inch mark ('32"') never flips the open/close parity of a later quoted model ('"Pro 50"').
+    consumed_quotes: dict[str, int] = {'"': 0, "\u201d": 0, "''": 0, "'": 0, "\u2019": 0}
+
+    def _replace_quote_inch(m: re.Match[str]) -> str:
+        mark = m.group(2)
+        prefix = t[: m.start()]
+        suffix = t[m.end() :]
+        # Never corrupt decade/possessive forms like "50's" into "50 INCHs".
+        if mark in {"'", "\u2019"} and re.match(r"[A-Za-z]", suffix):
+            return m.group(0)
+        if mark == '"':
+            if (prefix.count('"') - consumed_quotes['"']) % 2 == 1:
+                return m.group(0)
+            consumed_quotes['"'] += 1
+        elif mark == "\u201d":
+            if prefix.count("\u201c") > (prefix.count("\u201d") - consumed_quotes["\u201d"]):
+                return m.group(0)
+            consumed_quotes["\u201d"] += 1
+        elif mark == "''":
+            if (prefix.count("''") - consumed_quotes["''"]) % 2 == 1:
+                return m.group(0)
+            consumed_quotes["''"] += 1
+        elif mark == "'":
+            lone_prefix = re.sub(r"(?<=[A-Za-z0-9])'[sS]\b", "", prefix.replace("''", ""))
+            if (lone_prefix.count("'") - consumed_quotes["'"]) % 2 == 1:
+                return m.group(0)
+            consumed_quotes["'"] += 1
+        elif mark == "\u2019":
+            lone_prefix = re.sub(r"(?<=[A-Za-z0-9])\u2019[sS]\b", "", prefix)
+            if prefix.count("\u2018") > (lone_prefix.count("\u2019") - consumed_quotes["\u2019"]):
+                return m.group(0)
+            consumed_quotes["\u2019"] += 1
+        trailing_space = " " if re.match(r"[A-Za-z0-9]", suffix) else ""
+        return f"{m.group(1)} INCH{trailing_space}"
+
+    t = re.sub(
+        rf"(?<![\w./-])(\d{{2,3}})\s*({_SCREEN_QUOTE_MARKS_PATTERN})",
+        _replace_quote_inch,
+        t,
+    )
+
+    # Strip trailing seller/store clauses before checking TV/monitor context and canonical
+    # explicit inch measurements so store names ('- Official TV Store'), quoted models ('"Pro 50"'),
+    # and decade apostrophes ("50's") cannot distort bare 'in' disambiguation.
+    stripped_for_ctx = _strip_trailing_seller_clauses(t)
+    has_display_context = bool(_DISPLAY_CONTEXT_RE.search(stripped_for_ctx))
+    has_explicit_inch = bool(
+        re.search(r"(?<![\d./])\d{2,3}\s+INCH\b", stripped_for_ctx, re.IGNORECASE)
+    )
+
+    def _replace_bare_in(match: re.Match[str]) -> str:
+        is_hyphenated_unit = bool(match.group(3)) and not match.group(4)
+        is_glued_unit = not match.group(2) and not match.group(3) and not match.group(4)
+        if not (is_hyphenated_unit or is_glued_unit):
+            followed_by_token = (
+                re.match(r"""\s*[\(\["'\u201c\u2018]?[A-Za-z0-9]""", t[match.end() :]) is not None
+            )
+            if followed_by_token and (not has_display_context or has_explicit_inch):
+                return match.group(0)
+        return f"{match.group(1)} INCH"
+
+    return re.sub(
+        r"(?<![\w./-])(\d{2,3})(\s*)(-?)(\s*)IN\b", _replace_bare_in, t, flags=re.IGNORECASE
+    )
 
 
 def expand_cartesian_branches(title: str) -> list[str]:
@@ -1273,7 +1369,13 @@ def expand_cartesian_branches(title: str) -> list[str]:
 
 
 _EXPLICIT_SELLER_TRAILER_RE = re.compile(
-    r"^(?:By|From|Sold\s+By)\b|\b(?:Official\s+Store|Pvt\.?\s+Ltd\.?|Traders?|Electronics?\s+Store|Mart|Emporium|Installments?|0%\s*Markup|Free\s+Delivery)\b",
+    r"^(?:By|From|Sold\s+By)\b|\b(?:Official\s+Store|Pvt\.?\s+Ltd\.?|Traders?|Electronics?\s+Store|Stores?|Shops?|Mart|Emporium|Installments?|0%\s*Markup|Free\s+Delivery)\b",
+    re.IGNORECASE,
+)
+_DISPLAY_SPEC_TRAILER_RE = re.compile(
+    r"^(?:(?:4K|8K|HD|FHD|UHD|QLED|OLED|LED|SMART|GOOGLE|ANDROID|HDR|MINI|CURVED|FRAMELESS|BEZEL[- ]?LESS|DIGITAL)\s+)*"
+    r"(?:TV|TELEVISION|MONITOR)"
+    r"(?:\s+(?:4K|8K|HD|FHD|UHD|QLED|OLED|LED|SMART|GOOGLE|ANDROID))*$",
     re.IGNORECASE,
 )
 
@@ -1302,6 +1404,27 @@ _SELLER_SINGLE_TOKEN_STOP_WORDS: set[str] = {
     "GIFT",
     "FREE",
 }
+# Connector words and shade/finish adjectives that may accompany a genuine color in a color clause
+# ('White Color', 'Color: White', 'Black Finish', 'Light Grey Color', 'Smoke Purple Color').
+_COLOR_CONNECTOR_WORDS: frozenset[str] = frozenset({"COLOR", "COLOUR", "FINISH"})
+_PROMO_NUMBER_PREFIX_WORDS: frozenset[str] = frozenset(
+    {"DEAL", "OFFER", "SALE", "PROMO", "DISCOUNT", "GIFT"}
+)
+_COLOR_SHADE_MODIFIERS: frozenset[str] = frozenset(
+    {
+        "LIGHT",
+        "SMOKE",
+        "GLOSSY",
+        "SHINY",
+        "BRIGHT",
+        "BRUSHED",
+        "SATIN",
+        "MIRROR",
+        "HAIRLINE",
+        "DEEP",
+        "FROSTED",
+    }
+)
 
 
 def _is_product_spec_trailer(segment: str) -> bool:
@@ -1311,37 +1434,86 @@ def _is_product_spec_trailer(segment: str) -> bool:
         return False
     if _EXPLICIT_SELLER_TRAILER_RE.search(clean_seg):
         return False
-    if _HARDWARE_SPEC_TRAILER_RE.search(clean_seg):
+    if _HARDWARE_SPEC_TRAILER_RE.search(clean_seg) or _DISPLAY_SPEC_TRAILER_RE.fullmatch(clean_seg):
         return True
     if re.search(
-        r"\b\d+(?:\.\d+)?\s*[-]?\s*(?:kg|kgs|ton|tons|ΤΟN|ltr|ltrs|liter|liters|litre|litres|cft|cu\s*ft|cu\.ft|inch|inches|ft|feet|w|watts?|v|volts?|hz|btu|taps?)\b",
+        rf"(?<![\w./])\d+(?:\.\d+)?\s*[-]?\s*(?:{TOKEN_MEASUREMENT_UNIT_PATTERN})(?!\w)",
         clean_seg,
         re.IGNORECASE,
     ):
         return True
-    # Preserve segments containing genuine SKU model identifiers (letters + >= 2 consecutive digits, e.g. DWT1016-PRIMA, GF-36TFIH, Sprinter 15)
+    # Standalone screen-size quote trailer (e.g. '| 32"', '| 32’', '| 32′') before screen-unit normalization.
+    if re.fullmatch(rf"\d{{2,3}}\s*{_SCREEN_QUOTE_MARKS_PATTERN}", clean_seg):
+        return True
+    # Preserve segments containing genuine SKU model identifiers (e.g. DWT1016-PRIMA, GF-36TFIH, Sprinter 15),
+    # excluding generic promo/noise words before digits (e.g. 'Deal 99', 'Offer 10').
     if re.search(
-        r"\b(?:[A-Za-z]{1,5}[-_]?\d{2,}[A-Za-z0-9\-_]*|\d{2,}[A-Za-z]{1,5}[A-Za-z0-9\-_]*|[A-Za-z]{3,}\s+\d{2,})\b",
+        r"\b(?:[A-Za-z]{1,5}[-_]?\d{2,}[A-Za-z0-9\-_]*|\d{2,}[A-Za-z]{1,5}[A-Za-z0-9\-_]*)\b",
         clean_seg,
+    ):
+        return True
+    m_word_num = re.search(r"\b([A-Za-z]{3,})(?:\s*[:#]\s*|\s+)\d{2,}\b", clean_seg)
+    if (
+        m_word_num
+        and not clean_seg.startswith(("'", '"', "\u2018", "\u201c"))
+        and m_word_num.group(1).upper() not in _PROMO_NUMBER_PREFIX_WORDS
+        and (
+            m_word_num.group(1).upper() == "MODEL"
+            or m_word_num.group(1).upper() not in NON_SKU_TOKENS
+        )
     ):
         return True
     if clean_seg.isdigit():
         return True
-    seg_words = [w.strip(".,'\"/()") for w in clean_seg.split() if w.strip(".,'\"/()")]
-    if seg_words and all(is_color_token(w) for w in seg_words):
+    seg_words = [
+        tok
+        for raw_w in re.split(r"[\s:/&,]+", clean_seg)
+        if (tok := raw_w.strip(".,'\"/():;\u2018\u2019\u201c\u201d"))
+    ]
+    # A color clause is at least one genuine color token plus optional 'color'/'colour' connectors
+    # and shade/finish modifiers ('Light Grey Color', 'Color: White'). Any store word
+    # ('Red Star', 'Black Tech House', 'White New') disqualifies the clause.
+    non_connector_words = [w for w in seg_words if w.upper() not in _COLOR_CONNECTOR_WORDS]
+    if (
+        non_connector_words
+        and any(is_color_token(w) for w in non_connector_words)
+        and all(
+            is_color_token(w) or w.upper() in _COLOR_SHADE_MODIFIERS
+            for w in non_connector_words
+        )
+    ):
         return True
     if len(seg_words) == 1:
         tok = seg_words[0]
         if tok.upper() in _SELLER_SINGLE_TOKEN_STOP_WORDS:
             return False
-        if is_dimension_or_spec_token(tok) or is_sku_variant_tag(tok):
+        if is_sku_variant_tag(tok):
+            return True
+        # Generic descriptor words ('Warranty', 'Official') are not product evidence on their own;
+        # a single token is a spec only when it is a non-descriptor or carries numeric evidence.
+        if is_dimension_or_spec_token(tok) and (
+            tok.upper() not in NON_SKU_TOKENS or re.search(r"\d", tok)
+        ):
             return True
     return False
 
 
+def _is_seller_stop_clause(segment: str) -> bool:
+    """Return True for a single-token seller/promo clause such as ' - ET' or ' - Sale'."""
+    words = segment.strip(" -–—|()[]").split()
+    return len(words) == 1 and words[0].strip(".,'\"").upper() in _SELLER_SINGLE_TOKEN_STOP_WORDS
+
+
 def _strip_trailing_seller_clauses(text: str) -> str:
-    """Iteratively strip rightmost pipe/dash seller/promo clauses while preserving genuine hardware specs."""
+    """Iteratively strip rightmost pipe/dash seller/promo clauses while preserving genuine hardware specs.
+
+    A preserved spec clause ('- White Color') does not end stripping: positively identified
+    seller clauses to its left ('- ET - White Color') are still removed. Clauses that are only
+    'not a spec' (e.g. '- Washing Machine') are kept once a spec tail has been preserved, because
+    text sandwiched between the product and a spec is product description, not seller noise.
+    """
     cur = text.strip()
+    preserved_tail: list[str] = []
     for _ in range(8):
         m = re.search(
             r"(?:\s+[-–—]|\s*\|)\s*(?:(By\s+|From\s+|Official\s+))?[^|–—\-\n]{2,}$",
@@ -1353,14 +1525,31 @@ def _strip_trailing_seller_clauses(text: str) -> str:
         seg = m.group(0).strip(" -–—|")
         is_explicit_seller = bool(m.group(1)) or bool(_EXPLICIT_SELLER_TRAILER_RE.search(seg))
         if not is_explicit_seller and _is_product_spec_trailer(seg):
+            preserved_tail.insert(0, m.group(0))
+            cur = cur[: m.start()].rstrip()
+            continue
+        if preserved_tail:
+            if is_explicit_seller or _is_seller_stop_clause(seg):
+                cur = cur[: m.start()].rstrip()
+                continue
             break
         has_digits = bool(re.search(r"\d", seg))
         is_pipe = "|" in m.group(0)
-        if is_explicit_seller or not has_digits or is_pipe:
+        is_quoted_non_spec = len(seg) >= 2 and (seg[0], seg[-1]) in {
+            ("'", "'"),
+            ('"', '"'),
+            ("\u2018", "\u2019"),
+            ("\u201c", "\u201d"),
+        }
+        is_promo_num_trailer = bool(
+            (m_promo := re.fullmatch(r"([A-Za-z]{3,})(?:\s*[:#]\s*|\s+)\d{1,3}", seg))
+            and m_promo.group(1).upper() in _PROMO_NUMBER_PREFIX_WORDS
+        )
+        if is_explicit_seller or not has_digits or is_pipe or is_quoted_non_spec or is_promo_num_trailer:
             cur = cur[: m.start()].strip()
         else:
             break
-    return cur
+    return (cur + "".join(preserved_tail)).strip()
 
 
 def clean_marketplace_noise(text: str) -> str:
@@ -1411,11 +1600,32 @@ _ATTACHED_MODEL_RE = re.compile(
 _FEATURE_COUNT_PATTERN = re.compile(r"\b\d{1,2}(?:\s*[-_]\s*[A-Za-z]+)+(?![\w-])", re.I)
 
 
+_TOKEN_MEASUREMENT_RE = re.compile(
+    rf"^\d+(?:\.\d+)?(?:[-_]?(?:{TOKEN_MEASUREMENT_UNIT_PATTERN}))$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_title_delimiters(text: str) -> str:
+    """Preserve numeric-range en/em-dashes as ASCII '-', convert prose dashes to spaces,
+    and separate label punctuation ('Model:9173', 'Model#9173', 'Color: White') from values."""
+    preserved = re.sub(r"(?<=\d)(\s*)[\u2013\u2014](\s*)(?=\d)", r"\1-\2", text)
+    preserved = preserved.replace("\u2014", " ").replace("\u2013", " ")
+    return re.sub(r"([A-Za-z])\s*[:#]\s*(?=[A-Za-z0-9])", r"\1 ", preserved)
+
+
+_MEASUREMENT_RANGE_SPAN_RE = re.compile(
+    rf"(?<![A-Za-z0-9\-\u2013\u2014_/])(?P<range_low>\d+(?:\.\d+)?)\s*{RANGE_SEPARATOR_PATTERN}\s*(?P<range_high>{UNBOUNDED_CAPACITY_MEASUREMENT_PATTERN})",
+    re.IGNORECASE,
+)
+
+
 def _strip_category_measurements(text: str) -> str:
     """Protect structurally prefixed model spans before category/unit removal."""
     pattern = (
         rf"(?P<attached_model>{_ATTACHED_MODEL_RE.pattern})"
         rf"|(?P<model>{_MODEL_UNIT_SUFFIX_RE.pattern})"
+        rf"|(?P<range_measurement>{_MEASUREMENT_RANGE_SPAN_RE.pattern})"
         rf"|(?:{_FEATURE_COUNT_PATTERN.pattern})"
         rf"|(?:{CATEGORY_PATTERNS.pattern})|(?:{CAPACITY_MEASUREMENT_PATTERN})"
     )
@@ -1428,6 +1638,14 @@ def _strip_category_measurements(text: str) -> str:
             if match.group("prefix").upper() not in NON_SKU_TOKENS:
                 return match.group("model")
             return CATEGORY_PATTERNS.sub(" ", match.group(0))
+        if match.group("range_measurement"):
+            # Atomically drop ascending numeric ranges ('2-3 Taps', '2.5-3 Taps', '10-12 Taps',
+            # '2 - 3 Taps') so neither endpoint leaks into model anchor extraction. For descending
+            # '<model>-<capacity>' tokens ('9173-12CFT', '120-10KG'), preserve the model number
+            # and strip only the trailing capacity measurement.
+            if is_numeric_range_continuation(text, match.start("range_high")):
+                return " "
+            return f"{match.group('range_low')} "
         return " "
 
     return re.sub(pattern, remove_or_preserve, text, flags=re.I)
@@ -1452,15 +1670,9 @@ def is_dimension_or_spec_token(token: str) -> bool:
         return True
     if clean.upper() in NON_SKU_TOKENS or re.match(r"^\d{1,2}K$", clean, re.IGNORECASE):
         return True
-    # Units attached to numbers: 3FEET, 3FT, 7KG, 13SETS, 40INCH, 1000W, 3.2L, 12CFT, 1400RPM, 12000BTU, etc.
-    if re.match(
-        r"^\d+(?:\.\d+)?(?:[-_]?(?:FEET|FT|INCH|MM|CM|KG|KGS|GM|LTR|LTRS|LITRE|LITRES?|LITERS?|L|CFT|CUFT|SETS?|TON|TONS|WATTS?|W|VOLTS?|V|AMPS?|HZ|BTU|RPM|TAPS?|\"|\'))?$",
-        clean,
-        re.IGNORECASE,
-    ):
-        # Standalone pure numbers with >= 3 digits (like 1088, 1400, 9270, 330) are valid model codes
-        if re.match(r"^\d+$", clean):
-            return len(clean) <= 2
+    if re.match(r"^\d+$", clean):
+        return len(clean) <= 2
+    if re.match(r"^\d+\.\d+$", clean) or _TOKEN_MEASUREMENT_RE.match(clean):
         return True
     if re.match(r"^(?:480|576|720|1080|1440|2160)[PI]$", clean, re.IGNORECASE):  # 1080P 2160P
         return True
@@ -1495,12 +1707,8 @@ def is_sku_variant_tag(token: str) -> bool:
     # Pure numbers or decimal floats (e.g. 2.0, 1.5, 24) are capacities, not SKU variant tags
     if re.match(r"^\d+(?:\.\d+)?$", clean):
         return False
-    # Units attached to numbers (e.g. 1.5TON, 9KG, 8-KG, 40INCH, 1000W, 3.2L, 12CFT, 1400RPM) are specs, not SKU variant tags
-    if re.match(
-        r"^\d+(?:\.\d+)?(?:[-_]?(?:FEET|FT|INCH|MM|CM|KG|KGS|GM|LTR|LTRS|LITRE|LITRES?|LITERS?|L|CFT|CUFT|SETS?|TON|TONS|WATTS?|W|VOLTS?|V|AMPS?|HZ|BTU|RPM|TAPS?|\"|\'))$",
-        clean,
-        re.IGNORECASE,
-    ):
+    # Units attached to numbers (e.g. 1.5TON, 9KG, 8-KG, 40INCH, 1000W, 3.2L, 12CFT, 1400RPM, 2GAL) are specs
+    if _TOKEN_MEASUREMENT_RE.match(clean):
         return False
     if re.match(r"^\d+IN\d+$", clean, re.IGNORECASE):  # 3IN1, 2IN1
         return False
@@ -1619,8 +1827,7 @@ def extract_search_query_and_model(full_name: str, brand: str = "") -> tuple[str
     full_name_clean = _canonicalize_plus_series(full_name_clean)
     full_name_clean = _normalize_ac_transposed_cap_x(full_name_clean, brand=brand)
     clean = (
-        full_name_clean.replace("—", " ")
-        .replace("–", " ")
+        _normalize_title_delimiters(full_name_clean)
         .replace("|", " ")
         .replace("[", "(")
         .replace("]", ")")
@@ -2692,6 +2899,19 @@ def is_strict_model_match(scraped_title: str, target_model: str, brand: str = ""
     return False
 
 
+def _dedupe_queries(items: list[str]) -> list[str]:
+    """Deduplicate search queries while preserving first-seen order case-insensitively."""
+    seen: set[str] = set()
+    res: list[str] = []
+    for item in items:
+        clean = item.strip()
+        lower = clean.lower()
+        if clean and lower not in seen:
+            seen.add(lower)
+            res.append(clean)
+    return res
+
+
 def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> dict[str, list[str]]:
     """Internal helper to generate tiered search query patterns for a single canonical branch.
 
@@ -2720,7 +2940,8 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
     if not clean_name:
         return {"tier_1": [], "tier_2": [], "tier_3": []}
 
-    detected_brand = brand.strip() or clean_name.split()[0]
+    first_word = clean_name.split()[0]
+    detected_brand = brand.strip() or (first_word if not re.search(r"\d", first_word) else "")
     search_token, raw_model = extract_search_query_and_model(clean_name, brand=detected_brand)
 
     tier_1: list[str] = []
@@ -2747,8 +2968,17 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             return t_clean
         return f"{p_clean}{sep}{t_clean}"
 
+    def _append_stem_variants(target_tier: list[str], stem: str) -> None:
+        target_tier.append(stem)
+        if detected_brand:
+            target_tier.append(_with_brand(detected_brand, stem))
+
+    def _is_alnum_stem(token: str) -> bool:
+        return bool(token and re.search(r"[A-Za-z]", token) and re.search(r"\d", token))
+
     tokens = raw_model.split()
     first_token = tokens[0] if tokens else raw_model
+    brand_tokens = {b.lower() for b in re.split(r"[\s\-_/]+", detected_brand) if b}
 
     # Dynamic SKU Prefix Extraction (100% Generic & Brand-Agnostic):
     # Detects any 2-4 letter brand/form-factor acronym directly preceding or hyphenated with the model
@@ -2758,7 +2988,7 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
     m_pfx_direct = re.match(r"^([A-Za-z]{2,4})[-_](?=[A-Za-z0-9])", first_token)
     if m_pfx_direct:
         candidate_pfx = m_pfx_direct.group(1).upper()
-        if candidate_pfx.lower() != detected_brand.lower() and candidate_pfx not in NON_SKU_TOKENS:
+        if candidate_pfx.lower() not in brand_tokens and candidate_pfx not in NON_SKU_TOKENS:
             pfx = candidate_pfx
         stem_num_match = re.search(r"\d+", first_token[m_pfx_direct.end() :])
         if stem_num_match:
@@ -2773,7 +3003,7 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             if m_pfx:
                 candidate_pfx = m_pfx.group(1).upper()
                 if (
-                    candidate_pfx.lower() != detected_brand.lower()
+                    candidate_pfx.lower() not in brand_tokens
                     and candidate_pfx not in NON_SKU_TOKENS
                 ):
                     pfx = candidate_pfx
@@ -3160,9 +3390,21 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
                     tier_3.append(_with_brand(detected_brand, f"{cap_svn}SVN"))
 
         # Dynamic Multi-Block Segmented Appliance Patterns (e.g. HW90-BP12357S8 -> HW-90-BP12357-S8)
-        # Matches any brand form-factor prefix (2-4 letters) + capacity (50-250) + series/sub-model
-        m_drum_multi = re.match(r"^([A-Za-z]{2,4})(\d{2,3})[-_ ]?([A-Za-z0-9].*)$", bare_stem)
-        if m_drum_multi and 50 <= int(m_drum_multi.group(2)) <= 250:
+        # Structurally require a delimiter + sub-model tail carrying a >=3-digit block or a 2-digit
+        # block followed by a >=2-letter suffix (letters + digits unhyphenated), so 3/4-digit SKUs and
+        # F1/S6/S1 revisions (GS60F1, HRF216S6, YL203S1, YL2037S-B, HRF538) are never sliced
+        # mid-number, while preserving TV/washer sub-model segmentation
+        # (UA-65-DU7000, QA-65-Q60DAUXMM, HW-90-BP12357-S8).
+        sub_model_block = r"(?:\d{3,}|\d{2}[A-Za-z]{2,})"
+        m_drum_multi = re.match(
+            rf"^([A-Za-z]{{2,4}})(\d{{2,3}})(?:[-_ ]+|(?=[A-Za-z]+{sub_model_block}))([A-Za-z0-9].*)$",
+            bare_stem,
+        )
+        if (
+            m_drum_multi
+            and 50 <= int(m_drum_multi.group(2)) <= 250
+            and re.search(sub_model_block, m_drum_multi.group(3))
+        ):
             d_pfx, d_cap, d_rest = m_drum_multi.groups()
             m_sub = re.match(r"^([A-Za-z0-9]+?)[-_ ]?([A-Za-z]\d|\b[A-Za-z]\b)$", d_rest)
             segmented_variants: list[str] = []
@@ -3213,11 +3455,18 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
             if detected_brand:
                 tier_3.append(_with_brand(detected_brand, bare_stem))
         else:
+            # Capacity group mirrors the 50..200 drum-capacity contract, so a 3-digit capacity +
+            # 3-digit series (HWM150826 -> 150 + 826) is reachable instead of the lazy 2-digit split
+            # (15 + 0826) shadowing it.
             m_drum_glued = re.match(
-                r"^([A-Za-z]{0,4}?)(\d{2,3}?)(\d{3,4})([A-Za-z]{0,2})$",
+                r"^([A-Za-z]{0,4}?)([5-9]\d|1\d{2}|200)(\d{3,4})([A-Za-z]{0,2})$",
                 bare_stem,
             )
-            if m_drum_glued and 50 <= int(m_drum_glued.group(2)) <= 200:
+            if (
+                m_drum_glued
+                and len(m_drum_glued.group(2)) + len(m_drum_glued.group(3)) >= 6
+                and not m_drum_glued.group(3).startswith("0")
+            ):
                 d_pfx, d_cap, d_ser, d_suf = m_drum_glued.groups()
                 split_hyphen = f"{d_pfx + '-' if d_pfx else ''}{d_cap}-{d_ser}{d_suf}"
                 split_space = f"{d_pfx + ' ' if d_pfx else ''}{d_cap} {d_ser}"
@@ -3238,26 +3487,49 @@ def _generate_single_branch_patterns(canonical_name: str, brand: str = "") -> di
         if detected_brand:
             tier_3.append(_with_brand(detected_brand, raw_model))
 
-    base_model = _capacity_led_base_model(extract_product_slots(canonical_name, brand), brand)
-    if base_model:
-        tier_2.extend([base_model, _with_brand(brand, base_model)])
+    slots = extract_product_slots(canonical_name, brand)
+    anchor_stem = slots.anchor.strip()
+    if _is_alnum_stem(anchor_stem) and anchor_stem.lower() != core_stem.lower():
+        # Emit color-stripped canonical anchors as fallback queries without weakening color guards.
+        _append_stem_variants(tier_2, anchor_stem)
+        if "-" in anchor_stem:
+            _append_stem_variants(tier_2, anchor_stem.replace("-", ""))
+            _append_stem_variants(tier_3, anchor_stem.replace("-", " "))
 
-    # Helper to deduplicate while preserving order case-insensitively
-    def _dedupe(items: list[str]) -> list[str]:
-        seen: set[str] = set()
-        res: list[str] = []
-        for x in items:
-            s = x.strip()
-            s_lower = s.lower()
-            if s and s_lower not in seen:
-                seen.add(s_lower)
-                res.append(s)
-        return res
+    # Expand glued prefix+3+digits SKUs into hyphenated/spaced seller forms (e.g. YL2037S -> YL-2037S).
+    pfx_targets = (
+        (anchor_stem,)
+        if _is_alnum_stem(anchor_stem)
+        else ((core_stem,) if _is_alnum_stem(core_stem) else ())
+    )
+    for pfx_candidate in pfx_targets:
+        m_glued_pfx = re.match(
+            r"^([A-Za-z]{2,4})(\d{3,}[A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)$",
+            pfx_candidate,
+        )
+        if not m_glued_pfx:
+            continue
+        glued_pfx, glued_rest = m_glued_pfx.groups()
+        if (
+            glued_pfx.lower() in brand_tokens
+            or glued_pfx.upper() in NON_SKU_TOKENS
+            or CATEGORY_PATTERNS.fullmatch(glued_pfx)
+            or _TOKEN_MEASUREMENT_RE.match(f"1{glued_pfx}")
+        ):
+            continue
+        _append_stem_variants(tier_2, f"{glued_pfx}-{glued_rest}")
+        _append_stem_variants(tier_3, f"{glued_pfx} {glued_rest}")
+        if "-" in glued_rest:
+            _append_stem_variants(tier_3, f"{glued_pfx} {glued_rest.replace('-', ' ')}")
+
+    base_model = _capacity_led_base_model(slots, brand)
+    if base_model:
+        _append_stem_variants(tier_2, base_model)
 
     return {
-        "tier_1": _dedupe(tier_1),
-        "tier_2": _dedupe(tier_2),
-        "tier_3": _dedupe(tier_3),
+        "tier_1": _dedupe_queries(tier_1),
+        "tier_2": _dedupe_queries(tier_2),
+        "tier_3": _dedupe_queries(tier_3),
     }
 
 
@@ -3281,17 +3553,6 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
     if not clean_name:
         return {"tier_1": [], "tier_2": [], "tier_3": []}
 
-    def _dedupe_list(items: list[str]) -> list[str]:
-        seen: set[str] = set()
-        res: list[str] = []
-        for x in items:
-            s = x.strip()
-            s_lower = s.lower()
-            if s and s_lower not in seen:
-                seen.add(s_lower)
-                res.append(s)
-        return res
-
     branches = expand_cartesian_branches(clean_name)
     if len(branches) > 1:
         t1: list[str] = []
@@ -3303,9 +3564,9 @@ def generate_search_patterns(canonical_name: str, brand: str = "") -> dict[str, 
             t2.extend(res.get("tier_2", []))
             t3.extend(res.get("tier_3", []))
         return {
-            "tier_1": _dedupe_list(t1),
-            "tier_2": _dedupe_list(t2),
-            "tier_3": _dedupe_list(t3),
+            "tier_1": _dedupe_queries(t1),
+            "tier_2": _dedupe_queries(t2),
+            "tier_3": _dedupe_queries(t3),
         }
 
     return _generate_single_branch_patterns(clean_name, brand=brand)
@@ -3475,15 +3736,15 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     )
     raw_clean = re.sub(r"\s*\(\s*\)", " ", raw_clean).strip()
 
-    # Clean trailing seller store tags (e.g. ' - ET', ' - By Tech House', ' |3AZ Mart', ' - ElectroEase')
-    # Guarantees hardware facets (GD, WB, GB, FL, TL, IOT, Cool Only, Twin Tub, EBS, Metal Door) are NEVER stripped!
-    raw_clean = _strip_trailing_seller_clauses(raw_clean)
+    # Canonicalise screen units before seller-clause stripping so spaced hyphenated forms like
+    # '32 -IN LED TV' are normalized to '32 INCH LED TV' rather than split at ' -IN'.
+    # normalize_screen_units ignores trailing seller clauses when evaluating display context.
+    raw_clean = _strip_trailing_seller_clauses(normalize_screen_units(raw_clean))
     raw_clean = _canonicalize_plus_series(raw_clean)
     raw_clean = _normalize_ac_transposed_cap_x(raw_clean, brand=brand)
 
     raw_clean = (
-        raw_clean.replace("—", " ")
-        .replace("–", " ")
+        _normalize_title_delimiters(raw_clean)
         .replace("|", " | ")
         .replace("[", "(")
         .replace("]", ")")
@@ -3498,6 +3759,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
         raw_clean,
         flags=re.IGNORECASE,
     )
+    # Screen units were already canonicalised above (before seller-trailer stripping), while
+    # the full title's display context was still available.
     normalized_title = raw_clean
     # Atomically isolate AC subordinate slash codes (e.g. HPU-48HE/012DC(GE)-T3, HSU-18HFP/023DC, 18HE/DC)
     # BEFORE parenthesis unwrapping in extract_search_query_and_model so '(GE)' never becomes an orphaned token.
@@ -3657,11 +3920,8 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     capacity: str | None = None
     # Screen size (only for displays or explicit INCH / " unit)
     is_display = bool(
-        re.search(
-            r"\b(?:LED|TV|TELEVISION|MONITOR|DISPLAY|SMART\s*TV|OLED|QLED|UHD|FHD)\b",
-            clean_title,
-            re.IGNORECASE,
-        )
+        _DISPLAY_CONTEXT_RE.search(clean_title)
+        or re.search(r"\b(?:LED|DISPLAY)\b", clean_title, re.IGNORECASE)
     )
     m_screen = find_capacity(clean_title, "INCH")
     if m_screen:
@@ -3711,16 +3971,9 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
 
     if not capacity:
         # Water Dispenser Tap Count (e.g. 2 Tap vs 3 Tap)
-        m_tap = re.search(
-            r"\b([1-4])\s*[-]?\s*(?:TAPS?|FAUCETS?)\b|\b(SINGLE|TWO|THREE|FOUR|DOUBLE)\s*(?:TAPS?|FAUCETS?)\b",
-            clean_title,
-            re.IGNORECASE,
-        )
-        if m_tap:
-            val = m_tap.group(1) or m_tap.group(2)
-            word_map = {"SINGLE": "1", "TWO": "2", "DOUBLE": "2", "THREE": "3", "FOUR": "4"}
-            tap_num = word_map.get(val.upper(), val)
-            capacity = f"{tap_num}TAP"
+        cap_tap = _extract_tap_capacity(clean_title)
+        if cap_tap is not None:
+            capacity = str(cap_tap)
 
     if capacity and (canonical_capacity := parse_capacity(capacity)):
         capacity = str(canonical_capacity)
@@ -4033,7 +4286,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     # Strip any hyphenated prefix-number codes (e.g. HWM-120, DWT-1165, GS-12)
     sub = re.sub(r"\b[A-Za-z]{2,4}-\d+", " ", sub)
     sub = re.sub(
-        r"(?:(?<!\w)0%(?!\w)|\b(?:NON[\s\-]*INVERTER|E[\s\-]*STAR|FIX(?:ED)?\s*SPEED|CONVENTIONAL|T3|INVERTER|INV|\d{1,2}K|SMART|WIFI|WI-FI|IOT|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD|AAA\+|AA\+|A\+{1,3}|AAA|AA)\b)",
+        r"(?:(?<!\w)0%(?!\w)|\b(?:NON[\s\-]*INVERTER|E[\s\-]*STAR|FIX(?:ED)?\s*SPEED|CONVENTIONAL|T3|INVERTER|INV|\d{1,2}K|SMART|WIFI|WI-FI|IOT|FHD|HD|SPLIT|AC|AUTO|TOP\s+LOAD|FRONT\s+LOAD|CABINET|AAA\+|AA\+|A\+{1,3}|AAA|AA)\b)",
         " ",
         sub,
         flags=re.IGNORECASE,
@@ -4068,7 +4321,7 @@ def extract_product_slots(title: str, brand: str = "") -> ProductSlots:
     for code in all_known_cap_codes:
         sub = re.sub(rf"\b{code}\b", " ", sub)
 
-    raw_series_tokens = [tok if tok == "/" else tok.strip("()[]-.,_ \"'+|%") for tok in sub.split()]
+    raw_series_tokens = [tok if tok == "/" else tok.strip("()[]-.,_ \"'+|%:#") for tok in sub.split()]
     merged_series_tokens: list[str] = []
     s_idx = 0
     while s_idx < len(raw_series_tokens):
@@ -4579,6 +4832,167 @@ def _has_generation_series_collision(norm_t: str, norm_c: str) -> tuple[bool, st
     if gen_t and gen_c and gen_t.group(1) != gen_c.group(1):
         return True, f"{gen_t.group(1)} vs {gen_c.group(1)} ({norm_t} vs {norm_c})"
     return False, ""
+
+
+_NON_TAP_UNIT_AFTER_RE = re.compile(
+    rf"^\s*[-]?\s*({NON_TAP_MEASUREMENT_UNIT_PATTERN})(?![A-Z0-9])",
+    re.IGNORECASE,
+)
+_TAP_UNIT_AFTER_RE = re.compile(
+    rf"^\s*[-]?\s*{UNIT_PATTERNS['TAP']}(?![A-Z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _anchor_runs_pattern(code: str) -> str:
+    """Build a separator-tolerant uppercase regex from typed runs, preserving all run boundaries."""
+    parts = [re.escape(val.upper()) for kind, val in split_runs(code) if kind != "P"]
+    return r"[-_\s]*".join(parts)
+
+
+def _has_trailing_non_tap_unit(title_upper: str, match_end: int) -> bool:
+    """Return True when matched digits are immediately bound to a non-TAP measurement unit."""
+    return bool(_NON_TAP_UNIT_AFTER_RE.match(title_upper[match_end:]))
+
+
+_RANGE_SEPARATOR_AFTER_RE = re.compile(rf"\s*{RANGE_SEPARATOR_PATTERN}\s*(?=\d)")
+
+
+def _is_numeric_range_lower_bound(title_upper: str, match_end: int) -> bool:
+    """Return True when matched digits open a numeric range ('ICON 2 - 3 TAPS').
+
+    Delegates the range decision to the canonical capacity rule so spaced and unspaced
+    ranges are judged identically everywhere.
+    """
+    separator = _RANGE_SEPARATOR_AFTER_RE.match(title_upper, match_end)
+    return separator is not None and is_numeric_range_continuation(title_upper, separator.end())
+
+
+_TAP_WORD_MAP: dict[str, str] = {
+    "SINGLE": "1",
+    "TWO": "2",
+    "DOUBLE": "2",
+    "THREE": "3",
+    "FOUR": "4",
+}
+_TAP_WORD_RE = re.compile(
+    rf"\b(SINGLE|TWO|THREE|FOUR|DOUBLE)\s*[-]?\s*{UNIT_PATTERNS['TAP']}\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_tap_capacity(text: str) -> Capacity | None:
+    """Single source of truth for bounded water-dispenser tap counts (1..4 taps, numeric or spelled)."""
+    cap_tap = find_capacity(text, "TAP")
+    if cap_tap is not None and cap_tap.amount in VALID_TAP_COUNTS:
+        return cap_tap
+    m_tap_word = _TAP_WORD_RE.search(text)
+    if m_tap_word:
+        return parse_capacity(f"{_TAP_WORD_MAP[m_tap_word.group(1).upper()]}TAP")
+    return None
+
+
+def _is_tap_anchor_wrapper_prefix(pfx: str, brand: str = "") -> bool:
+    """Return True only when pfx is a short brand or vowelless form-factor acronym (e.g. 'WD', 'OR'),
+    never a sub-series modifier ('PRO', 'MINI', 'MAX', 'ECO', 'PLUS', 'SLIM') or color."""
+    p = pfx.upper()
+    if not p.isalpha() or not (2 <= len(p) <= 3):
+        return False
+    if p in GENUINE_SUB_SERIES_TOKENS or p in NON_SKU_TOKENS or is_color_token(p):
+        return False
+    if _is_brand_prefix_abbreviation(p, brand):
+        return True
+    return not bool(re.search(r"[AEIOU]", p))
+
+
+def _matches_anchor_in_anchorless_title(
+    target_slots: ProductSlots,
+    cand_slots: ProductSlots,
+    pfx_t: str,
+    stem_t_core: str,
+    candidate_title: str,
+    brand: str,
+) -> bool:
+    """Verify strict token-bounded anchor presence when candidate extracted no SKU anchor."""
+    title_upper = (cand_slots.normalized_title or candidate_title).upper()
+    left_bound = r"(?<![A-Z0-9.\-_/])(?<!\d,)"
+    tap_lookahead = rf"{UNIT_PATTERNS['TAP']}(?![A-Z0-9])"
+    right_bound = rf"(?!(?:(?!{tap_lookahead})[A-Z0-9_/])|[.,]\d|-(?!{tap_lookahead}))"
+
+    anchor_runs = [(kind, val.upper()) for kind, val in split_runs(target_slots.anchor) if kind != "P"]
+    if anchor_runs and (not target_slots.anchor.isdigit() or len(target_slots.anchor) >= 3):
+        anchor_pat = _anchor_runs_pattern(target_slots.anchor)
+        ends_with_digit = anchor_runs[-1][0] == "D"
+        is_two_run_tap_anchor = (
+            len(anchor_runs) == 2
+            and anchor_runs[0][0] == "L"
+            and ends_with_digit
+            and parse_amount(anchor_runs[1][1]) in VALID_TAP_COUNTS
+        )
+        is_wrapped_three_run_tap_anchor = (
+            len(anchor_runs) == 3
+            and anchor_runs[0][0] == "L"
+            and _is_tap_anchor_wrapper_prefix(anchor_runs[0][1], brand)
+            and anchor_runs[1][0] == "L"
+            and ends_with_digit
+            and parse_amount(anchor_runs[2][1]) in VALID_TAP_COUNTS
+        )
+
+        def _matches_runs_pattern(pat: str, require_tap_unit: bool) -> bool:
+            for m in re.finditer(rf"{left_bound}{pat}{right_bound}", title_upper):
+                if ends_with_digit and (
+                    _has_trailing_non_tap_unit(title_upper, m.end())
+                    or _is_numeric_range_lower_bound(title_upper, m.end())
+                    or is_numeric_range_continuation(title_upper, m.start())
+                ):
+                    continue
+                has_tap_after = bool(
+                    ends_with_digit and _TAP_UNIT_AFTER_RE.match(title_upper[m.end() :])
+                )
+                if require_tap_unit and not has_tap_after:
+                    continue
+                if has_tap_after:
+                    tap_cap = _extract_tap_capacity(title_upper)
+                    valid_tap_bridge = (
+                        (is_two_run_tap_anchor or is_wrapped_three_run_tap_anchor)
+                        and tap_cap is not None
+                        and format_amount(tap_cap.amount) == anchor_runs[-1][1]
+                    )
+                    if not valid_tap_bridge:
+                        continue
+                return True
+            return False
+
+        if _matches_runs_pattern(anchor_pat, require_tap_unit=False):
+            return True
+        if is_two_run_tap_anchor or is_wrapped_three_run_tap_anchor:
+            tap_digit_pat = rf"0*{re.escape(anchor_runs[-1][1])}(?:\.0+)?"
+            # Match zero-padded / integral-decimal tap counts ('02 Taps', '2.0 Taps') symmetrically
+            # with reverse matching, strictly requiring a trailing TAP unit.
+            full_prefix_pat = r"[-_\s]*".join(re.escape(val) for _, val in anchor_runs[:-1])
+            if _matches_runs_pattern(
+                rf"{full_prefix_pat}[-_\s]*{tap_digit_pat}", require_tap_unit=True
+            ):
+                return True
+            if is_wrapped_three_run_tap_anchor:
+                inner_tap_pat = rf"{re.escape(anchor_runs[1][1])}[-_\s]*{tap_digit_pat}"
+                if _matches_runs_pattern(inner_tap_pat, require_tap_unit=True):
+                    return True
+
+    if stem_t_core.isdigit() and len(stem_t_core) >= 3 and (
+        not pfx_t or _is_brand_prefix_abbreviation(pfx_t, brand)
+    ):
+        for m in re.finditer(rf"{left_bound}{re.escape(stem_t_core)}{right_bound}", title_upper):
+            after_pos = m.end()
+            if (
+                _has_trailing_non_tap_unit(title_upper, after_pos)
+                or _TAP_UNIT_AFTER_RE.match(title_upper[after_pos:])
+                or _is_numeric_range_lower_bound(title_upper, after_pos)
+                or is_numeric_range_continuation(title_upper, m.start())
+            ):
+                continue
+            return True
+    return False
 
 
 def _extract_stem_single_letter_variant(
@@ -5465,7 +5879,7 @@ def _referee_match(
                         )
 
         matched_anchor = False
-        _, stem_t_core = _strip_leading_sku_prefix(norm_t, target_slots.anchor, brand=brand)
+        pfx_t, stem_t_core = _strip_leading_sku_prefix(norm_t, target_slots.anchor, brand=brand)
         if cand_slots.anchor:
             norm_c = re.sub(r"[^A-Z0-9]", "", cand_slots.anchor.upper())
             _, stem_c_core = _strip_leading_sku_prefix(norm_c, cand_slots.anchor, brand=brand)
@@ -5486,26 +5900,9 @@ def _referee_match(
                             target_slots, cand_slots, t_nums, c_nums
                         )
         else:
-            # Candidate had no extracted anchor: check strict token-bounded stem presence in candidate title
-            # (never match a bare 1-2 digit number against an anchor-less candidate title)
-            m_title_exact = (
-                re.search(
-                    rf"(?<![A-Z0-9]){re.escape(stem_t_core)}(EX)?(?![A-Z0-9])",
-                    candidate_title.upper(),
-                )
-                if (not stem_t_core.isdigit() or len(stem_t_core) >= 3)
-                else None
+            matched_anchor = _matches_anchor_in_anchorless_title(
+                target_slots, cand_slots, pfx_t, stem_t_core, candidate_title, brand
             )
-            if m_title_exact:
-                matched_anchor = True
-                if m_title_exact.group(1):
-                    extended_edition_designation = f"{stem_t_core}EX"
-            elif stem_t_core.isdigit():
-                t_nums = re.findall(r"\d{3,}", stem_t_core)
-                if len(t_nums) == 1 and re.search(
-                    rf"(?<!\d){re.escape(t_nums[0])}(?!\d)", candidate_title
-                ):
-                    matched_anchor = True
 
         # Dynamic Brand-Initial Prefix Synthesis check (only when candidate lacks conflicting alphanumeric SKU suffix)
         if (
@@ -5637,6 +6034,127 @@ def _referee_match(
         cand_series_words = normalize_series_tokens(cand_clean)
         if cand_slots.series:
             cand_series_words |= normalize_series_tokens(cand_slots.series)
+
+        # Symmetric tap-count model isolation when target identifies a named series + tap count
+        # without an explicit hyphenated SKU (e.g. 'Icon 2 Taps' vs 'Icon-3' / 'WD-ICON-3' / 'Icon 2.5').
+        # Read tap capacity directly from the normalized target title so co-occurring non-TAP
+        # capacities (e.g. '2 CFT Refrigerator') never shadow the tap guard.
+        target_title_upper = (
+            target_slots.normalized_title or (target if isinstance(target, str) else "")
+        ).upper()
+        target_cap = _extract_tap_capacity(target_title_upper) if not target_slots.anchor else None
+        raw_tap_span = (
+            re.search(UNBOUNDED_TAP_PATTERN, target_title_upper)
+            if (not target_slots.anchor and target_cap is None)
+            else None
+        )
+        if not target_slots.anchor and target_cap is None and raw_tap_span is not None:
+            return MatchDecision(
+                reason_code="MODEL_CONFLICT",
+                is_match=False,
+                reason=(
+                    f"Out-of-range or range tap count on anchorless target ({raw_tap_span.group(0)}) "
+                    f"cannot verify model identity against {cand_slots.anchor or cand_slots.series}"
+                ),
+                target_slots=target_slots,
+                candidate_slots=cand_slots,
+            )
+        if not target_slots.anchor and target_cap is not None and target_cap.unit == "TAP":
+            target_ser_tokens = {
+                tok for alt in alternatives for tok in normalize_series_tokens(alt)
+            }
+            tap_str = format_amount(target_cap.amount)
+            if cand_slots.anchor:
+                cand_runs = [(k, v.upper()) for k, v in split_runs(cand_slots.anchor) if k != "P"]
+                matched_ser_tok: str | None = None
+                if (
+                    len(cand_runs) == 2
+                    and cand_runs[0][0] == "L"
+                    and cand_runs[0][1] in target_ser_tokens
+                    and cand_runs[1] == ("D", tap_str)
+                ):
+                    matched_ser_tok = cand_runs[0][1]
+                elif (
+                    len(cand_runs) == 3
+                    and cand_runs[0][0] == "L"
+                    and _is_tap_anchor_wrapper_prefix(cand_runs[0][1], brand)
+                    and cand_runs[1][0] == "L"
+                    and cand_runs[1][1] in target_ser_tokens
+                    and cand_runs[2] == ("D", tap_str)
+                ):
+                    matched_ser_tok = cand_runs[1][1]
+                if matched_ser_tok is None:
+                    return MatchDecision(
+                        reason_code="MODEL_CONFLICT",
+                        is_match=False,
+                        reason=(
+                            f"Tap count model mismatch: {target_slots.series} {target_cap} "
+                            f"vs {cand_slots.anchor}"
+                        ),
+                        target_slots=target_slots,
+                        candidate_slots=cand_slots,
+                    )
+                cand_series_words.add(matched_ser_tok)
+            else:
+                # Inspect every '<series token> <number>' occurrence (including attached units
+                # such as '2Ltr', '2Watt', '2Taps'). A number bound to a non-TAP unit ('VCM 20 Ltr',
+                # 'Icon 20 Ltr') or a calendar year ('Icon 2025 2 Taps') is not a tap-count model,
+                # so it neither confirms nor contradicts a confirmed matching tap count. Without an
+                # explicit anchor, the candidate must positively confirm the target tap count
+                # (word-order invariant), and a tap-less decimal ('Icon 2.0') is a version conflict.
+                cand_title_upper = (cand_slots.normalized_title or candidate_title).upper()
+                cand_tap_cap = _extract_tap_capacity(cand_title_upper)
+                cand_has_matching_tap = (
+                    cand_tap_cap is not None and cand_tap_cap.amount == target_cap.amount
+                )
+                tap_model_confirmed = cand_has_matching_tap
+                measurement_in_model_slot: str | None = None
+                for ser_tok in sorted(target_ser_tokens):
+                    for m_num in re.finditer(
+                        rf"\b{re.escape(ser_tok)}[-_\s]+(\d+(?:[.,]\d+)?)(?![0-9.,])",
+                        cand_title_upper,
+                    ):
+                        num_str, num_end = m_num.group(1), m_num.end(1)
+                        num_amount = parse_amount(num_str)
+                        has_tap_after_num = bool(_TAP_UNIT_AFTER_RE.match(cand_title_upper[num_end:]))
+                        conflict_detail: str | None = None
+                        if _is_numeric_range_lower_bound(cand_title_upper, num_end):
+                            conflict_detail = f"{ser_tok} {num_str} opens a numeric range"
+                        elif _has_trailing_non_tap_unit(cand_title_upper, num_end):
+                            measurement_in_model_slot = f"{ser_tok} {num_str} (measurement)"
+                            continue
+                        elif cand_has_matching_tap and re.fullmatch(r"(?:19|20)\d{2}", num_str):
+                            continue
+                        elif re.match(r"^[A-Z]", cand_title_upper[num_end:]) and not has_tap_after_num:
+                            conflict_detail = f"{ser_tok} {num_str} (suffixed token)"
+                        elif "." in num_str and not has_tap_after_num:
+                            conflict_detail = f"{ser_tok} {num_str} (decimal version)"
+                        elif num_amount is None or num_amount != target_cap.amount:
+                            conflict_detail = f"{ser_tok} {num_str}"
+                        if conflict_detail is not None:
+                            return MatchDecision(
+                                reason_code="MODEL_CONFLICT",
+                                is_match=False,
+                                reason=(
+                                    f"Tap count model mismatch: {target_slots.series} {target_cap} "
+                                    f"vs {conflict_detail}"
+                                ),
+                                target_slots=target_slots,
+                                candidate_slots=cand_slots,
+                            )
+                        tap_model_confirmed = True
+                if not tap_model_confirmed:
+                    detail = measurement_in_model_slot or "missing tap count"
+                    return MatchDecision(
+                        reason_code="MODEL_CONFLICT",
+                        is_match=False,
+                        reason=(
+                            f"Tap count model mismatch: {target_slots.series} {target_cap} "
+                            f"vs {detail}"
+                        ),
+                        target_slots=target_slots,
+                        candidate_slots=cand_slots,
+                    )
 
         target_text = (
             target if isinstance(target, str) else f"{target_slots.series} {target_slots.anchor}"
@@ -5916,6 +6434,24 @@ def _referee_match(
                 target_slots=target_slots,
                 candidate_slots=cand_slots,
             )
+    # Explicit tap-count cross-check so co-occurring secondary capacities (e.g. '2 CFT Refrigerator'
+    # cabinet on a water dispenser) never shadow opposing explicit tap counts ('2 Taps' vs '3 Taps').
+    t_explicit_tap = _extract_tap_capacity(
+        target_slots.normalized_title or (target if isinstance(target, str) else "")
+    )
+    c_explicit_tap = _extract_tap_capacity(cand_slots.normalized_title or candidate_title)
+    if (
+        t_explicit_tap is not None
+        and c_explicit_tap is not None
+        and t_explicit_tap.amount != c_explicit_tap.amount
+    ):
+        return MatchDecision(
+            reason_code="FACET_CONFLICT",
+            is_match=False,
+            reason=f"Capacity / screen size mismatch: {t_explicit_tap} vs {c_explicit_tap}",
+            target_slots=target_slots,
+            candidate_slots=cand_slots,
+        )
 
     # 3c. Color Family Collision Guard
     if (
@@ -6155,17 +6691,57 @@ def generate_model_first_queries(
     brand_pattern = re.compile(rf"\b{re.escape(brand.strip())}\b", re.I)
     _, model = extract_search_query_and_model(canonical_name, brand=brand)
     model = " ".join(brand_pattern.sub(" ", model).split())
+    slots = extract_product_slots(canonical_name, brand=brand)
+    tap_extra_queries: list[str] = []
+    is_multiword_tap_fallback = False
     if not re.search(r"\d", model):
-        raise ValueError("No usable numeric model found for DigiMall discovery")
+        cap = _extract_tap_capacity(slots.normalized_title or canonical_name)
+        brand_words = {w.casefold() for w in re.split(r"[\s\-_/]+", brand) if w.strip()}
+        primary_series_branch = next(
+            (part.strip() for part in slots.series.split("/") if part.strip()), ""
+        )
+        series_words = list(
+            dict.fromkeys(
+                clean_w
+                for w in primary_series_branch.split()
+                if (clean_w := w.strip("()[].,/-_"))
+                and any(ch.isalpha() for ch in clean_w)
+                and not re.search(r"\d", clean_w)
+            )
+        )
+        if (
+            cap is not None
+            and cap.unit == "TAP"
+            and series_words
+            and not any(w.casefold() in brand_words for w in series_words)
+        ):
+            tap_num_str = format_amount(cap.amount)
+            model = f"{' '.join(series_words)} {tap_num_str}"
+            if len(series_words) == 1:
+                tap_extra_queries.append(f"{series_words[0]}-{tap_num_str}")
+            else:
+                is_multiword_tap_fallback = True
+                tap_extra_queries.extend(
+                    [f"{series_words[-1]} {tap_num_str}", f"{series_words[-1]}-{tap_num_str}"]
+                )
+        else:
+            raise ValueError("No usable numeric model found for DigiMall discovery")
     queries = [model]
-    alternate = model.replace("-", " ") if "-" in model else model.replace(" ", "")
-    if normalize_search_query(alternate) != normalize_search_query(model):
+    if "-" in model:
+        alternate = model.replace("-", " ")
+    elif not is_multiword_tap_fallback:
+        alternate = model.replace(" ", "")
+    else:
+        alternate = ""
+    if alternate and normalize_search_query(alternate) != normalize_search_query(model):
         queries.append(" ".join(alternate.split()))
+    for extra_q in tap_extra_queries:
+        if normalize_search_query(extra_q) not in {normalize_search_query(q) for q in queries}:
+            queries.append(extra_q)
     # Seller listings often omit/format suffix designators differently (e.g. "(GC)" vs
     # none), and a suffixed query can be drowned by a broad relevance-ranked result set.
     # Always schedule the bare anchor stem so the suffix is verified by the matcher
     # (as a compatibility notice) instead of being required by the search engine.
-    slots = extract_product_slots(canonical_name, brand=brand)
     anchor = slots.anchor
     is_compound_anchor = bool(
         anchor and re.match(r"^[A-Za-z]{2,3}[-_][A-Za-z]{2,3}[-_]?\d+", anchor)
