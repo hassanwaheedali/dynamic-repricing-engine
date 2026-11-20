@@ -1,0 +1,824 @@
+{
+  "head": "dc2996addcbe86e202d1d8b8e02a47b7f21365b0",
+  "branch": "main",
+  "python": "3.14.6",
+  "versions": {
+    "pytest": "9.1.1",
+    "mypy": "2.3.1",
+    "ruff": "0.16.9",
+    "pandas": "3.0.6",
+    "rich": "15.0.0",
+    "curl_cffi": "0.16.3",
+    "openpyxl": "3.1.5"
+  },
+  "sha256": {
+    "config.py": "c383e89b7cbdc932479a857896638f891b2c251ccbf276d4b8dd152368d1df37",
+    "data/inputs/100_Products/Book1.csv": "be13dd60e7e6438e46e1441248cd907567b27fca184d2a23e70306977c0261ee",
+    "data/inputs/Alfa Air Conditioner - List.csv": "2e3b836e76c6973323367ab0ad6d172e15871a6c4228cdd9355a505f983a8284",
+    "data/inputs/Dawlance_Products_List.csv": "a574ec5aa9b8927964630f0bca2ec0451c30dbfce29b2b79b77ebd73daa3ccb2",
+    "data/inputs/Gree_AC.csv": "b333ddf9993355d553e527a57da0f844b97b3a9d9733c45d9d55356e2a4fdf44",
+    "data/inputs/Haier_Products_List.csv": "db086911fac08ffed8d9e3192f50bc813a669e6385f1d096dad2295d2aeda8da",
+    "data/inputs/Haier_Washers.csv": "4ce33be706748363c8253a5b6f86ee12811fd860a13cf49e027623b1497a5974",
+    "data/inputs/Haier_Washing_Machines.csv": "696314956fcafe38511c91d1bfbbd47a61d4946af97373aae6cc7f69fa2de312",
+    "data/inputs/Midea_Eco_Series.csv": "42a2499cc1408d5f6a417ffc972e5fb6169c0bdde8e5eb03478881c0857e1e63",
+    "data/inputs/sample_test_products.csv": "5539b5ae548ef3984867320145cd86692ba3c5fb3aba4c1f32a50711ad5a60e1",
+    "data/inputs/template.csv": "3c750e1923cfa6f4910a8494099bd51079cd8b31ec4282d7f28c8626c2faff59",
+    "data/inputs/Washing Machines/dawlance.csv": "a43c4349c130a8aae0c5bbf914bec4c84b43933e1ff9f68759dea491b7713299",
+    "data/inputs/Washing Machines/haier.csv": "1555bb1132298fb9e060cc579e9ad7540aed7ef70c9fdb8883d35c767e428fe3",
+    "data/inputs/Washing Machines/latest.csv": "f9aeebf8ff8fb0774eecf3fb50e5cf8138fa6678fc480efa02e982444fadfa30",
+    "data/inputs/wm.csv": "701f454634120480430525fb754ebb4acc5c8c9ecefdf6ae6c78fcb456acdf1d",
+    "docs/evidence/catalog_identity_axis_probe_20261120.json": "fe9a34f0273223dddf7b4652d55c3168f8dd27bcbba9e99a0db0011599c50ded",
+    "docs/evidence/marketplace_identity_axis_evaluation_20261120.json": "9dc32b9c305dc841cf6fe6bc9c63a1ed35226f93ec672c709408d5a9a8be8a3e",
+    "docs/evidence/marketplace_identity_axis_replay_20261120.json": "4718d98717d01ef95b235b0abe74310712680199163378a3d820e0404518c345",
+    "docs/evidence/marketplace_identity_axis_retry_20261120.json": "a3165d33ebb40d56f629dae773bca85bbaa1ce4f08fe8fe2fd7c6708fbeabb80",
+    "docs/evidence/marketplace_identity_axis_review_20261120.md": "f8c422dc544485d66af06f7b815f3b4ee6fb400a110db748b095a84093565edf",
+    "docs/evidence/marketplace_identity_axis_sample_20261120.json": "66753297b4e4cee03ca96a06ca1c7716986d585a44fa0ae9a24c811de03cf5c5",
+    "docs/PRICE_ENGINE_MASTER_ARCHITECTURE_PLAN.md": "c46a589a10f2f52c4a3444cc11d0828fa74b55fe0708657aef7f37bf71186afb",
+    "docs/PRODUCT_IDENTITY_ENGINE_BLUEPRINT.md": "ddbb9400c7f096cbd9f5e8d33bd725ea0296ffccd7fcad60a19ae7a745501a3e",
+    "index.py": "a84acb883cfb6cfb47913ed049ad1697249886a607d1c53a7adc5583e549e533",
+    "pricing_engine/__init__.py": "238e8783850885bc1ef6c8fb17ce69067b2f652e49f4b0498109776d916f8fb2",
+    "pricing_engine/async_utils.py": "26a602a973c024db4076276cc3ccd8a0b674f2c761e3b1661f6ed6253790a8e0",
+    "pricing_engine/calculator.py": "4d3296953391f9591830a17254bba295d80a558637c1a2a6934d73fb8fdd1cec",
+    "pricing_engine/capacity.py": "be1729a07557dd0d586b0efa60eb4cd260436c3340b87baf6298aed12f47bcfa",
+    "pricing_engine/checkpoint.py": "004283c42dd2b38aa87e4dbbee1e22a842219c63977ba4ab04d4249b44794924",
+    "pricing_engine/db.py": "9d365596235e9ba00f03170b9bed86e9410398c664c2e68785cd4a5c3b8dead0",
+    "pricing_engine/digi_discovery.py": "fa20fc5760b14d7c06e4ab85a44d173a2570399aad5693a3892e8f99190ae53e",
+    "pricing_engine/digi_transport.py": "d063dd619d310aca70d956cdfc3d952bde14a83261392092fd3d62b9a149a937",
+    "pricing_engine/evaluator.py": "8f11c0e440e96c1d411f9f612dbbe0744c300621839696058db4731e98bdea7b",
+    "pricing_engine/exporter.py": "11f8f714a16811a877a557e3d1fcb99f2fad85aa68a2033dc82d2e0e536d61c7",
+    "pricing_engine/ingestion.py": "4b58502f47bf72aba4151c7969847e664bf22b14493e422aeb343ea171cf14ea",
+    "pricing_engine/learner.py": "2cd0aa6bebba595ae39a73ff08b8c2900af19f1ae4f927c7f502d4fcc3c34c2d",
+    "pricing_engine/matcher.py": "40397f1a106618c4f20c456508271007c5fbe8f4a65b0fda57be885c7450ed1b",
+    "pricing_engine/models.py": "749f18a6ce1dccdc7c34929cb863201f5010861a0626f551d58f329da489e3ef",
+    "pricing_engine/offer_processing.py": "734c1ccede40b51f1e828408a82b0e626fa83ef97252c604e0499092788a0199",
+    "pricing_engine/pipeline.py": "8fb1ead7f26d8a70906b54f5db58148c74de0eaa224c636a2896210fef2cffd1",
+    "pricing_engine/publication.py": "6e602e8653df8cfebfeb16092d8c3bd91071ba7d9b4e839b0807b8b5474da09b",
+    "pricing_engine/range_pipeline.py": "3eaa666f253ceb6023a70134cc82c4076c94527a5373c272441ad5757ba1e26b",
+    "pricing_engine/registry.py": "8c46448b7d1e7b9f23ae927f560f76186f3d02f36630bf8acf8101b903035e5e",
+    "pricing_engine/run_control.py": "e704904cb6481d18b08797c44b9efb3669f68ff17724c7a8e6bbc65de4566295",
+    "pricing_engine/run_lock.py": "4f85a2e008a6941d0e11526b6ec325b3d7e162b9a9b777386703042b4282aa39",
+    "pricing_engine/run_signature.py": "919ad4d7b9b280eee8624cc618a1749fb574442522b51f8ddeac0c977b53cf28",
+    "pricing_engine/run_state.py": "208a6d873ee8c82872e07817f0dc935ea0a7268a873f5c2e4c39ba0755267bbf",
+    "pricing_engine/scraper.py": "485003fdec28e4e538d20c6b76ad4782e91b4bf1580a61166b7293bd9041d708",
+    "pricing_engine/series_fallback.py": "6a7da374cb75fbe4ead8fe149e91da6a873296cef7198a188021dcca7cff0b18",
+    "pricing_engine/source_provenance.py": "43566580a8b3be3abc06972cf3d967b10677a8693be71999654fe3da907d5388",
+    "pricing_engine/state_io.py": "f1885d69011ed6673504df3837f068bc11e256b35579c2c28d71296336999257",
+    "pyproject.toml": "c7cf5c87f259f76e7bc286162488d239918999c164d9858ef968725a2608a587",
+    "requirements.txt": "89bd43ed7db76997209a937f4181d977d2a293e805414ab09424b962377fd1bc",
+    "scripts/identity_baseline.py": "6709152afbb790c9c0fa898f1f418b72b152bb1db8051a28478f0f28dbf162d6",
+    "scripts/setup_supabase.sql": "3784ebb96052554e036b17e2b4e790c17fe1de1d70162af833f399bca038b198",
+    "tests/conftest.py": "f60a9d8f69fe3009224edfc935eb83c2a901ef9e2d3fe820ea84aa6b3839ec48",
+    "tests/fixtures/Gree_Uploading_on_DigiMall_and_Price.csv": "b333ddf9993355d553e527a57da0f844b97b3a9d9733c45d9d55356e2a4fdf44",
+    "tests/fixtures/Haier_Washing_Machines_Uploading_and_Price.csv": "4ce33be706748363c8253a5b6f86ee12811fd860a13cf49e027623b1497a5974",
+    "tests/fixtures/hardware_query_regressions.json": "aebd2d818bb62a74e16c840808d61d1f9e7cc2034449cf4990af484220bf44ea",
+    "tests/fixtures/model_identity_regressions.json": "edd9f6351a72efaef980c0a878bb95cba97198fff8e944b68808bda60ff79fb3",
+    "tests/fixtures/sample_test_products.csv": "fcb17fdd212d46a1e0e9d13a6a492b21d35e14e456eac642ebd3f8f8c2634cc7",
+    "tests/fixtures/selected_100_stress_products.csv": "91e416784667b358f9886bc8640058f44ba10df5d45d29ed84699c38495b8a78",
+    "tests/fixtures/Stock Holding Report - FINAC - Products - MainSheet.csv": "7129fe1a97bd5879b237e540af1949f15e6db09aec04719f597f720e5b941499",
+    "tests/fixtures/test product list.csv": "e5307c52b798bb28e2fd60b7e24d701d0a24fc0447219445020e8c0ed5966f3c",
+    "tests/fixtures/testing_file.csv": "7ba4634406bb070768944730e396d0c8670a2b08cf30c8309f54871a956195c1",
+    "tests/test_architecture_contract.py": "e942c43966aa9270f2217ff3d36c8b40c16eb28b2341470c669b5806c486d5c2",
+    "tests/test_audit_remediations.py": "fac8d083498628498d3511edc8962ca4a764375edc2ccea58fe82462add0a884",
+    "tests/test_calculator.py": "225e3d875cc6acd273b9b4b62b08f8823a49db0e688e1619e99c8c7a2e0ebfaa",
+    "tests/test_capacity_contract.py": "3db9bbfd5e1bbae011fbf3e4b6c0a174ad6bc51e0bd3db7163a9c23e0c83cbd2",
+    "tests/test_checkpoint_and_ambiguity.py": "d6657f4bc1770e827d8fcea0ea76f9b7fea70129efce725398f91139b48319b5",
+    "tests/test_cli.py": "727f6ed8831096f2887b461376de77dd22426c63e4b45fec2d91238a466b5da1",
+    "tests/test_config.py": "d527005c5f389c8c5c204a310d1a6913004122197a54d9d30c6cef5348632826",
+    "tests/test_dawlance_benchmark.py": "a6e9c568c4c6dd61d9ff125290f4bde2c300f5ed02208cf8e0734dc0e6c950be",
+    "tests/test_db.py": "43fb17a42dcecfc413f25db008f2106bca120034b52a078f8488f8fc274a8a6b",
+    "tests/test_digimall_discovery.py": "40baeefdd92198cf017f8c1aa9e90e282d60a466a4b65aa30fccb5bfb1c938b0",
+    "tests/test_digimall_rejection_reporting.py": "bd8d56439fb9cbc8167a880fc7e8b7ceaa100de72713959fe4d5d01114eafaa1",
+    "tests/test_digimall_reporting.py": "1ea816de72267e0152dffef01daf456671099d0669ad1ea3038dd6043f6b26a0",
+    "tests/test_evaluator.py": "ef575abe5138ab85953a06be20362fb0e0f6cff0c686279245b4a72383df017e",
+    "tests/test_exporter.py": "b5cf0d314fac5e0adeccd1ecf91b442e934a8b7cae0937162038c9bdd540a5a1",
+    "tests/test_exporter_formulas.py": "ec76573c0f01db3bfed5390f42af5bfd02aac28b976d9fb0ebc822b8f770bc31",
+    "tests/test_fixtures.py": "02d98a1c4c14d7af53d83224aa6d7bfd9faf65d9cb80d4bf7e3ead0e0f3bcc0c",
+    "tests/test_forensic_regressions.py": "622433f11911d1c290e7d5518ecc0cd2bb70beb85c9924ea490a9b936b9c48c4",
+    "tests/test_generic_variants_and_polarity.py": "4d88327a4f185848bd6d5b798d382f226c33a405aec4a98fac7e86506fbd9297",
+    "tests/test_gree_benchmark.py": "ffcade7b2c202b0f9fde8fc2e337d509566ae2a1f41db75b2dceb06adc055e2b",
+    "tests/test_haier_benchmark.py": "e5ca30ae59d447afe472ac7baf0f64a1514aeed86ca5d10f6f8dfd2af783c039",
+    "tests/test_hardware_advisories.py": "f9601a9d99dfaca73b8767f2e9840eeae937430a8e7bfdf0984915614a357001",
+    "tests/test_hardware_interpretation.py": "f0f4963ad8ce658396538e62e564f9832d2ef894f0e559d94767d2f379374fae",
+    "tests/test_hardware_output.py": "29cc32691409aac975f1f1f7513b85798c2ab8202cd9239cc5102852c2e588ea",
+    "tests/test_hardware_scraper_integration.py": "68f49b12a64b02cfd1c1a0e7ae3a573cb21af68ec3bec56f32ebd63e162f1f3b",
+    "tests/test_identity_api.py": "1a7d538e420040ed392b2c5620df63e3cd60c9a1a21f7a0298ed4160dcfbbad9",
+    "tests/test_identity_cutover.py": "1d0d3951b75d25daf99d70a5dcb6740d88b0633e018b42e5ddea6ece5e059326",
+    "tests/test_identity_measurements.py": "43d2d81569515242e46745ec558c56720e555f6b4fc9ff17016fecd290d2d199",
+    "tests/test_import_boundaries.py": "b3991c728baa0024cdd75c41ebf07a54f52bd31b76312475fc0ac9d6c7c2f57b",
+    "tests/test_ingestion.py": "295d428b9e10103ce8c6e135e481632ca7e705e8f613d61fba4331b0a4effb69",
+    "tests/test_insurance.py": "9137013880e0f220d5e10577483f4272bb32412f0be7f3434647481b46e4f3e6",
+    "tests/test_learner.py": "92cb8cd1a026865556ac03fd6caa0a4751b136155fd2d7bebeb183ff6dcfdce8",
+    "tests/test_matcher.py": "8e96ad04f31505cf0365e24432ec6c29dc2e254fd599cb07a885b26218ae8766",
+    "tests/test_model_identity_evidence.py": "a3ee00121a9e789f5a153ae0d0819bb4efef048b39a137fc700726237f3a4d0a",
+    "tests/test_offer_processing_contract.py": "30367b3c7829afd028d2e08c240325a89262f5ad12f40b3b7a2c93019bc4222f",
+    "tests/test_own_store_deduplication.py": "17c43b0f254cedcb7c793aae8749d5f3b8f32dbebe621b45c36250d26ca28928",
+    "tests/test_personal_commission.py": "766d3e518c510c1f731e8846afa166d3124dcccf04138d88375951e318e728b0",
+    "tests/test_phase2_alfa_discovery.py": "8b87678ba2dbc32f605437aa260cf2d34842a6abaee511caf609bfbbdba03ea8",
+    "tests/test_pipeline.py": "429fa2e28b79262de5feb8734353c350cb920da58893623cf8381173f75a673d",
+    "tests/test_pipeline_resilience.py": "992605df702fc061873f08eb206994a26dee1a5d9e33e53c013a49a44dc34441",
+    "tests/test_platform_selection.py": "1d26e1dce776da802bae537e0d50d72d7c9c4338772ec32563b9c94f496738d1",
+    "tests/test_publication.py": "63fc1665b36aab4d96979426d6aa55bf07195ae08359e1dbe24484249a104cb7",
+    "tests/test_range_mode.py": "6e57848ede2f5019fcefdf663d113accef0678ce1180cacb01e7f43a03136cff",
+    "tests/test_registry.py": "48b89048bcd20eb4dc7765f720420bbb89ac26839f6007642223c1dfde91603a",
+    "tests/test_run_control.py": "3acf963167a65215408c934c50294a2f8d93726e71524e18a20ee3c8b6039155",
+    "tests/test_run_lock.py": "6a4744cd0114d804639b31dea50af7641dda48c2f231e963053f2ff668dee147",
+    "tests/test_run_signature.py": "1edbd01b71936c6cf9f65357cb4ddf4bb4eae327dd0a540ec2163e36280330c3",
+    "tests/test_run_state.py": "44b5e20dcf3f0e2e0789bf0fdfc2d935a0257b06a4f815975d0cf39f372ed4d3",
+    "tests/test_scraper.py": "3946703726a32f2e446faffbdf1a6cc6167e530d78786bb2c19d2a6c3905a92a",
+    "tests/test_series_contract.py": "f8e7158b7b64c8b5d65260ed9ae6b3b71ec8898609a37685dd5af57aaebc3b90",
+    "tests/test_series_fallback.py": "3cfd573ce99189b726dfc5459b32e2afb3710f8d3a736fa448d850e7299a25e3",
+    "tests/test_shipping_adversarial.py": "eabc1c468000ba1867c7b548ebd368ef7f70f4ed06641e31e579309bd392832f",
+    "tests/test_shipping_capacity_units.py": "6cb3e11b53b6d435d5f3fc3c6295807e9b697aadfb7e011c8ea8fb4e8b277ad8",
+    "tests/test_shipping_fallback.py": "d4505587a841c3e4f837b2f8f4cb897c66130f5e003e7f96e5d7a0e007f943d0",
+    "tests/test_simulation.py": "9dc5cb4750a79f0b63233db37e573bf29c0ce3585e3609a2580503137cc695ce",
+    "tests/test_slice3_scraper_diagnostics.py": "2d9f42d4729642f9b5826bc4851d43fd19522e56c2f2b610c3701f1c8d672c26",
+    "tests/test_strict_vendor_commission.py": "49fa1acc4f8fcccfea6e888fbf7ffc9f542745b12e3fdeb9cfba28be051d922e",
+    "tests/test_structural_measurements.py": "28ccdae5e5b31352c70e63c6411d7422850a19e44b68dce376472a59e0aacf04",
+    "tests/test_targeted_reruns.py": "bfbe28a09f5dffe0acfce85be2201733e04718a7ba4034aa1e02f5a61a4be97a"
+  },
+  "catalogs": {
+    "data/inputs/100_Products/Book1.csv": {
+      "rows": 100,
+      "titled_with_brand": 100,
+      "self_ACCEPTED": 100,
+      "raw_prepared_differences": 3,
+      "quantity_pairs": 94,
+      "quantity_tiered": 13
+    },
+    "data/inputs/Alfa Air Conditioner - List.csv": {
+      "rows": 67,
+      "titled_with_brand": 67,
+      "self_ACCEPTED": 67,
+      "raw_prepared_differences": 0,
+      "quantity_pairs": 67,
+      "quantity_tiered": 0
+    },
+    "data/inputs/Dawlance_Products_List.csv": {
+      "rows": 270,
+      "titled_with_brand": 270,
+      "self_ACCEPTED": 82,
+      "raw_prepared_differences": 0,
+      "self_BRAND_CONFLICT": 188,
+      "quantity_pairs": 1,
+      "quantity_tiered": 0
+    },
+    "data/inputs/Gree_AC.csv": {
+      "rows": 25,
+      "titled_with_brand": 25,
+      "self_ACCEPTED": 25,
+      "raw_prepared_differences": 0
+    },
+    "data/inputs/Haier_Products_List.csv": {
+      "rows": 219,
+      "titled_with_brand": 219,
+      "self_ACCEPTED": 147,
+      "raw_prepared_differences": 5,
+      "self_BRAND_CONFLICT": 72,
+      "quantity_pairs": 2,
+      "quantity_tiered": 0
+    },
+    "data/inputs/Haier_Washers.csv": {
+      "rows": 38,
+      "titled_with_brand": 38,
+      "self_ACCEPTED": 38,
+      "raw_prepared_differences": 6,
+      "quantity_pairs": 6,
+      "quantity_tiered": 0
+    },
+    "data/inputs/Haier_Washing_Machines.csv": {
+      "rows": 894,
+      "titled_with_brand": 868,
+      "self_ACCEPTED": 750,
+      "raw_prepared_differences": 59,
+      "self_BRAND_CONFLICT": 117,
+      "quantity_pairs": 17,
+      "quantity_tiered": 1,
+      "self_MISSING_IDENTITY": 1,
+      "blank_title": 26
+    },
+    "data/inputs/Midea_Eco_Series.csv": {
+      "rows": 2,
+      "titled_with_brand": 2,
+      "self_ACCEPTED": 2,
+      "raw_prepared_differences": 0,
+      "quantity_pairs": 2,
+      "quantity_tiered": 0
+    },
+    "data/inputs/sample_test_products.csv": {
+      "rows": 55,
+      "undeclared_brand": 55
+    },
+    "data/inputs/template.csv": {
+      "rows": 2,
+      "titled_with_brand": 2,
+      "self_ACCEPTED": 2,
+      "raw_prepared_differences": 0
+    },
+    "data/inputs/Washing Machines/dawlance.csv": {
+      "rows": 31,
+      "titled_with_brand": 31,
+      "self_ACCEPTED": 31,
+      "raw_prepared_differences": 2
+    },
+    "data/inputs/Washing Machines/haier.csv": {
+      "rows": 34,
+      "titled_with_brand": 34,
+      "self_ACCEPTED": 34,
+      "raw_prepared_differences": 6,
+      "quantity_pairs": 34,
+      "quantity_tiered": 0
+    },
+    "data/inputs/Washing Machines/latest.csv": {
+      "rows": 14,
+      "titled_with_brand": 14,
+      "self_ACCEPTED": 14,
+      "raw_prepared_differences": 0,
+      "quantity_pairs": 13,
+      "quantity_tiered": 0
+    },
+    "data/inputs/wm.csv": {
+      "rows": 13,
+      "titled_with_brand": 13,
+      "self_ACCEPTED": 13,
+      "raw_prepared_differences": 0,
+      "quantity_pairs": 12,
+      "quantity_tiered": 0
+    },
+    "tests/fixtures/Gree_Uploading_on_DigiMall_and_Price.csv": {
+      "rows": 25,
+      "titled_with_brand": 25,
+      "self_ACCEPTED": 25,
+      "raw_prepared_differences": 0
+    },
+    "tests/fixtures/Haier_Washing_Machines_Uploading_and_Price.csv": {
+      "rows": 38,
+      "titled_with_brand": 38,
+      "self_ACCEPTED": 38,
+      "raw_prepared_differences": 6,
+      "quantity_pairs": 6,
+      "quantity_tiered": 0
+    },
+    "tests/fixtures/sample_test_products.csv": {
+      "rows": 282,
+      "undeclared_brand": 282
+    },
+    "tests/fixtures/selected_100_stress_products.csv": {
+      "rows": 100,
+      "titled_with_brand": 100,
+      "self_ACCEPTED": 93,
+      "raw_prepared_differences": 3,
+      "quantity_pairs": 73,
+      "quantity_tiered": 3,
+      "self_BRAND_CONFLICT": 7
+    },
+    "tests/fixtures/Stock Holding Report - FINAC - Products - MainSheet.csv": {
+      "rows": 768,
+      "titled_with_brand": 768,
+      "self_MISSING_IDENTITY": 5,
+      "raw_prepared_differences": 35,
+      "self_ACCEPTED": 750,
+      "self_BRAND_CONFLICT": 13,
+      "quantity_pairs": 55,
+      "quantity_tiered": 0
+    },
+    "tests/fixtures/test product list.csv": {
+      "rows": 1483,
+      "titled_with_brand": 1479,
+      "self_ACCEPTED": 1172,
+      "raw_prepared_differences": 12,
+      "quantity_pairs": 620,
+      "quantity_tiered": 69,
+      "self_BRAND_CONFLICT": 303,
+      "undeclared_brand": 4,
+      "self_MISSING_IDENTITY": 4
+    },
+    "tests/fixtures/testing_file.csv": {
+      "rows": 111,
+      "titled_with_brand": 111,
+      "self_BRAND_CONFLICT": 70,
+      "raw_prepared_differences": 2,
+      "self_ACCEPTED": 41,
+      "quantity_pairs": 8,
+      "quantity_tiered": 0
+    }
+  },
+  "marketplace_capture_inventory": {
+    "pages": [
+      {
+        "platform": "alfamall",
+        "query": "MSEZ1C-18HRFN1-QC2",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "MSEZ1C-18HRFN1-QC2"
+        },
+        "utc": "2026-11-20T18:06:36.697752+00:00",
+        "status": 200,
+        "total": 0,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 0
+      },
+      {
+        "platform": "digimall",
+        "query": "MSEZ1C-18HRFN1-QC2",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "MSEZ1C-18HRFN1-QC2"
+        },
+        "utc": "2026-11-20T18:06:38.069933+00:00",
+        "status": 200,
+        "total": 50,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "18HRFN1-QC2",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "18HRFN1-QC2"
+        },
+        "utc": "2026-11-20T18:06:39.067859+00:00",
+        "status": 200,
+        "total": 1,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 1
+      },
+      {
+        "platform": "digimall",
+        "query": "18HRFN1-QC2",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "18HRFN1-QC2"
+        },
+        "utc": "2026-11-20T18:06:39.807533+00:00",
+        "status": 200,
+        "total": 47,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "24CE03",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "24CE03"
+        },
+        "utc": "2026-11-20T18:06:40.230209+00:00",
+        "status": 200,
+        "total": 5,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 5
+      },
+      {
+        "platform": "digimall",
+        "query": "24CE03",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "24CE03"
+        },
+        "utc": "2026-11-20T18:06:40.727667+00:00",
+        "status": 200,
+        "total": 9,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 9
+      },
+      {
+        "platform": "alfamall",
+        "query": "24CEO3",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "24CEO3"
+        },
+        "utc": "2026-11-20T18:06:41.431245+00:00",
+        "status": 200,
+        "total": 10,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 10
+      },
+      {
+        "platform": "digimall",
+        "query": "24CEO3",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "24CEO3"
+        },
+        "utc": "2026-11-20T18:06:43.359457+00:00",
+        "status": 200,
+        "total": 5,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 5
+      },
+      {
+        "platform": "alfamall",
+        "query": "18AITH21",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "18AITH21"
+        },
+        "utc": "2026-11-20T18:06:43.799897+00:00",
+        "status": 200,
+        "total": 50,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "digimall",
+        "query": "18AITH21",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "18AITH21"
+        },
+        "utc": "2026-11-20T18:06:47.077561+00:00",
+        "status": 200,
+        "total": 39,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "90-BP12357",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "90-BP12357"
+        },
+        "utc": "2026-11-20T18:06:47.497720+00:00",
+        "status": 200,
+        "total": 5,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 5
+      },
+      {
+        "platform": "digimall",
+        "query": "90-BP12357",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "90-BP12357"
+        },
+        "utc": "2026-11-20T18:06:47.948389+00:00",
+        "status": 200,
+        "total": 96,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "9149WB",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "9149WB"
+        },
+        "utc": "2026-11-20T18:06:48.372406+00:00",
+        "status": 200,
+        "total": 24,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "digimall",
+        "query": "9149WB",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "9149WB"
+        },
+        "utc": "2026-11-20T18:06:49.944007+00:00",
+        "status": 200,
+        "total": 74,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "HMW-20MWS",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "HMW-20MWS"
+        },
+        "utc": "2026-11-20T18:06:50.371480+00:00",
+        "error": "Failed to perform, curl: (28) Operation timed out after 12005 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 0
+      },
+      {
+        "platform": "digimall",
+        "query": "HMW-20MWS",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "HMW-20MWS"
+        },
+        "utc": "2026-11-20T18:07:02.560526+00:00",
+        "status": 200,
+        "total": 200,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "Icon 2",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "Icon 2"
+        },
+        "utc": "2026-11-20T18:07:02.976636+00:00",
+        "status": 200,
+        "total": 32,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 17
+      },
+      {
+        "platform": "digimall",
+        "query": "Icon 2",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "Icon 2"
+        },
+        "utc": "2026-11-20T18:07:04.799199+00:00",
+        "status": 200,
+        "total": 888,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "55Q7F",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "55Q7F"
+        },
+        "utc": "2026-11-20T18:07:05.214463+00:00",
+        "error": "Failed to perform, curl: (28) Operation timed out after 12009 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 0
+      },
+      {
+        "platform": "digimall",
+        "query": "55Q7F",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "55Q7F"
+        },
+        "utc": "2026-11-20T18:07:17.406711+00:00",
+        "status": 200,
+        "total": 11,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 11
+      },
+      {
+        "platform": "alfamall",
+        "query": "20MXP3",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "20MXP3"
+        },
+        "utc": "2026-11-20T18:07:17.809183+00:00",
+        "status": 200,
+        "total": 51,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "digimall",
+        "query": "20MXP3",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "20MXP3"
+        },
+        "utc": "2026-11-20T18:07:18.615874+00:00",
+        "status": 200,
+        "total": 32,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "DDW 1470",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "DDW 1470"
+        },
+        "utc": "2026-11-20T18:07:19.034803+00:00",
+        "status": 200,
+        "total": 8,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 8
+      },
+      {
+        "platform": "digimall",
+        "query": "DDW 1470",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "DDW 1470"
+        },
+        "utc": "2026-11-20T18:07:20.659989+00:00",
+        "status": 200,
+        "total": 91,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "15 Sprinter",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "15 Sprinter"
+        },
+        "utc": "2026-11-20T18:07:21.070126+00:00",
+        "error": "Failed to perform, curl: (28) Operation timed out after 12012 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 0
+      },
+      {
+        "platform": "digimall",
+        "query": "15 Sprinter",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "15 Sprinter"
+        },
+        "utc": "2026-11-20T18:07:33.264661+00:00",
+        "status": 200,
+        "total": 417,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "9193LF",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "9193LF"
+        },
+        "utc": "2026-11-20T18:07:33.688754+00:00",
+        "status": 200,
+        "total": 52,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "digimall",
+        "query": "9193LF",
+        "params": {
+          "storefront": "23",
+          "page": "1",
+          "limit": "18",
+          "q": "9193LF"
+        },
+        "utc": "2026-11-20T18:07:36.950615+00:00",
+        "status": 200,
+        "total": 108,
+        "source": "docs/evidence/marketplace_identity_axis_sample_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "HMW-20MWS",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "HMW-20MWS"
+        },
+        "utc": "2026-11-20T18:08:26.848218+00:00",
+        "status": 200,
+        "total": 14,
+        "source": "docs/evidence/marketplace_identity_axis_retry_20261120.json",
+        "projected_items": 14
+      },
+      {
+        "platform": "alfamall",
+        "query": "55Q7F",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "55Q7F"
+        },
+        "utc": "2026-11-20T18:08:28.795900+00:00",
+        "status": 200,
+        "total": 21,
+        "source": "docs/evidence/marketplace_identity_axis_retry_20261120.json",
+        "projected_items": 18
+      },
+      {
+        "platform": "alfamall",
+        "query": "15 Sprinter",
+        "params": {
+          "page": "1",
+          "limit": "18",
+          "storefront": "23",
+          "storefront_domain": "alfamall.com",
+          "q": "15 Sprinter"
+        },
+        "utc": "2026-11-20T18:08:29.605816+00:00",
+        "status": 200,
+        "total": 32,
+        "source": "docs/evidence/marketplace_identity_axis_retry_20261120.json",
+        "projected_items": 18
+      }
+    ],
+    "distinct_platform_listing_ids": 368,
+    "coverage": "Projected first pages of selected queries; no later pages observed."
+  },
+  "fixed_pairs": {
+    "counts": {
+      "self": 4204,
+      "quantity_increment": 1010,
+      "blank_title": 26,
+      "undeclared_brand": 341,
+      "marketplace": 577
+    },
+    "gzip_sha256": "7cd10f6fb8e5f5daa673082bd26ed10ba095c8c1b2d417f040def788857651d6",
+    "labels": "Diagnostic observations only. Required outcomes are separately adjudicated."
+  },
+  "exact_fixture_tiers": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "query_fixture_pass": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ]
+}
